@@ -61,6 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let refreshDevices = Notification.Name("refreshDevices")
+    static let scanDevices = Notification.Name("scanDevices")
     static let scanFiles = Notification.Name("scanFiles")
     static let startSync = Notification.Name("startSync")
 }

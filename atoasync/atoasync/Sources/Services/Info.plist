@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    
+    <key>CFBundleIconFile</key>
+    <string></string>
+    
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    
+    <key>LSMinimumSystemVersion</key>
+    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+    
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026. All rights reserved.</string>
+    
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    
+    <!-- 权限描述 -->
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>AtoA Sync 需要访问您的文档文件夹以同步文件。</string>
+    
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>AtoA Sync 需要访问您的桌面文件夹以同步文件。</string>
+    
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>AtoA Sync 需要访问您的下载文件夹以同步文件。</string>
+    
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>AtoA Sync 需要访问外部磁盘以同步文件。</string>
+    
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>AtoA Sync 需要访问本地网络以通过 Wi-Fi 连接您的安卓设备。</string>
+    
+    <!-- 支持的架构 -->
+    <key>LSArchitecturePriority</key>
+    <array>
+        <string>arm64</string>
+        <string>x86_64</string>
+    </array>
+    
+    <!-- 高分辨率支持 -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <!-- 支持深色模式 -->
+    <key>NSRequiresAquaSystemAppearance</key>
+    <false/>
+</dict>
+</plist>

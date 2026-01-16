@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 应用沙盒 -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    
+    <!-- 文件访问权限 -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+    
+    <!-- 访问用户选择的文件（通过 NSOpenPanel） -->
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    
+    <!-- 网络访问权限（用于 Wi-Fi 同步） -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    
+    <key>com.apple.security.network.server</key>
+    <false/>
+    
+    <!-- USB 设备访问（用于 ADB） -->
+    <key>com.apple.security.device.usb</key>
+    <true/>
+    
+    <!-- 临时例外：执行外部程序（ADB） -->
+    <key>com.apple.security.temporary-exception.files.absolute-path.read-write</key>
+    <array>
+        <string>/usr/local/bin/</string>
+        <string>/opt/homebrew/bin/</string>
+    </array>
+</dict>
+</plist>

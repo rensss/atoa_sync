@@ -4,6 +4,7 @@ struct ContentView: View {
     @StateObject private var viewModel = MainViewModel()
     @State private var selectedTab: Int? = 0
     @State private var showADBNotInstalledAlert = false
+    @State private var showWiFiConnectionSheet = false
     
     var body: some View {
         NavigationView {
@@ -43,6 +44,13 @@ struct ContentView: View {
                 }
                 .disabled(viewModel.isScanning || !ADBManager.shared.isADBInstalled)
                 
+                Button {
+                    showWiFiConnectionSheet = true
+                } label: {
+                    Label("Wi-Fi 连接", systemImage: "wifi")
+                }
+                .help("通过 Wi-Fi 连接安卓设备")
+                
                 Button(action: viewModel.scanFiles) {
                     Label("扫描文件", systemImage: "doc.text.magnifyingglass")
                 }
@@ -72,8 +80,20 @@ struct ContentView: View {
         } message: {
             Text("未检测到 ADB 工具。\n\n您可以通过以下方式安装：\n1. 使用 Homebrew: brew install --cask android-platform-tools\n2. 从 Android 官网下载 Platform Tools")
         }
+        .sheet(isPresented: $showWiFiConnectionSheet) {
+            WiFiConnectionView()
+        }
         .onAppear {
             checkADBInstallation()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .scanDevices)) { _ in
+            viewModel.scanDevices()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .scanFiles)) { _ in
+            viewModel.scanFiles()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .startSync)) { _ in
+            viewModel.startSync()
         }
     }
     
