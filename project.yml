@@ -1,0 +1,52 @@
+name: AtoASync
+options:
+  bundleIdPrefix: com.atoa
+  deploymentTarget:
+    macOS: "12.0"
+  developmentLanguage: zh-Hans
+
+targets:
+  AtoASync:
+    type: application
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_NAME: AtoASync
+        PRODUCT_BUNDLE_IDENTIFIER: com.atoa.AtoASync
+        INFOPLIST_FILE: AtoASync/Info.plist
+        MACOSX_DEPLOYMENT_TARGET: "12.0"
+        SWIFT_VERSION: "5.0"
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    entitlements:
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.downloads.read-write: true
+        com.apple.security.network.client: true
+    info:
+      path: AtoASync/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: $(DEVELOPMENT_LANGUAGE)
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleInfoDictionaryVersion: "6.0"
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundlePackageType: $(PRODUCT_BUNDLE_PACKAGE_TYPE)
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "Copyright © 2026. All rights reserved."
+        NSPrincipalClass: NSApplication
+        NSDocumentsFolderUsageDescription: "需要访问文档文件夹以同步文件"
+        NSDesktopFolderUsageDescription: "需要访问桌面文件夹以同步文件"
+        NSDownloadsFolderUsageDescription: "需要访问下载文件夹以同步文件"
+        NSRemovableVolumesUsageDescription: "需要访问外部磁盘以同步文件"
