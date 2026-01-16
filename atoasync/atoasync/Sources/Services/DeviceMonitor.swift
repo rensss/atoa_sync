@@ -141,5 +141,11 @@ extension Notification.Name {
     static let deviceConnected = Notification.Name("deviceConnected")
     /// 设备已断开通知
     static let deviceDisconnected = Notification.Name("deviceDisconnected")
+    /// 同步完成通知
+    static let syncCompleted = Notification.Name("syncCompleted")
+    /// 同步失败通知
+    static let syncFailed = Notification.Name("syncFailed")
+    /// 刷新设备通知
+    static let refreshDevices = Notification.Name("refreshDevices")
 }
 

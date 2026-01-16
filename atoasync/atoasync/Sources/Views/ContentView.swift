@@ -140,10 +140,22 @@ struct Sidebar: View {
                     NavigationLink(tag: 2, selection: $selectedTab) {
                         EmptyView()
                     } label: {
-                        Label("日志", systemImage: "doc.text")
+                        Label("同步历史", systemImage: "clock.arrow.circlepath")
                     }
                     
                     NavigationLink(tag: 3, selection: $selectedTab) {
+                        EmptyView()
+                    } label: {
+                        Label("过滤规则", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    
+                    NavigationLink(tag: 4, selection: $selectedTab) {
+                        EmptyView()
+                    } label: {
+                        Label("日志", systemImage: "doc.text")
+                    }
+                    
+                    NavigationLink(tag: 5, selection: $selectedTab) {
                         EmptyView()
                     } label: {
                         Label("设置", systemImage: "gear")
@@ -207,8 +219,12 @@ struct MainContent: View {
             case 1:
                 TasksView()
             case 2:
-                LogsView()
+                SyncHistoryView()
             case 3:
+                FilterRulesView()
+            case 4:
+                LogsView()
+            case 5:
                 SettingsView()
             default:
                 SyncView(viewModel: viewModel)

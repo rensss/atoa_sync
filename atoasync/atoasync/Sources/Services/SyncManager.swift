@@ -2,12 +2,6 @@ import Foundation
 import Combine
 import AppKit
 
-// MARK: - 通知名称扩展
-extension Notification.Name {
-    static let syncCompleted = Notification.Name("syncCompleted")
-    static let syncFailed = Notification.Name("syncFailed")
-}
-
 /// 同步管理器 - 负责文件同步任务的调度和执行
 actor SyncManager: ObservableObject {
     static let shared = SyncManager()
@@ -42,6 +36,7 @@ actor SyncManager: ObservableObject {
         
         await MainActor.run {
             self.activeTasks.append(task)
+            StatusBarManager.shared.startSyncing()
         }
         
         do {
@@ -55,6 +50,13 @@ actor SyncManager: ObservableObject {
             
             // 保存同步缓存
             await saveSyncCache(task: task)
+            
+            // 记录同步历史
+            let duration = Date().timeIntervalSince(task.startTime)
+            SyncHistoryManager.shared.addFromTask(task, duration: duration)
+            
+            // 更新菜单栏状态
+            await StatusBarManager.shared.stopSyncing(success: true)
             
             LogManager.shared.log("同步完成: \(task.processedFiles) 个文件", level: .info, category: "Sync")
             NotificationCenter.default.post(name: .syncCompleted, object: task)
@@ -78,6 +80,14 @@ actor SyncManager: ObservableObject {
                 task.status = .failed
                 task.error = error
             }
+            
+            // 记录失败历史
+            let duration = Date().timeIntervalSince(task.startTime)
+            SyncHistoryManager.shared.addFromTask(task, duration: duration)
+            
+            // 更新菜单栏状态
+            await StatusBarManager.shared.stopSyncing(success: false)
+            
             LogManager.shared.log("同步失败: \(error.localizedDescription)", level: .error, category: "Sync")
             NotificationCenter.default.post(name: .syncFailed, object: error)
             throw error
@@ -214,14 +224,25 @@ actor SyncManager: ObservableObject {
         // 创建目标目录
         try createDirectoryIfNeeded(for: targetFileURL)
         
-        // 根据连接类型选择传输方式
+        // 根据连接类型选择传输方式，带重试
         switch task.sourceDevice.connectionType {
         case .usb:
-            try await ADBManager.shared.pullFile(
-                serialNumber: task.sourceDevice.serialNumber,
-                remotePath: file.path,
-                localPath: targetFileURL.path
-            )
+            do {
+                try await RetryManager.shared.transferFileWithRetry(
+                    serialNumber: task.sourceDevice.serialNumber,
+                    remotePath: file.path,
+                    localPath: targetFileURL.path
+                )
+            } catch {
+                // 添加到重试队列
+                await RetryManager.shared.addToRetryQueue(
+                    file: file,
+                    device: task.sourceDevice,
+                    targetPath: task.targetPath,
+                    error: error
+                )
+                throw error
+            }
         case .wifi:
             // 使用 WiFi 传输
             let connectedDevices = await MainActor.run { WiFiManager.shared.connectedDevices }
@@ -257,11 +278,10 @@ actor SyncManager: ObservableObject {
             return false
             
         case .rename:
-            // 生成新文件名
+            // 生成新文件名并移动现有文件
             let newPath = generateUniqueFilename(for: targetPath)
-            await MainActor.run {
-                // 更新任务中的目标路径（如果需要）
-            }
+            try FileManager.default.moveItem(atPath: targetPath, toPath: newPath)
+            LogManager.shared.log("已重命名现有文件: \(targetPath) -> \(newPath)", level: .debug, category: "Sync")
             return true
             
         case .askEachTime:
