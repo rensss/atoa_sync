@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var viewModel = MainViewModel()
     @State private var selectedTab: Int? = 0
-    @State private var showADBNotInstalledAlert = false
+    @State private var showADBSetupGuide = false
     @State private var showWiFiConnectionSheet = false
     
     var body: some View {
@@ -24,12 +24,12 @@ struct ContentView: View {
                         .help("ADB 已安装")
                 } else {
                     Button {
-                        showADBNotInstalledAlert = true
+                        showADBSetupGuide = true
                     } label: {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
                     }
-                    .help("ADB 未安装")
+                    .help("ADB 未安装 - 点击查看安装指南")
                 }
                 
                 Divider()
@@ -63,22 +63,16 @@ struct ContentView: View {
             }
         }
         .alert("错误", isPresented: $viewModel.showError) {
+            Button("查看 ADB 设置") {
+                showADBSetupGuide = true
+            }
             Button("确定", role: .cancel) {}
         } message: {
             Text(viewModel.errorMessage ?? "未知错误")
         }
-        .alert("ADB 未安装", isPresented: $showADBNotInstalledAlert) {
-            Button("打开安装指南") {
-                if let url = URL(string: "https://developer.android.com/tools/releases/platform-tools") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            Button("使用 Homebrew 安装") {
-                copyHomebrewCommand()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("未检测到 ADB 工具。\n\n您可以通过以下方式安装：\n1. 使用 Homebrew: brew install --cask android-platform-tools\n2. 从 Android 官网下载 Platform Tools")
+        .sheet(isPresented: $showADBSetupGuide) {
+            ADBSetupGuideView()
+                .frame(width: 600, height: 700)
         }
         .sheet(isPresented: $showWiFiConnectionSheet) {
             WiFiConnectionView()
@@ -95,24 +89,21 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .startSync)) { _ in
             viewModel.startSync()
         }
-    }
-    
-    private func checkADBInstallation() {
-        if ADBManager.shared.isADBInstalled {
+        .onReceive(NotificationCenter.default.publisher(for: .adbSetupCompleted)) { _ in
+            showADBSetupGuide = false
+            // 刷新 ADB 路径后再扫描设备
+            ADBManager.shared.reloadADBPath()
             viewModel.scanDevices()
-        } else {
-            showADBNotInstalledAlert = true
         }
     }
     
-    private func copyHomebrewCommand() {
-        let command = "brew install --cask android-platform-tools"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
-        
-        // 打开终端
-        if let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
-            NSWorkspace.shared.open(terminalURL)
+    private func checkADBInstallation() {
+        // 每次检查时都刷新 ADB 路径
+        ADBManager.shared.reloadADBPath()
+        if ADBManager.shared.isADBInstalled {
+            viewModel.scanDevices()
+        } else {
+            showADBSetupGuide = true
         }
     }
 }
