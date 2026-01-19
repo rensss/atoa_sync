@@ -24,12 +24,14 @@ actor SyncManager: ObservableObject {
         targetPath: String,
         conflictResolution: ConflictResolution
     ) async throws {
-        let task = SyncTask(
-            files: files,
-            sourceDevice: device,
-            targetPath: targetPath,
-            conflictResolution: conflictResolution
-        )
+        let task = await MainActor.run {
+            SyncTask(
+                files: files,
+                sourceDevice: device,
+                targetPath: targetPath,
+                conflictResolution: conflictResolution
+            )
+        }
         
         taskCancellations[task.id] = false
         taskPauses[task.id] = false

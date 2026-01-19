@@ -1,50 +1,44 @@
 import Foundation
 import Combine
 
-class DiffEngine {
+final class DiffEngine: Sendable {
     static let shared = DiffEngine()
     
     private init() {}
     
     func compare(deviceFiles: [FileInfo], localFiles: [FileInfo], useHash: Bool = false) async -> DiffResult {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let deviceDict = Dictionary(uniqueKeysWithValues: deviceFiles.map { ($0.relativePath, $0) })
-                let localDict = Dictionary(uniqueKeysWithValues: localFiles.map { ($0.relativePath, $0) })
-                
-                var newFiles: [FileInfo] = []
-                var modifiedFiles: [FileInfo] = []
-                var unchangedFiles: [FileInfo] = []
-                var deletedFiles: [FileInfo] = []
-                
-                for (path, deviceFile) in deviceDict {
-                    if let localFile = localDict[path] {
-                        if self.hasChanged(device: deviceFile, local: localFile, useHash: useHash) {
-                            modifiedFiles.append(deviceFile)
-                        } else {
-                            unchangedFiles.append(deviceFile)
-                        }
-                    } else {
-                        newFiles.append(deviceFile)
-                    }
+        let deviceDict = Dictionary(uniqueKeysWithValues: deviceFiles.map { ($0.relativePath, $0) })
+        let localDict = Dictionary(uniqueKeysWithValues: localFiles.map { ($0.relativePath, $0) })
+        
+        var newFiles: [FileInfo] = []
+        var modifiedFiles: [FileInfo] = []
+        var unchangedFiles: [FileInfo] = []
+        var deletedFiles: [FileInfo] = []
+        
+        for (path, deviceFile) in deviceDict {
+            if let localFile = localDict[path] {
+                if self.hasChanged(device: deviceFile, local: localFile, useHash: useHash) {
+                    modifiedFiles.append(deviceFile)
+                } else {
+                    unchangedFiles.append(deviceFile)
                 }
-                
-                for (path, localFile) in localDict {
-                    if deviceDict[path] == nil {
-                        deletedFiles.append(localFile)
-                    }
-                }
-                
-                let result = DiffResult(
-                    newFiles: newFiles.sorted { $0.relativePath < $1.relativePath },
-                    modifiedFiles: modifiedFiles.sorted { $0.relativePath < $1.relativePath },
-                    deletedFiles: deletedFiles.sorted { $0.relativePath < $1.relativePath },
-                    unchangedFiles: unchangedFiles.sorted { $0.relativePath < $1.relativePath }
-                )
-                
-                continuation.resume(returning: result)
+            } else {
+                newFiles.append(deviceFile)
             }
         }
+        
+        for (path, localFile) in localDict {
+            if deviceDict[path] == nil {
+                deletedFiles.append(localFile)
+            }
+        }
+        
+        return DiffResult(
+            newFiles: newFiles.sorted { $0.relativePath < $1.relativePath },
+            modifiedFiles: modifiedFiles.sorted { $0.relativePath < $1.relativePath },
+            deletedFiles: deletedFiles.sorted { $0.relativePath < $1.relativePath },
+            unchangedFiles: unchangedFiles.sorted { $0.relativePath < $1.relativePath }
+        )
     }
     
     private func hasChanged(device: FileInfo, local: FileInfo, useHash: Bool) -> Bool {
@@ -114,36 +108,40 @@ class DiffEngine {
         }
     }
     
+    @MainActor
     func buildFileTree(from files: [FileInfo]) -> [FileTreeNode] {
-        var rootNodes: [String: FileTreeNode] = [:]
+        // Use a wrapper node to hold the root level children
+        // This avoids the value-type copy issue with dictionaries
+        let rootContainer = FileTreeNode(name: "", path: "", isDirectory: true)
         
         for file in files {
             let components = file.relativePath.split(separator: "/").map(String.init)
-            var currentLevel = rootNodes
+            var currentNode = rootContainer
             
             for (index, component) in components.enumerated() {
                 let isLast = index == components.count - 1
                 
-                if currentLevel[component] == nil {
+                if currentNode.children[component] == nil {
                     let node = FileTreeNode(
                         name: component,
                         path: file.path,
                         isDirectory: !isLast || file.isDirectory,
                         fileInfo: isLast ? file : nil
                     )
-                    currentLevel[component] = node
+                    currentNode.children[component] = node
                 }
                 
                 if !isLast {
-                    currentLevel = currentLevel[component]!.children
+                    currentNode = currentNode.children[component]!
                 }
             }
         }
         
-        return Array(rootNodes.values).sorted { $0.name < $1.name }
+        return rootContainer.childrenArray
     }
 }
 
+@MainActor
 class FileTreeNode: Identifiable, ObservableObject {
     let id = UUID()
     let name: String
