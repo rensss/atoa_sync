@@ -661,48 +661,95 @@ struct StatusBar: View {
     
     var body: some View {
         HStack {
-            // 左侧：差异摘要
-            if let diff = viewModel.diffResult {
-                HStack(spacing: 4) {
-                    Image(systemName: "doc.on.doc")
-                        .foregroundColor(.secondary)
-                    Text(diff.summary)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-            } else if viewModel.selectedDevice != nil {
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
-                        .foregroundColor(.secondary)
-                    Text("点击「开始扫描」扫描设备文件")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+            // 左侧：状态信息
+            Group {
+                if viewModel.isScanning {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("正在扫描...")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                } else if viewModel.isComparing {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("正在比对...")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                } else if viewModel.isSyncing {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("正在同步...")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                } else if let diff = viewModel.diffResult {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.on.doc")
+                            .foregroundColor(.secondary)
+                        Text(diff.summary)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                } else if viewModel.selectedDevice != nil && !viewModel.targetPath.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.secondary)
+                        Text("点击「开始扫描」扫描设备文件")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.secondary)
+                        Text("请选择设备和目标路径")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             
             Spacer()
             
             // 右侧：选择信息和同步按钮
-            if !viewModel.selectedFiles.isEmpty {
+            if let diff = viewModel.diffResult {
                 HStack(spacing: 12) {
-                    Text("已选择 \(viewModel.selectedFiles.count) 个文件")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                    
-                    if let diff = viewModel.diffResult {
-                        let selectedSize = calculateSelectedSize(diff: diff)
-                        Text("(\(formatBytes(selectedSize)))")
+                    // 显示可同步的文件总数
+                    let syncableCount = diff.newFiles.count + diff.modifiedFiles.count
+                    if syncableCount > 0 {
+                        Text("可同步: \(syncableCount) 个文件")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
                     
-                    Button {
-                        viewModel.startSync()
-                    } label: {
-                        Label("开始同步", systemImage: "arrow.down.circle.fill")
+                    // 显示已选择的文件数量
+                    if !viewModel.selectedFiles.isEmpty {
+                        Text("已选择: \(viewModel.selectedFiles.count) 个")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.accentColor)
+                        
+                        let selectedSize = calculateSelectedSize(diff: diff)
+                        Text("(\(formatBytes(selectedSize)))")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        
+                        Button {
+                            viewModel.startSync()
+                        } label: {
+                            Label("开始同步", systemImage: "arrow.down.circle.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(viewModel.isSyncing)
+                    } else if syncableCount > 0 {
+                        Text("请选择要同步的文件")
+                            .font(.system(size: 12))
+                            .foregroundColor(.orange)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.isSyncing)
                 }
             }
         }

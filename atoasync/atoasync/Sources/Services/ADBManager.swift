@@ -217,8 +217,59 @@ class ADBManager: ObservableObject {
     }
     
     func listFiles(serialNumber: String, path: String) async throws -> [FileInfo] {
-        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "ls", "-lR", path])
-        return parseFileList(output: output, basePath: path)
+        // 先尝试解析符号链接（/sdcard 通常是 /storage/self/primary 的符号链接）
+        var actualPath = path
+        
+        // 检查路径是否是符号链接
+        let checkOutput = try await executeCommand(arguments: ["-s", serialNumber, "shell", "readlink", "-f", path])
+        let resolvedPath = checkOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !resolvedPath.isEmpty && resolvedPath != path {
+            print("[ADBManager] 路径 \(path) 是符号链接，解析为: \(resolvedPath)")
+            actualPath = resolvedPath
+        }
+        
+        // 使用 ls -la 列出目录内容（不使用 -R 递归，因为可能太慢）
+        // 对于大目录，先列出第一层
+        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "ls", "-la", actualPath])
+        
+        print("[ADBManager] ls 输出前 1000 字符: \(String(output.prefix(1000)))")
+        
+        // 检查是否有错误信息
+        if output.contains("No such file or directory") || output.contains("Permission denied") {
+            print("[ADBManager] 访问路径失败: \(output)")
+            throw ADBError.commandFailed(output)
+        }
+        
+        let files = parseFileListFromLs(output: output, basePath: actualPath, currentDir: actualPath)
+        print("[ADBManager] 解析到 \(files.count) 个文件/目录")
+        
+        return files
+    }
+    
+    /// 递归列出文件（用于需要完整文件列表的场景）
+    func listFilesRecursive(serialNumber: String, path: String, maxDepth: Int = 5) async throws -> [FileInfo] {
+        // 先解析符号链接
+        var actualPath = path
+        let checkOutput = try await executeCommand(arguments: ["-s", serialNumber, "shell", "readlink", "-f", path])
+        let resolvedPath = checkOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !resolvedPath.isEmpty && resolvedPath != path {
+            actualPath = resolvedPath
+        }
+        
+        // 使用 ls -laR 递归列出
+        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "ls", "-laR", actualPath])
+        
+        print("[ADBManager] ls -laR 输出前 500 字符: \(String(output.prefix(500)))")
+        
+        let files = parseFileListFromLsRecursive(output: output, basePath: actualPath)
+        print("[ADBManager] 递归解析到 \(files.count) 个文件/目录")
+        
+        return files
+    }
+    
+    /// 执行 Android shell 命令（命令作为单个字符串）
+    private func executeShellCommand(serialNumber: String, command: String) async throws -> String {
+        return try await executeCommand(arguments: ["-s", serialNumber, "shell", command])
     }
     
     func pullFile(serialNumber: String, remotePath: String, localPath: String) async throws {
@@ -246,54 +297,237 @@ class ADBManager: ObservableObject {
         )
     }
     
-    private func parseFileList(output: String, basePath: String) -> [FileInfo] {
+    /// 解析 ls -la 命令输出的文件列表（非递归，单层目录）
+    /// Android ls -l 输出格式示例:
+    /// drwxrwx--x  5 root sdcard_rw 4096 2024-01-15 10:30 DCIM
+    /// -rw-rw----  1 root sdcard_rw 1234567 2024-01-15 10:30 photo.jpg
+    /// lrwxrwxrwx  1 root root      21 2024-01-15 10:30 sdcard -> /storage/self/primary
+    private func parseFileListFromLs(output: String, basePath: String, currentDir: String) -> [FileInfo] {
         var files: [FileInfo] = []
-        var currentDir = basePath
         
         let lines = output.components(separatedBy: .newlines)
         
         for line in lines {
-            if line.isEmpty {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
                 continue
             }
             
-            if line.hasSuffix(":") {
-                currentDir = String(line.dropLast())
+            // 跳过 "total" 行
+            if trimmed.hasPrefix("total ") {
                 continue
             }
             
-            let components = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard components.count >= 8 else {
+            // 必须以权限字符串开头 (d/l/-/c/b 等)
+            guard let firstChar = trimmed.first,
+                  "dlcbsp-".contains(firstChar) else {
+                print("[ADBManager] 跳过非文件行: \(trimmed)")
+                continue
+            }
+            
+            // 跳过符号链接 (以 'l' 开头)
+            if trimmed.hasPrefix("l") {
+                print("[ADBManager] 跳过符号链接: \(trimmed)")
+                continue
+            }
+            
+            let components = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+            
+            guard components.count >= 7 else {
+                print("[ADBManager] 跳过列数不足的行 (\(components.count) 列): \(trimmed)")
                 continue
             }
             
             let permissions = String(components[0])
             let isDirectory = permissions.hasPrefix("d")
             
-            guard let size = Int64(components[4]) else {
+            // 跳过 . 和 .. 目录
+            let lastComponent = String(components.last ?? "")
+            if lastComponent == "." || lastComponent == ".." {
                 continue
             }
             
-            let fileName = components[7...].joined(separator: " ")
-            let fullPath = "\(currentDir)/\(fileName)"
+            // 解析文件信息
+            guard let fileInfo = parseFileLine(components: components, currentDir: currentDir, basePath: basePath, isDirectory: isDirectory) else {
+                continue
+            }
             
-            let dateStr = "\(components[5]) \(components[6])"
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
-            let modified = dateFormatter.date(from: dateStr) ?? Date()
-            
-            let file = FileInfo(
-                path: fullPath,
-                relativePath: fullPath.replacingOccurrences(of: basePath, with: ""),
-                size: size,
-                modified: modified,
-                isDirectory: isDirectory
-            )
-            
-            files.append(file)
+            files.append(fileInfo)
         }
         
+        print("[ADBManager] parseFileListFromLs: 解析到 \(files.count) 个文件/目录")
         return files
+    }
+    
+    /// 解析 ls -laR 命令输出的文件列表（递归）
+    private func parseFileListFromLsRecursive(output: String, basePath: String) -> [FileInfo] {
+        var files: [FileInfo] = []
+        var currentDir = basePath
+        
+        let lines = output.components(separatedBy: .newlines)
+        
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                continue
+            }
+            
+            // 检测目录行，格式如: "/storage/self/primary/DCIM:"
+            if trimmed.hasSuffix(":") && !trimmed.contains(" ") {
+                currentDir = String(trimmed.dropLast())
+                continue
+            }
+            
+            // 跳过 "total" 行
+            if trimmed.hasPrefix("total ") {
+                continue
+            }
+            
+            // 必须以权限字符串开头 (d/l/-/c/b 等)
+            guard let firstChar = trimmed.first,
+                  "dlcbsp-".contains(firstChar) else {
+                continue
+            }
+            
+            // 跳过符号链接 (以 'l' 开头)
+            if trimmed.hasPrefix("l") {
+                continue
+            }
+            
+            let components = trimmed.split(separator: " ", omittingEmptySubsequences: true)
+            
+            guard components.count >= 7 else {
+                continue
+            }
+            
+            let permissions = String(components[0])
+            let isDirectory = permissions.hasPrefix("d")
+            
+            // 跳过 . 和 .. 目录
+            let lastComponent = String(components.last ?? "")
+            if lastComponent == "." || lastComponent == ".." {
+                continue
+            }
+            
+            // 解析文件信息
+            guard let fileInfo = parseFileLine(components: components, currentDir: currentDir, basePath: basePath, isDirectory: isDirectory) else {
+                continue
+            }
+            
+            files.append(fileInfo)
+        }
+        
+        print("[ADBManager] parseFileListFromLsRecursive: 解析到 \(files.count) 个文件/目录")
+        return files
+    }
+    
+    /// 解析单行文件信息
+    private func parseFileLine(components: [String.SubSequence], currentDir: String, basePath: String, isDirectory: Bool) -> FileInfo? {
+        // 查找大小字段：从第3个开始找第一个纯数字字段
+        var sizeIndex = -1
+        for i in 3..<min(6, components.count) {
+            let comp = String(components[i])
+            if let _ = Int64(comp), i + 1 < components.count {
+                let nextComp = String(components[i + 1])
+                if nextComp.contains("-") || isMonthAbbreviation(nextComp) {
+                    sizeIndex = i
+                    break
+                }
+            }
+        }
+        
+        guard sizeIndex > 0 else {
+            return nil
+        }
+        
+        guard let size = Int64(components[sizeIndex]) else {
+            return nil
+        }
+        
+        // 确定文件名开始位置
+        var fileNameStartIndex = sizeIndex + 3
+        
+        // 检查是否有时区字段
+        if fileNameStartIndex < components.count {
+            let possibleTimezone = String(components[fileNameStartIndex])
+            if possibleTimezone.hasPrefix("+") || possibleTimezone.hasPrefix("-") {
+                if possibleTimezone.count == 5, Int(possibleTimezone.dropFirst()) != nil {
+                    fileNameStartIndex += 1
+                }
+            }
+        }
+        
+        guard fileNameStartIndex < components.count else {
+            return nil
+        }
+        
+        // 提取文件名
+        var fileName = components[fileNameStartIndex...].joined(separator: " ")
+        
+        // 移除符号链接目标部分
+        if let arrowRange = fileName.range(of: " -> ") {
+            fileName = String(fileName[..<arrowRange.lowerBound])
+        }
+        
+        if fileName.isEmpty || fileName == "." || fileName == ".." {
+            return nil
+        }
+        
+        let fullPath = "\(currentDir)/\(fileName)"
+        
+        // 解析日期
+        let dateStr = "\(components[sizeIndex + 1]) \(components[sizeIndex + 2])"
+        let modified = parseAndroidDate(dateStr)
+        
+        var relativePath = fullPath.replacingOccurrences(of: basePath, with: "")
+        if relativePath.isEmpty {
+            relativePath = "/"
+        } else if !relativePath.hasPrefix("/") {
+            relativePath = "/" + relativePath
+        }
+        
+        return FileInfo(
+            path: fullPath,
+            relativePath: relativePath,
+            size: size,
+            modified: modified,
+            isDirectory: isDirectory
+        )
+    }
+    
+    /// 检查是否是英文月份缩写
+    private func isMonthAbbreviation(_ str: String) -> Bool {
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return months.contains(str)
+    }
+    
+    /// 解析 Android 日期格式
+    private func parseAndroidDate(_ dateStr: String) -> Date {
+        let formatters: [DateFormatter] = {
+            let formats = [
+                "yyyy-MM-dd HH:mm",
+                "yyyy-MM-dd HH:mm:ss",
+                "MMM dd HH:mm",
+                "MMM dd yyyy",
+                "MMM  d HH:mm",
+                "MMM  d yyyy",
+                "yyyy-MM-dd"
+            ]
+            return formats.map { format in
+                let formatter = DateFormatter()
+                formatter.dateFormat = format
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                return formatter
+            }
+        }()
+        
+        for formatter in formatters {
+            if let date = formatter.date(from: dateStr) {
+                return date
+            }
+        }
+        
+        return Date()
     }
     
     private func executeCommand(arguments: [String]) async throws -> String {
@@ -301,25 +535,25 @@ class ADBManager: ObservableObject {
             throw ADBError.adbNotFound
         }
         
-        print("[ADBManager] executeCommand: \(adbPath) \(arguments.joined(separator: " "))")
+        // 解析符号链接，获取真实路径
+        let resolvedPath: String
+        do {
+            let url = URL(fileURLWithPath: adbPath)
+            resolvedPath = url.resolvingSymlinksInPath().path
+        } catch {
+            resolvedPath = adbPath
+        }
+        
+        print("[ADBManager] executeCommand: \(resolvedPath) \(arguments.joined(separator: " "))")
         
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                // 通过 shell 运行，正确处理符号链接
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/bin/zsh")
                 
-                // 构建命令字符串，正确转义参数
-                let command = ([adbPath] + arguments)
-                    .map { arg in
-                        if arg.contains(" ") || arg.contains("\"") || arg.contains("'") {
-                            return "'\(arg.replacingOccurrences(of: "'", with: "'\\''"))'"
-                        }
-                        return arg
-                    }
-                    .joined(separator: " ")
-                
-                process.arguments = ["-c", command]
+                // 直接运行 ADB，不通过 shell
+                // 这样可以避免 shell 特殊字符的问题
+                process.executableURL = URL(fileURLWithPath: resolvedPath)
+                process.arguments = arguments
                 
                 let outputPipe = Pipe()
                 let errorPipe = Pipe()

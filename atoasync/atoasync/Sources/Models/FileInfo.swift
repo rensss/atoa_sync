@@ -54,6 +54,9 @@ struct FileInfo: Identifiable, Hashable, Codable {
     }
     
     var formattedSize: String {
+        if isDirectory {
+            return "--"
+        }
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useAll]
         formatter.countStyle = .file
@@ -62,9 +65,13 @@ struct FileInfo: Identifiable, Hashable, Codable {
     
     var formattedDate: String {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter.string(from: modified)
+    }
+    
+    /// 获取文件名
+    var fileName: String {
+        return (path as NSString).lastPathComponent
     }
 }
 

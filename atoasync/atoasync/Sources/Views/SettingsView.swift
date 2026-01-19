@@ -70,7 +70,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .onChange(of: configManager.config) { _ in
+        .onChange(of: configManager.config) {
             configManager.save()
         }
     }

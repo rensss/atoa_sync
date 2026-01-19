@@ -5,12 +5,26 @@ import Combine
 @MainActor
 class MainViewModel: ObservableObject {
     @Published var devices: [DeviceInfo] = []
-    @Published var selectedDevice: DeviceInfo?
+    @Published var selectedDevice: DeviceInfo? {
+        didSet {
+            // 设备改变时清空之前的扫描结果
+            if oldValue?.serialNumber != selectedDevice?.serialNumber {
+                clearScanResults()
+            }
+        }
+    }
     @Published var deviceFiles: [FileInfo] = []
     @Published var localFiles: [FileInfo] = []
     @Published var diffResult: DiffResult?
     @Published var selectedFiles: Set<UUID> = []
-    @Published var targetPath: String = ""
+    @Published var targetPath: String = "" {
+        didSet {
+            // 目标路径改变时清空之前的扫描结果
+            if oldValue != targetPath {
+                clearScanResults()
+            }
+        }
+    }
     @Published var isScanning: Bool = false
     @Published var isComparing: Bool = false
     @Published var isSyncing: Bool = false
@@ -69,6 +83,13 @@ class MainViewModel: ObservableObject {
         Task {
             isScanning = true
             scanProgress = 0
+            
+            // 清空之前的选择和结果
+            selectedFiles.removeAll()
+            diffResult = nil
+            deviceFiles = []
+            localFiles = []
+            
             defer { isScanning = false }
             
             do {
@@ -100,6 +121,12 @@ class MainViewModel: ObservableObject {
                 logManager.log("本地扫描完成，发现 \(localFiles.count) 个文件", level: .info, category: "Scan")
                 
                 await compareDifferences()
+                
+                // 扫描完成后自动选择所有新增和修改的文件
+                if let diff = diffResult {
+                    selectedFiles = Set((diff.newFiles + diff.modifiedFiles).map { $0.id })
+                    logManager.log("自动选择了 \(selectedFiles.count) 个待同步文件", level: .info, category: "Scan")
+                }
                 
             } catch {
                 handleError(error, message: "扫描文件失败")
@@ -203,6 +230,15 @@ class MainViewModel: ObservableObject {
     
     func deselectAllFiles() {
         selectedFiles.removeAll()
+    }
+    
+    /// 清空扫描结果
+    private func clearScanResults() {
+        deviceFiles = []
+        localFiles = []
+        diffResult = nil
+        selectedFiles.removeAll()
+        scanProgress = 0
     }
     
     var filteredDiffResult: DiffResult? {
