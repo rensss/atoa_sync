@@ -297,6 +297,87 @@ class ADBManager: ObservableObject {
         )
     }
     
+    /// 获取文件夹大小（使用 du 命令）
+    /// - Parameters:
+    ///   - serialNumber: 设备序列号
+    ///   - remotePath: 远程路径
+    /// - Returns: 文件夹大小（字节）
+    func getDirectorySize(serialNumber: String, remotePath: String) async throws -> Int64 {
+        // 使用 du -sb 获取目录总大小（字节）
+        // -s: 只显示总计
+        // -b: 以字节为单位（某些 Android 设备可能不支持 -b，需要回退）
+        do {
+            let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "du", "-sb", remotePath], timeout: 120)
+            
+            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let components = trimmed.split(separator: "\t", maxSplits: 1)
+            
+            if let sizeStr = components.first, let size = Int64(sizeStr) {
+                return size
+            }
+        } catch {
+            print("[ADBManager] du -sb 失败，尝试 du -sk: \(error.localizedDescription)")
+        }
+        
+        // 回退方案：使用 du -sk（KB 单位）
+        do {
+            let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "du", "-sk", remotePath], timeout: 120)
+            
+            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let components = trimmed.split(separator: "\t", maxSplits: 1)
+            
+            if let sizeStr = components.first, let sizeKB = Int64(sizeStr) {
+                return sizeKB * 1024 // 转换为字节
+            }
+        } catch {
+            print("[ADBManager] du -sk 也失败: \(error.localizedDescription)")
+        }
+        
+        // 最后回退：使用 du -s（可能是 KB 或块）
+        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "du", "-s", remotePath], timeout: 120)
+        
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = trimmed.split(separator: "\t", maxSplits: 1)
+        
+        if let sizeStr = components.first, let size = Int64(sizeStr) {
+            // 假设是 KB
+            return size * 1024
+        }
+        
+        throw ADBError.invalidOutput
+    }
+    
+    /// 批量获取多个目录的大小
+    /// - Parameters:
+    ///   - serialNumber: 设备序列号
+    ///   - remotePaths: 远程路径列表
+    /// - Returns: 路径到大小的映射
+    func getDirectorySizes(serialNumber: String, remotePaths: [String]) async -> [String: Int64] {
+        var results: [String: Int64] = [:]
+        
+        await withTaskGroup(of: (String, Int64?).self) { group in
+            for path in remotePaths {
+                group.addTask {
+                    do {
+                        let size = try await self.getDirectorySize(serialNumber: serialNumber, remotePath: path)
+                        return (path, size)
+                    } catch {
+                        print("[ADBManager] 获取目录大小失败 \(path): \(error.localizedDescription)")
+                        return (path, nil)
+                    }
+                }
+            }
+            
+            for await (path, size) in group {
+                if let size = size {
+                    results[path] = size
+                }
+            }
+        }
+        
+        return results
+    }
+    
     /// 解析 ls -la 命令输出的文件列表（非递归，单层目录）
     /// Android ls -l 输出格式示例:
     /// drwxrwx--x  5 root sdcard_rw 4096 2024-01-15 10:30 DCIM
@@ -530,7 +611,7 @@ class ADBManager: ObservableObject {
         return Date()
     }
     
-    private func executeCommand(arguments: [String]) async throws -> String {
+    private func executeCommand(arguments: [String], timeout: TimeInterval = 60) async throws -> String {
         guard let adbPath = adbPath else {
             throw ADBError.adbNotFound
         }
@@ -546,40 +627,54 @@ class ADBManager: ObservableObject {
         
         print("[ADBManager] executeCommand: \(resolvedPath) \(arguments.joined(separator: " "))")
         
-        return try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                let process = Process()
-                
-                // 直接运行 ADB，不通过 shell
-                // 这样可以避免 shell 特殊字符的问题
-                process.executableURL = URL(fileURLWithPath: resolvedPath)
-                process.arguments = arguments
-                
-                let outputPipe = Pipe()
-                let errorPipe = Pipe()
-                
-                process.standardOutput = outputPipe
-                process.standardError = errorPipe
-                
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    
-                    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    
-                    if process.terminationStatus != 0 {
-                        let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-                        continuation.resume(throwing: ADBError.commandFailed(errorMessage))
-                        return
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            // 添加执行任务
+            group.addTask {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.queue.async {
+                        let process = Process()
+                        
+                        process.executableURL = URL(fileURLWithPath: resolvedPath)
+                        process.arguments = arguments
+                        
+                        let outputPipe = Pipe()
+                        let errorPipe = Pipe()
+                        
+                        process.standardOutput = outputPipe
+                        process.standardError = errorPipe
+                        
+                        do {
+                            try process.run()
+                            process.waitUntilExit()
+                            
+                            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                            
+                            if process.terminationStatus != 0 {
+                                let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                                continuation.resume(throwing: ADBError.commandFailed(errorMessage))
+                                return
+                            }
+                            
+                            let output = String(data: outputData, encoding: .utf8) ?? ""
+                            continuation.resume(returning: output)
+                        } catch {
+                            continuation.resume(throwing: ADBError.executionFailed(error.localizedDescription))
+                        }
                     }
-                    
-                    let output = String(data: outputData, encoding: .utf8) ?? ""
-                    continuation.resume(returning: output)
-                } catch {
-                    continuation.resume(throwing: ADBError.executionFailed(error.localizedDescription))
                 }
             }
+            
+            // 添加超时任务
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw ADBError.commandFailed("命令执行超时（\(Int(timeout))秒）")
+            }
+            
+            // 返回第一个完成的结果（成功或失败）
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 }

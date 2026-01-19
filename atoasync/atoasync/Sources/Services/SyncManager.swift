@@ -96,6 +96,104 @@ actor SyncManager: ObservableObject {
         }
     }
     
+    /// 浏览模式下的同步（支持文件夹递归同步）
+    func startBrowserSync(
+        files: [FileInfo],
+        device: DeviceInfo,
+        sourcePath: String,
+        targetPath: String,
+        conflictResolution: ConflictResolution
+    ) async throws {
+        // 展开所有文件夹，获取完整的文件列表
+        var allFiles: [FileInfo] = []
+        
+        for file in files {
+            if file.isDirectory {
+                // 递归获取文件夹内所有文件
+                let dirFiles = try await expandDirectory(
+                    file: file,
+                    device: device,
+                    basePath: sourcePath
+                )
+                allFiles.append(contentsOf: dirFiles)
+            } else {
+                // 计算相对路径
+                var relativePath = file.path
+                if relativePath.hasPrefix(sourcePath) {
+                    relativePath = String(relativePath.dropFirst(sourcePath.count))
+                    if relativePath.hasPrefix("/") {
+                        relativePath = String(relativePath.dropFirst())
+                    }
+                }
+                
+                let adjustedFile = FileInfo(
+                    path: file.path,
+                    relativePath: relativePath,
+                    size: file.size,
+                    modified: file.modified,
+                    hash: file.hash,
+                    isDirectory: false
+                )
+                allFiles.append(adjustedFile)
+            }
+        }
+        
+        guard !allFiles.isEmpty else {
+            LogManager.shared.log("没有文件需要同步", level: .warning, category: "Sync")
+            return
+        }
+        
+        LogManager.shared.log("浏览模式同步: 展开后共 \(allFiles.count) 个文件", level: .info, category: "Sync")
+        
+        // 使用标准同步流程
+        try await startSync(
+            files: allFiles,
+            device: device,
+            targetPath: targetPath,
+            conflictResolution: conflictResolution
+        )
+    }
+    
+    /// 递归展开文件夹，获取所有文件
+    private func expandDirectory(
+        file: FileInfo,
+        device: DeviceInfo,
+        basePath: String
+    ) async throws -> [FileInfo] {
+        var result: [FileInfo] = []
+        
+        // 获取文件夹内容
+        let contents = try await ADBManager.shared.listFilesRecursive(
+            serialNumber: device.serialNumber,
+            path: file.path
+        )
+        
+        for item in contents {
+            if !item.isDirectory {
+                // 计算相对路径
+                var relativePath = item.path
+                if relativePath.hasPrefix(basePath) {
+                    relativePath = String(relativePath.dropFirst(basePath.count))
+                    if relativePath.hasPrefix("/") {
+                        relativePath = String(relativePath.dropFirst())
+                    }
+                }
+                
+                let adjustedFile = FileInfo(
+                    path: item.path,
+                    relativePath: relativePath,
+                    size: item.size,
+                    modified: item.modified,
+                    hash: item.hash,
+                    isDirectory: false
+                )
+                result.append(adjustedFile)
+            }
+        }
+        
+        return result
+    }
+    
     // MARK: - 并行同步执行
     
     private func performSync(task: SyncTask) async throws {

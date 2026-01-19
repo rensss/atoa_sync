@@ -37,6 +37,21 @@ struct ContentView: View {
         } message: {
             Text(viewModel.errorMessage ?? "未知错误")
         }
+        .alert(
+            viewModel.wasSyncingWhenDisconnected ? "同步已中断" : "设备已断开",
+            isPresented: $viewModel.showDeviceDisconnectedAlert
+        ) {
+            Button("重新扫描设备") {
+                viewModel.reconnectDevice()
+            }
+            Button("确定", role: .cancel) {}
+        } message: {
+            if viewModel.wasSyncingWhenDisconnected {
+                Text("设备「\(viewModel.disconnectedDeviceName)」已断开连接，正在进行的同步任务已被取消。\n\n请重新连接设备后继续同步。")
+            } else {
+                Text("设备「\(viewModel.disconnectedDeviceName)」已断开连接。\n\n如需继续操作，请重新连接设备。")
+            }
+        }
         .sheet(isPresented: $showADBSetupGuide) {
             ADBSetupGuideView()
                 .frame(width: 600, height: 700)

@@ -147,5 +147,11 @@ extension Notification.Name {
     static let syncFailed = Notification.Name("syncFailed")
     /// 刷新设备通知
     static let refreshDevices = Notification.Name("refreshDevices")
+    /// 扫描设备通知
+    static let scanDevices = Notification.Name("scanDevices")
+    /// 扫描文件通知
+    static let scanFiles = Notification.Name("scanFiles")
+    /// 开始同步通知
+    static let startSync = Notification.Name("startSync")
 }
 

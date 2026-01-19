@@ -58,10 +58,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // 初始化菜单栏图标
         StatusBarManager.shared.setup()
+        
+        // 启动设备监控
+        DeviceMonitor.shared.startMonitoring()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
         LogManager.shared.log("应用退出", level: .info, category: "App")
+        
+        // 停止设备监控
+        DeviceMonitor.shared.stopMonitoring()
+        
         ConfigManager.shared.save()
     }
     
@@ -80,9 +87,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// MARK: - 通知名称扩展
-extension Notification.Name {
-    static let scanDevices = Notification.Name("scanDevices")
-    static let scanFiles = Notification.Name("scanFiles")
-    static let startSync = Notification.Name("startSync")
-}
