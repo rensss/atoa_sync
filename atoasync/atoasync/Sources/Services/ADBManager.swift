@@ -30,9 +30,7 @@ class ADBManager: ObservableObject {
             "/opt/homebrew/bin/adb",
             NSString(string: "~/Library/Android/sdk/platform-tools/adb").expandingTildeInPath,
             NSString(string: "~/Android/sdk/platform-tools/adb").expandingTildeInPath,
-            // Homebrew on Intel Mac
             "/usr/local/Caskroom/android-platform-tools/latest/platform-tools/adb",
-            // Homebrew on Apple Silicon
             "/opt/homebrew/Caskroom/android-platform-tools/latest/platform-tools/adb"
         ]
         
@@ -42,7 +40,6 @@ class ADBManager: ObservableObject {
             }
         }
         
-        // 尝试使用 shell 来获取完整的 PATH 环境
         if let path = findADBUsingShell() {
             return path
         }
@@ -51,7 +48,6 @@ class ADBManager: ObservableObject {
     }
     
     private static func findADBUsingShell() -> String? {
-        // 尝试使用 /bin/zsh -l -c 来获取完整的 shell 环境
         let shells = ["/bin/zsh", "/bin/bash"]
         
         for shell in shells {
@@ -80,7 +76,6 @@ class ADBManager: ObservableObject {
             }
         }
         
-        // 回退：直接使用 /usr/bin/which
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         process.arguments = ["adb"]
@@ -100,9 +95,7 @@ class ADBManager: ObservableObject {
                     return path
                 }
             }
-        } catch {
-            // 忽略错误
-        }
+        } catch {}
         
         return nil
     }
@@ -119,13 +112,11 @@ class ADBManager: ObservableObject {
         }
     }
     
-    /// 测试 ADB 是否正常工作
     func testADBConnection() async -> ADBTestResult {
         guard let adbPath = adbPath else {
             return .notInstalled
         }
         
-        // 检查文件是否存在且可执行
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: adbPath) else {
             return .fileNotFound(path: adbPath)
@@ -135,7 +126,6 @@ class ADBManager: ObservableObject {
             return .notExecutable(path: adbPath)
         }
         
-        // 尝试运行 adb version
         do {
             let output = try await executeCommand(arguments: ["version"])
             if output.contains("Android Debug Bridge") {
@@ -143,13 +133,14 @@ class ADBManager: ObservableObject {
             } else {
                 return .unexpectedOutput
             }
+        } catch is CancellationError {
+            return .executionError("操作已取消")
         } catch {
             return .executionError(error.localizedDescription)
         }
     }
     
     private func parseADBVersion(from output: String) -> String {
-        // 解析类似 "Android Debug Bridge version 1.0.41" 的输出
         let lines = output.components(separatedBy: .newlines)
         if let versionLine = lines.first(where: { $0.contains("version") }) {
             return versionLine.trimmingCharacters(in: .whitespaces)
@@ -158,18 +149,11 @@ class ADBManager: ObservableObject {
     }
     
     func scanDevices() async throws -> [DeviceInfo] {
-        guard let _ = adbPath else {
+        guard adbPath != nil else {
             throw ADBError.adbNotFound
         }
-        await MainActor.run {
-            isScanning = true
-        }
-        
-        defer {
-            Task { @MainActor in
-                isScanning = false
-            }
-        }
+        await MainActor.run { isScanning = true }
+        defer { Task { @MainActor in isScanning = false } }
         
         let output = try await executeCommand(arguments: ["devices", "-l"])
         let lines = output.components(separatedBy: .newlines)
@@ -216,64 +200,43 @@ class ADBManager: ObservableObject {
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    // MARK: - 路径解析
+    
+    func resolvePath(serialNumber: String, path: String) async throws -> String {
+        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "readlink", "-f", path])
+        let resolved = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolved.isEmpty ? path : resolved
+    }
+    
     func listFiles(serialNumber: String, path: String) async throws -> [FileInfo] {
-        // 先尝试解析符号链接（/sdcard 通常是 /storage/self/primary 的符号链接）
         var actualPath = path
-        
-        // 检查路径是否是符号链接
-        let checkOutput = try await executeCommand(arguments: ["-s", serialNumber, "shell", "readlink", "-f", path])
-        let resolvedPath = checkOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedPath = try await resolvePath(serialNumber: serialNumber, path: path)
         if !resolvedPath.isEmpty && resolvedPath != path {
-            print("[ADBManager] 路径 \(path) 是符号链接，解析为: \(resolvedPath)")
             actualPath = resolvedPath
         }
         
-        // 使用 ls -la 列出目录内容（不使用 -R 递归，因为可能太慢）
-        // 对于大目录，先列出第一层
         let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "ls", "-la", actualPath])
         
-        print("[ADBManager] ls 输出前 1000 字符: \(String(output.prefix(1000)))")
-        
-        // 检查是否有错误信息
         if output.contains("No such file or directory") || output.contains("Permission denied") {
-            print("[ADBManager] 访问路径失败: \(output)")
             throw ADBError.commandFailed(output)
         }
         
-        let files = parseFileListFromLs(output: output, basePath: actualPath, currentDir: actualPath)
-        print("[ADBManager] 解析到 \(files.count) 个文件/目录")
-        
-        return files
+        return parseFileListFromLs(output: output, basePath: actualPath, currentDir: actualPath)
     }
     
-    /// 递归列出文件（用于需要完整文件列表的场景）
     func listFilesRecursive(serialNumber: String, path: String, maxDepth: Int = 5) async throws -> [FileInfo] {
-        // 先解析符号链接
         var actualPath = path
-        let checkOutput = try await executeCommand(arguments: ["-s", serialNumber, "shell", "readlink", "-f", path])
-        let resolvedPath = checkOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedPath = try await resolvePath(serialNumber: serialNumber, path: path)
         if !resolvedPath.isEmpty && resolvedPath != path {
             actualPath = resolvedPath
         }
         
-        // 使用 ls -laR 递归列出
-        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "ls", "-laR", actualPath])
-        
-        print("[ADBManager] ls -laR 输出前 500 字符: \(String(output.prefix(500)))")
-        
-        let files = parseFileListFromLsRecursive(output: output, basePath: actualPath)
-        print("[ADBManager] 递归解析到 \(files.count) 个文件/目录")
-        
-        return files
-    }
-    
-    /// 执行 Android shell 命令（命令作为单个字符串）
-    private func executeShellCommand(serialNumber: String, command: String) async throws -> String {
-        return try await executeCommand(arguments: ["-s", serialNumber, "shell", command])
+        let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "ls", "-laR", actualPath], timeout: 300)
+        return parseFileListFromLsRecursive(output: output, basePath: actualPath)
     }
     
     func pullFile(serialNumber: String, remotePath: String, localPath: String) async throws {
-        _ = try await executeCommand(arguments: ["-s", serialNumber, "pull", remotePath, localPath])
+        _ = try await executeCommand(arguments: ["-s", serialNumber, "pull", remotePath, localPath], timeout: 300)
     }
     
     func getFileInfo(serialNumber: String, remotePath: String) async throws -> FileInfo? {
@@ -297,61 +260,39 @@ class ADBManager: ObservableObject {
         )
     }
     
-    /// 获取文件夹大小（使用 du 命令）
-    /// - Parameters:
-    ///   - serialNumber: 设备序列号
-    ///   - remotePath: 远程路径
-    /// - Returns: 文件夹大小（字节）
     func getDirectorySize(serialNumber: String, remotePath: String) async throws -> Int64 {
-        // 使用 du -sb 获取目录总大小（字节）
-        // -s: 只显示总计
-        // -b: 以字节为单位（某些 Android 设备可能不支持 -b，需要回退）
         do {
             let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "du", "-sb", remotePath], timeout: 120)
-            
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
             let components = trimmed.split(separator: "\t", maxSplits: 1)
-            
             if let sizeStr = components.first, let size = Int64(sizeStr) {
                 return size
             }
         } catch {
-            print("[ADBManager] du -sb 失败，尝试 du -sk: \(error.localizedDescription)")
+            // fallthrough
         }
         
-        // 回退方案：使用 du -sk（KB 单位）
         do {
             let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "du", "-sk", remotePath], timeout: 120)
-            
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
             let components = trimmed.split(separator: "\t", maxSplits: 1)
-            
             if let sizeStr = components.first, let sizeKB = Int64(sizeStr) {
-                return sizeKB * 1024 // 转换为字节
+                return sizeKB * 1024
             }
         } catch {
-            print("[ADBManager] du -sk 也失败: \(error.localizedDescription)")
+            // fallthrough
         }
         
-        // 最后回退：使用 du -s（可能是 KB 或块）
         let output = try await executeCommand(arguments: ["-s", serialNumber, "shell", "du", "-s", remotePath], timeout: 120)
-        
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let components = trimmed.split(separator: "\t", maxSplits: 1)
-        
         if let sizeStr = components.first, let size = Int64(sizeStr) {
-            // 假设是 KB
             return size * 1024
         }
         
         throw ADBError.invalidOutput
     }
     
-    /// 批量获取多个目录的大小
-    /// - Parameters:
-    ///   - serialNumber: 设备序列号
-    ///   - remotePaths: 远程路径列表
-    /// - Returns: 路径到大小的映射
     func getDirectorySizes(serialNumber: String, remotePaths: [String]) async -> [String: Int64] {
         var results: [String: Int64] = [:]
         
@@ -362,7 +303,6 @@ class ADBManager: ObservableObject {
                         let size = try await self.getDirectorySize(serialNumber: serialNumber, remotePath: path)
                         return (path, size)
                     } catch {
-                        print("[ADBManager] 获取目录大小失败 \(path): \(error.localizedDescription)")
                         return (path, nil)
                     }
                 }
@@ -378,57 +318,30 @@ class ADBManager: ObservableObject {
         return results
     }
     
-    /// 解析 ls -la 命令输出的文件列表（非递归，单层目录）
-    /// Android ls -l 输出格式示例:
-    /// drwxrwx--x  5 root sdcard_rw 4096 2024-01-15 10:30 DCIM
-    /// -rw-rw----  1 root sdcard_rw 1234567 2024-01-15 10:30 photo.jpg
-    /// lrwxrwxrwx  1 root root      21 2024-01-15 10:30 sdcard -> /storage/self/primary
+    // MARK: - 解析 ls 输出
+    
     private func parseFileListFromLs(output: String, basePath: String, currentDir: String) -> [FileInfo] {
         var files: [FileInfo] = []
-        
         let lines = output.components(separatedBy: .newlines)
         
         for line in lines {
+            if Task.isCancelled { break }
+            
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                continue
-            }
+            if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("total ") { continue }
             
-            // 跳过 "total" 行
-            if trimmed.hasPrefix("total ") {
-                continue
-            }
-            
-            // 必须以权限字符串开头 (d/l/-/c/b 等)
-            guard let firstChar = trimmed.first,
-                  "dlcbsp-".contains(firstChar) else {
-                print("[ADBManager] 跳过非文件行: \(trimmed)")
-                continue
-            }
-            
-            // 跳过符号链接 (以 'l' 开头)
-            if trimmed.hasPrefix("l") {
-                print("[ADBManager] 跳过符号链接: \(trimmed)")
-                continue
-            }
+            guard let firstChar = trimmed.first, "dlcbsp-".contains(firstChar) else { continue }
+            if trimmed.hasPrefix("l") { continue }
             
             let components = trimmed.split(separator: " ", omittingEmptySubsequences: true)
-            
-            guard components.count >= 7 else {
-                print("[ADBManager] 跳过列数不足的行 (\(components.count) 列): \(trimmed)")
-                continue
-            }
+            guard components.count >= 7 else { continue }
             
             let permissions = String(components[0])
             let isDirectory = permissions.hasPrefix("d")
-            
-            // 跳过 . 和 .. 目录
             let lastComponent = String(components.last ?? "")
-            if lastComponent == "." || lastComponent == ".." {
-                continue
-            }
+            if lastComponent == "." || lastComponent == ".." { continue }
             
-            // 解析文件信息
             guard let fileInfo = parseFileLine(components: components, currentDir: currentDir, basePath: basePath, isDirectory: isDirectory) else {
                 continue
             }
@@ -436,11 +349,9 @@ class ADBManager: ObservableObject {
             files.append(fileInfo)
         }
         
-        print("[ADBManager] parseFileListFromLs: 解析到 \(files.count) 个文件/目录")
         return files
     }
     
-    /// 解析 ls -laR 命令输出的文件列表（递归）
     private func parseFileListFromLsRecursive(output: String, basePath: String) -> [FileInfo] {
         var files: [FileInfo] = []
         var currentDir = basePath
@@ -448,67 +359,43 @@ class ADBManager: ObservableObject {
         let lines = output.components(separatedBy: .newlines)
         
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty {
-                continue
-            }
+            if Task.isCancelled { break }
             
-            // 检测目录行，格式如: "/storage/self/primary/DCIM:"
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            
             if trimmed.hasSuffix(":") && !trimmed.contains(" ") {
                 currentDir = String(trimmed.dropLast())
                 continue
             }
             
-            // 跳过 "total" 行
-            if trimmed.hasPrefix("total ") {
-                continue
-            }
-            
-            // 必须以权限字符串开头 (d/l/-/c/b 等)
-            guard let firstChar = trimmed.first,
-                  "dlcbsp-".contains(firstChar) else {
-                continue
-            }
-            
-            // 跳过符号链接 (以 'l' 开头)
-            if trimmed.hasPrefix("l") {
-                continue
-            }
+            if trimmed.hasPrefix("total ") { continue }
+            guard let firstChar = trimmed.first, "dlcbsp-".contains(firstChar) else { continue }
+            if trimmed.hasPrefix("l") { continue }
             
             let components = trimmed.split(separator: " ", omittingEmptySubsequences: true)
-            
-            guard components.count >= 7 else {
-                continue
-            }
+            guard components.count >= 7 else { continue }
             
             let permissions = String(components[0])
             let isDirectory = permissions.hasPrefix("d")
             
-            // 跳过 . 和 .. 目录
             let lastComponent = String(components.last ?? "")
-            if lastComponent == "." || lastComponent == ".." {
-                continue
-            }
+            if lastComponent == "." || lastComponent == ".." { continue }
             
-            // 解析文件信息
             guard let fileInfo = parseFileLine(components: components, currentDir: currentDir, basePath: basePath, isDirectory: isDirectory) else {
                 continue
             }
-            
             files.append(fileInfo)
         }
         
-        print("[ADBManager] parseFileListFromLsRecursive: 解析到 \(files.count) 个文件/目录")
         return files
     }
     
-    /// 解析单行文件信息
     private func parseFileLine(components: [String.SubSequence], currentDir: String, basePath: String, isDirectory: Bool) -> FileInfo? {
-        // 查找大小字段：从第3个开始找第一个纯数字字段
         var sizeIndex = -1
         for i in 3..<min(6, components.count) {
             let comp = String(components[i])
-            if let _ = Int64(comp), i + 1 < components.count {
+            if Int64(comp) != nil, i + 1 < components.count {
                 let nextComp = String(components[i + 1])
                 if nextComp.contains("-") || isMonthAbbreviation(nextComp) {
                     sizeIndex = i
@@ -517,46 +404,29 @@ class ADBManager: ObservableObject {
             }
         }
         
-        guard sizeIndex > 0 else {
-            return nil
-        }
+        guard sizeIndex > 0 else { return nil }
+        guard let size = Int64(components[sizeIndex]) else { return nil }
         
-        guard let size = Int64(components[sizeIndex]) else {
-            return nil
-        }
-        
-        // 确定文件名开始位置
         var fileNameStartIndex = sizeIndex + 3
-        
-        // 检查是否有时区字段
         if fileNameStartIndex < components.count {
             let possibleTimezone = String(components[fileNameStartIndex])
-            if possibleTimezone.hasPrefix("+") || possibleTimezone.hasPrefix("-") {
-                if possibleTimezone.count == 5, Int(possibleTimezone.dropFirst()) != nil {
-                    fileNameStartIndex += 1
-                }
+            if (possibleTimezone.hasPrefix("+") || possibleTimezone.hasPrefix("-")),
+               possibleTimezone.count == 5,
+               Int(possibleTimezone.dropFirst()) != nil {
+                fileNameStartIndex += 1
             }
         }
         
-        guard fileNameStartIndex < components.count else {
-            return nil
-        }
+        guard fileNameStartIndex < components.count else { return nil }
         
-        // 提取文件名
         var fileName = components[fileNameStartIndex...].joined(separator: " ")
-        
-        // 移除符号链接目标部分
         if let arrowRange = fileName.range(of: " -> ") {
             fileName = String(fileName[..<arrowRange.lowerBound])
         }
         
-        if fileName.isEmpty || fileName == "." || fileName == ".." {
-            return nil
-        }
+        if fileName.isEmpty || fileName == "." || fileName == ".." { return nil }
         
         let fullPath = "\(currentDir)/\(fileName)"
-        
-        // 解析日期
         let dateStr = "\(components[sizeIndex + 1]) \(components[sizeIndex + 2])"
         let modified = parseAndroidDate(dateStr)
         
@@ -576,13 +446,11 @@ class ADBManager: ObservableObject {
         )
     }
     
-    /// 检查是否是英文月份缩写
     private func isMonthAbbreviation(_ str: String) -> Bool {
         let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         return months.contains(str)
     }
     
-    /// 解析 Android 日期格式
     private func parseAndroidDate(_ dateStr: String) -> Date {
         let formatters: [DateFormatter] = {
             let formats = [
@@ -611,12 +479,12 @@ class ADBManager: ObservableObject {
         return Date()
     }
     
+    // MARK: - 可取消（立即 terminate/kill）的命令执行
+    
     private func executeCommand(arguments: [String], timeout: TimeInterval = 60) async throws -> String {
-        guard let adbPath = adbPath else {
-            throw ADBError.adbNotFound
-        }
+        if Task.isCancelled { throw CancellationError() }
+        guard let adbPath = adbPath else { throw ADBError.adbNotFound }
         
-        // 解析符号链接，获取真实路径
         let resolvedPath: String
         do {
             let url = URL(fileURLWithPath: adbPath)
@@ -625,55 +493,105 @@ class ADBManager: ObservableObject {
             resolvedPath = adbPath
         }
         
-        print("[ADBManager] executeCommand: \(resolvedPath) \(arguments.joined(separator: " "))")
+        // 共享引用：让取消处理能拿到正在运行的 Process
+        final class ProcessBox: @unchecked Sendable {
+            let lock = NSLock()
+            var process: Process?
+        }
+        let box = ProcessBox()
         
-        return try await withThrowingTaskGroup(of: String.self) { group in
-            // 添加执行任务
-            group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    self.queue.async {
-                        let process = Process()
+        let runTask = Task.detached(priority: .userInitiated) { () throws -> String in
+            try await withCheckedThrowingContinuation { continuation in
+                self.queue.async {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: resolvedPath)
+                    process.arguments = arguments
+                    
+                    let outputPipe = Pipe()
+                    let errorPipe = Pipe()
+                    process.standardOutput = outputPipe
+                    process.standardError = errorPipe
+                    
+                    box.lock.lock()
+                    box.process = process
+                    box.lock.unlock()
+                    
+                    do {
+                        try process.run()
+                        process.waitUntilExit()
                         
-                        process.executableURL = URL(fileURLWithPath: resolvedPath)
-                        process.arguments = arguments
+                        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                         
-                        let outputPipe = Pipe()
-                        let errorPipe = Pipe()
+                        let output = String(data: outputData, encoding: .utf8) ?? ""
+                        let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
                         
-                        process.standardOutput = outputPipe
-                        process.standardError = errorPipe
-                        
-                        do {
-                            try process.run()
-                            process.waitUntilExit()
-                            
-                            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                            
-                            if process.terminationStatus != 0 {
-                                let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-                                continuation.resume(throwing: ADBError.commandFailed(errorMessage))
-                                return
+                        if process.terminationStatus != 0 {
+                            // 如果是被我们 terminate/kill，视作取消
+                            if process.terminationStatus == 143 || process.terminationStatus == 137 {
+                                continuation.resume(throwing: CancellationError())
+                            } else {
+                                continuation.resume(throwing: ADBError.commandFailed(errorOutput.isEmpty ? output : errorOutput))
                             }
-                            
-                            let output = String(data: outputData, encoding: .utf8) ?? ""
-                            continuation.resume(returning: output)
-                        } catch {
-                            continuation.resume(throwing: ADBError.executionFailed(error.localizedDescription))
+                            return
+                        }
+                        
+                        continuation.resume(returning: output)
+                    } catch {
+                        // 如果在 run 之前就被取消并 terminate，也可能走到这里
+                        continuation.resume(throwing: ADBError.executionFailed(error.localizedDescription))
+                    }
+                }
+            }
+        }
+        
+        // timeout/取消 监控：任何一个先发生都要结束进程并返回
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withTaskCancellationHandler {
+                    try await runTask.value
+                } onCancel: {
+                    // 立即 terminate，必要时 kill
+                    box.lock.lock()
+                    let p = box.process
+                    box.lock.unlock()
+                    
+                    guard let p else { return }
+                    if p.isRunning {
+                        p.terminate()
+                        // 给一点时间让它退出，不退出就 kill
+                        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.2) {
+                            if p.isRunning {
+                                kill(p.processIdentifier, SIGKILL)
+                            }
                         }
                     }
                 }
             }
             
-            // 添加超时任务
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                
+                // 超时也 terminate/kill
+                box.lock.lock()
+                let p = box.process
+                box.lock.unlock()
+                
+                if let p, p.isRunning {
+                    p.terminate()
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.2) {
+                        if p.isRunning {
+                            kill(p.processIdentifier, SIGKILL)
+                        }
+                    }
+                }
+                
                 throw ADBError.commandFailed("命令执行超时（\(Int(timeout))秒）")
             }
             
-            // 返回第一个完成的结果（成功或失败）
             let result = try await group.next()!
             group.cancelAll()
+            runTask.cancel()
             return result
         }
     }
@@ -701,16 +619,13 @@ enum ADBError: LocalizedError {
         }
     }
 }
-// MARK: - ADB 安装状态
 
 enum ADBInstallationStatus {
     case installed(path: String)
     case notInstalled
     
     var isInstalled: Bool {
-        if case .installed = self {
-            return true
-        }
+        if case .installed = self { return true }
         return false
     }
 }
@@ -724,9 +639,7 @@ enum ADBTestResult {
     case executionError(String)
     
     var isWorking: Bool {
-        if case .working = self {
-            return true
-        }
+        if case .working = self { return true }
         return false
     }
     
@@ -748,12 +661,8 @@ enum ADBTestResult {
     }
 }
 
-// MARK: - ADB 安装指南
-
 struct ADBInstallationGuide {
-    
     static let homebrewInstallCommand = "brew install android-platform-tools"
-    
     static let manualDownloadURL = URL(string: "https://developer.android.com/tools/releases/platform-tools")!
     
     static let installationSteps: [InstallationStep] = [
@@ -804,11 +713,8 @@ struct ADBInstallationGuide {
         "/opt/homebrew/Caskroom/android-platform-tools/latest/platform-tools/adb"
     ]
     
-    /// 获取展开后的实际路径列表
     static var expandedSearchPaths: [String] {
-        searchedPaths.map { path in
-            NSString(string: path).expandingTildeInPath
-        }
+        searchedPaths.map { NSString(string: $0).expandingTildeInPath }
     }
     
     struct InstallationStep: Identifiable {

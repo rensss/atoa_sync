@@ -3,77 +3,78 @@ import Foundation
 class FileScanner {
     static let shared = FileScanner()
     
-    private let queue = DispatchQueue(label: "com.atoa.sync.scanner", qos: .userInitiated)
     private let fileManager = FileManager.default
     
     private init() {}
     
-    func scanLocalDirectory(at path: String, calculateHash: Bool = false, progressHandler: ((Int) -> Void)? = nil) async throws -> [FileInfo] {
-        return try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    var files: [FileInfo] = []
-                    let baseURL = URL(fileURLWithPath: path)
+    func scanLocalDirectory(
+        at path: String,
+        calculateHash shouldCalculateHash: Bool = false,
+        progressHandler: ((Int) -> Void)? = nil
+    ) async throws -> [FileInfo] {
+        var files: [FileInfo] = []
+        let baseURL = URL(fileURLWithPath: path)
+        
+        guard let enumerator = fileManager.enumerator(
+            at: baseURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            throw ScanError.cannotAccessDirectory
+        }
+        
+        var processedCount = 0
+        
+        for case let fileURL as URL in enumerator {
+            if Task.isCancelled { throw CancellationError() }
+            
+            do {
+                let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+                let isDirectory = resourceValues.isDirectory ?? false
+                
+                if !isDirectory {
+                    let size = Int64(resourceValues.fileSize ?? 0)
+                    let modified = resourceValues.contentModificationDate ?? Date()
+                    let relativePath = fileURL.path.replacingOccurrences(of: baseURL.path, with: "")
                     
-                    guard let enumerator = self.fileManager.enumerator(
-                        at: baseURL,
-                        includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
-                        options: [.skipsHiddenFiles, .skipsPackageDescendants]
-                    ) else {
-                        continuation.resume(throwing: ScanError.cannotAccessDirectory)
-                        return
+                    var hash: String?
+                    if shouldCalculateHash {
+                        if Task.isCancelled { throw CancellationError() }
+                        hash = try? calculateHash(for: fileURL, size: size)
                     }
                     
-                    var processedCount = 0
+                    let fileInfo = FileInfo(
+                        path: fileURL.path,
+                        relativePath: relativePath,
+                        size: size,
+                        modified: modified,
+                        hash: hash,
+                        isDirectory: false
+                    )
                     
-                    for case let fileURL as URL in enumerator {
-                        do {
-                            let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-                            
-                            let isDirectory = resourceValues.isDirectory ?? false
-                            
-                            if !isDirectory {
-                                let size = Int64(resourceValues.fileSize ?? 0)
-                                let modified = resourceValues.contentModificationDate ?? Date()
-                                let relativePath = fileURL.path.replacingOccurrences(of: baseURL.path, with: "")
-                                
-                                var hash: String?
-                                if calculateHash {
-                                    hash = try? self.calculateHash(for: fileURL, size: size)
-                                }
-                                
-                                let fileInfo = FileInfo(
-                                    path: fileURL.path,
-                                    relativePath: relativePath,
-                                    size: size,
-                                    modified: modified,
-                                    hash: hash,
-                                    isDirectory: false
-                                )
-                                
-                                files.append(fileInfo)
-                                
-                                processedCount += 1
-                                if processedCount % 100 == 0 {
-                                    DispatchQueue.main.async {
-                                        progressHandler?(processedCount)
-                                    }
-                                }
-                            }
-                        } catch {
-                            continue
-                        }
+                    files.append(fileInfo)
+                    
+                    processedCount += 1
+                    if processedCount % 100 == 0 {
+                        progressHandler?(processedCount)
                     }
-                    
-                    continuation.resume(returning: files)
-                } catch {
-                    continuation.resume(throwing: error)
                 }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
             }
         }
+        
+        return files
     }
     
-    func scanAndroidDevice(serialNumber: String, path: String, progressHandler: ((Int) -> Void)? = nil) async throws -> [FileInfo] {
+    func scanAndroidDevice(
+        serialNumber: String,
+        path: String,
+        progressHandler: ((Int) -> Void)? = nil
+    ) async throws -> [FileInfo] {
+        // ADBManager 内部 executeCommand 可取消后，这里直接调用即可
         return try await ADBManager.shared.listFiles(serialNumber: serialNumber, path: path)
     }
     

@@ -121,10 +121,13 @@ struct WiFiConnectionView: View {
         
         Task {
             do {
+                // 根据协议传递 FTP 的凭据（HTTP/HTTPS 忽略）
                 let device = try await wifiManager.connect(
                     host: host,
                     port: portNumber,
-                    protocol: selectedProtocol
+                    wifiProtocol: selectedProtocol,
+                    username: selectedProtocol == .ftp ? (ftpUsername.isEmpty ? nil : ftpUsername) : nil,
+                    password: selectedProtocol == .ftp ? (ftpPassword.isEmpty ? nil : ftpPassword) : nil
                 )
                 
                 await MainActor.run {
@@ -135,7 +138,18 @@ struct WiFiConnectionView: View {
             } catch {
                 await MainActor.run {
                     isConnecting = false
-                    errorMessage = error.localizedDescription
+                    // 更友好提示针对 FTP 的常见问题
+                    if let wifiErr = error as? WiFiError {
+                        errorMessage = wifiErr.errorDescription
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
+                    
+                    // 如果是 FTP 相关错误，补充说明
+                    if selectedProtocol == .ftp {
+                        errorMessage = (errorMessage ?? "") + "\n\n提示：请检查 FTP 服务是否启用、IP/端口是否正确，若需要用户名/密码请填写；某些 FTP 服务器需要被动模式或限制了匿名访问。"
+                    }
+                    
                     showError = true
                 }
             }

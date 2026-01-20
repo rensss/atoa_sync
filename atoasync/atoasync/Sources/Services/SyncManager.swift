@@ -17,16 +17,36 @@ actor SyncManager: ObservableObject {
     
     // MARK: - 同步任务管理
     
-    /// 开始同步任务
+    /// 开始同步任务（统一入口：支持文件/文件夹混合选择）
+    ///
+    /// - Parameters:
+    ///   - items: 用户选择的条目（可包含文件夹）
+    ///   - device: 源设备
+    ///   - sourceBasePath: 相对路径计算的基准路径（统一规则：一律相对扫描根，例如 /sdcard）
+    ///   - targetPath: 本地目标根目录
+    ///   - conflictResolution: 冲突处理策略
     func startSync(
-        files: [FileInfo],
+        items: [FileInfo],
         device: DeviceInfo,
+        sourceBasePath: String,
         targetPath: String,
         conflictResolution: ConflictResolution
     ) async throws {
+        // 统一展开：把选择项（包含目录）展开成最终文件列表
+        let allFiles = try await expandSelectionToFiles(
+            items: items,
+            device: device,
+            sourceBasePath: sourceBasePath
+        )
+        
+        guard !allFiles.isEmpty else {
+            LogManager.shared.log("没有文件需要同步", level: .warning, category: "Sync")
+            return
+        }
+        
         let task = await MainActor.run {
             SyncTask(
-                files: files,
+                files: allFiles,
                 sourceDevice: device,
                 targetPath: targetPath,
                 conflictResolution: conflictResolution
@@ -96,90 +116,59 @@ actor SyncManager: ObservableObject {
         }
     }
     
-    /// 浏览模式下的同步（支持文件夹递归同步）
-    func startBrowserSync(
-        files: [FileInfo],
+    // MARK: - 选择展开（文件夹递归 -> 文件列表）
+    
+    /// 将用户选择的文件/文件夹条目展开为最终要传输的文件列表，并统一计算 relativePath
+    private func expandSelectionToFiles(
+        items: [FileInfo],
         device: DeviceInfo,
-        sourcePath: String,
-        targetPath: String,
-        conflictResolution: ConflictResolution
-    ) async throws {
-        // 展开所有文件夹，获取完整的文件列表
+        sourceBasePath: String
+    ) async throws -> [FileInfo] {
         var allFiles: [FileInfo] = []
         
-        for file in files {
-            if file.isDirectory {
-                // 递归获取文件夹内所有文件
+        for item in items {
+            if item.isDirectory {
                 let dirFiles = try await expandDirectory(
-                    file: file,
+                    directory: item,
                     device: device,
-                    basePath: sourcePath
+                    sourceBasePath: sourceBasePath
                 )
                 allFiles.append(contentsOf: dirFiles)
             } else {
-                // 计算相对路径
-                var relativePath = file.path
-                if relativePath.hasPrefix(sourcePath) {
-                    relativePath = String(relativePath.dropFirst(sourcePath.count))
-                    if relativePath.hasPrefix("/") {
-                        relativePath = String(relativePath.dropFirst())
-                    }
-                }
-                
-                let adjustedFile = FileInfo(
-                    path: file.path,
-                    relativePath: relativePath,
-                    size: file.size,
-                    modified: file.modified,
-                    hash: file.hash,
-                    isDirectory: false
+                let relativePath = computeRelativePath(fullPath: item.path, basePath: sourceBasePath)
+                allFiles.append(
+                    FileInfo(
+                        path: item.path,
+                        relativePath: relativePath,
+                        size: item.size,
+                        modified: item.modified,
+                        hash: item.hash,
+                        isDirectory: false
+                    )
                 )
-                allFiles.append(adjustedFile)
             }
         }
         
-        guard !allFiles.isEmpty else {
-            LogManager.shared.log("没有文件需要同步", level: .warning, category: "Sync")
-            return
-        }
-        
-        LogManager.shared.log("浏览模式同步: 展开后共 \(allFiles.count) 个文件", level: .info, category: "Sync")
-        
-        // 使用标准同步流程
-        try await startSync(
-            files: allFiles,
-            device: device,
-            targetPath: targetPath,
-            conflictResolution: conflictResolution
-        )
+        return allFiles
     }
     
-    /// 递归展开文件夹，获取所有文件
+    /// 递归展开文件夹，获取所有文件（不包含目录本身）
     private func expandDirectory(
-        file: FileInfo,
+        directory: FileInfo,
         device: DeviceInfo,
-        basePath: String
+        sourceBasePath: String
     ) async throws -> [FileInfo] {
         var result: [FileInfo] = []
         
-        // 获取文件夹内容
         let contents = try await ADBManager.shared.listFilesRecursive(
             serialNumber: device.serialNumber,
-            path: file.path
+            path: directory.path
         )
         
-        for item in contents {
-            if !item.isDirectory {
-                // 计算相对路径
-                var relativePath = item.path
-                if relativePath.hasPrefix(basePath) {
-                    relativePath = String(relativePath.dropFirst(basePath.count))
-                    if relativePath.hasPrefix("/") {
-                        relativePath = String(relativePath.dropFirst())
-                    }
-                }
-                
-                let adjustedFile = FileInfo(
+        for item in contents where !item.isDirectory {
+            let relativePath = computeRelativePath(fullPath: item.path, basePath: sourceBasePath)
+            result.append(
+                FileInfo(
                     path: item.path,
                     relativePath: relativePath,
                     size: item.size,
@@ -187,11 +176,21 @@ actor SyncManager: ObservableObject {
                     hash: item.hash,
                     isDirectory: false
                 )
-                result.append(adjustedFile)
-            }
+            )
         }
         
         return result
+    }
+    
+    private func computeRelativePath(fullPath: String, basePath: String) -> String {
+        var relativePath = fullPath
+        if relativePath.hasPrefix(basePath) {
+            relativePath = String(relativePath.dropFirst(basePath.count))
+            if relativePath.hasPrefix("/") {
+                relativePath = String(relativePath.dropFirst())
+            }
+        }
+        return relativePath
     }
     
     // MARK: - 并行同步执行
@@ -230,7 +229,7 @@ actor SyncManager: ObservableObject {
             }
             
             // 处理完成的任务并添加新任务
-            for try await (completedIndex, fileSize) in group {
+            for try await (_, fileSize) in group {
                 // 检查取消和暂停状态
                 if taskCancellations[task.id] == true {
                     group.cancelAll()
