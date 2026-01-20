@@ -13,6 +13,7 @@ class MainViewModel: ObservableObject {
         }
     }
     @Published var deviceFiles: [FileInfo] = []
+    private var allDeviceFiles: [FileInfo] = []
     @Published var localFiles: [FileInfo] = []
     @Published var diffResult: DiffResult?
     @Published var selectedFiles: Set<String> = []
@@ -25,7 +26,9 @@ class MainViewModel: ObservableObject {
     }
     @Published var isScanning: Bool = false
     @Published var isComparing: Bool = false
-    @Published var isSyncing: Bool = false
+    @Published var isSyncing: Bool = false // Kept for monitoring completion
+    @Published var activeSyncTask: SyncTask?
+    @Published var lastSyncResult: SyncHistoryEntry?
     @Published var errorMessage: String?
     @Published var showError: Bool = false
     @Published var scanProgress: Int = 0
@@ -38,7 +41,6 @@ class MainViewModel: ObservableObject {
     @Published var currentDevicePath: String = "/sdcard"
     @Published var pathHistory: [String] = []
     @Published var isLoadingDirectory: Bool = false
-    @Published var isBrowsingMode: Bool = false
     @Published var directorySizes: [String: Int64] = [:]
     @Published var loadingDirectorySizes: Set<String> = []
     @Published var failedDirectorySizes: Set<String> = []
@@ -61,11 +63,17 @@ class MainViewModel: ObservableObject {
     private var resolvedScanRootPathBySerial: [String: String] = [:]
     
     private var scanTask: Task<Void, Never>?
+    private var directoryLoadTask: Task<Void, Never>?
     
     init() {
         self.targetPath = configManager.config.defaultTargetPath
         self.conflictResolution = configManager.config.conflictResolution
         setupDeviceMonitoring()
+        setupSyncMonitoring()
+    }
+    
+    var isBrowsing: Bool {
+        currentDevicePath != scanRootPath
     }
     
     // MARK: - 取消扫描
@@ -77,7 +85,7 @@ class MainViewModel: ObservableObject {
         logManager.log("用户取消扫描", level: .info, category: "Scan")
     }
     
-    // MARK: - 设备监控
+    // MARK: - 设备与同步监控
     
     private func setupDeviceMonitoring() {
         NotificationCenter.default.publisher(for: .deviceConnected)
@@ -103,6 +111,27 @@ class MainViewModel: ObservableObject {
             }
             .store(in: &cancellables)
     }
+
+    private func setupSyncMonitoring() {
+        syncManager.$activeTasks
+            .receive(on: DispatchQueue.main)
+            .map(\.first) // Assuming one sync task at a time for this UI
+            .assign(to: &$activeSyncTask)
+
+        // When a sync task disappears but we were in a syncing state, show the result.
+        $activeSyncTask
+            .combineLatest($isSyncing)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] task, syncing in
+                guard let self = self else { return }
+                if task == nil && syncing {
+                    // Sync just finished.
+                    self.isSyncing = false
+                    self.lastSyncResult = SyncHistoryManager.shared.history.first
+                }
+            }
+            .store(in: &cancellables)
+    }
     
     private func handleDeviceConnected(_ device: DeviceInfo) {
         logManager.log("设备已连接: \(device.displayName)", level: .info, category: "Device")
@@ -117,12 +146,12 @@ class MainViewModel: ObservableObject {
         let deviceName = selectedDevice?.displayName ?? serial
         logManager.log("当前设备已断开: \(deviceName)", level: .warning, category: "Device")
         
-        if isSyncing {
+        if activeSyncTask != nil {
             wasSyncingWhenDisconnected = true
             disconnectedDeviceName = deviceName
             showDeviceDisconnectedAlert = true
             
-            Task { await syncManager.cancelAllSyncs() }
+            syncManager.cancelAllSyncs()
             logManager.log("同步已中断：设备断开连接", level: .error, category: "Sync")
         } else {
             wasSyncingWhenDisconnected = false
@@ -130,8 +159,8 @@ class MainViewModel: ObservableObject {
             showDeviceDisconnectedAlert = true
         }
         
-        // 断开时也取消扫描
         cancelScanning()
+        directoryLoadTask?.cancel()
         
         selectedDevice = nil
         clearScanResults()
@@ -177,7 +206,6 @@ class MainViewModel: ObservableObject {
             return
         }
         
-        // 若已有扫描，先取消
         cancelScanning()
         
         scanTask = Task { [weak self] in
@@ -189,6 +217,7 @@ class MainViewModel: ObservableObject {
                 self.selectedFiles.removeAll()
                 self.diffResult = nil
                 self.deviceFiles = []
+                self.allDeviceFiles = []
                 self.localFiles = []
             }
             
@@ -199,13 +228,13 @@ class MainViewModel: ObservableObject {
             }
             
             do {
-                let resolvedBase = try await resolveScanRootPath(for: device)
-                logManager.log("扫描根路径: \(scanRootPath) -> \(resolvedBase)", level: .debug, category: "Scan")
+                _ = try await resolveScanRootPath(for: device)
+                logManager.log("扫描根路径: \(scanRootPath)", level: .debug, category: "Scan")
                 
                 if Task.isCancelled { throw CancellationError() }
                 logManager.log("开始扫描设备文件...", level: .info, category: "Scan")
                 
-                let deviceFiles = try await fileScanner.scanAndroidDevice(
+                let deviceFilesResult = try await fileScanner.scanAndroidDevice(
                     serialNumber: device.serialNumber,
                     path: scanRootPath
                 ) { progress in
@@ -215,12 +244,12 @@ class MainViewModel: ObservableObject {
                 }
                 
                 if Task.isCancelled { throw CancellationError() }
-                logManager.log("设备扫描完成，发现 \(deviceFiles.count) 个文件/目录", level: .info, category: "Scan")
+                logManager.log("设备扫描完成，发现 \(deviceFilesResult.count) 个文件/目录", level: .info, category: "Scan")
                 
                 if Task.isCancelled { throw CancellationError() }
                 logManager.log("开始扫描本地文件...", level: .info, category: "Scan")
                 
-                let localFiles = try await fileScanner.scanLocalDirectory(
+                let localFilesResult = try await fileScanner.scanLocalDirectory(
                     at: targetPath,
                     calculateHash: configManager.config.enableHashComparison
                 ) { progress in
@@ -230,11 +259,11 @@ class MainViewModel: ObservableObject {
                 }
                 
                 if Task.isCancelled { throw CancellationError() }
-                logManager.log("本地扫描完成，发现 \(localFiles.count) 个文件", level: .info, category: "Scan")
+                logManager.log("本地扫描完成，发现 \(localFilesResult.count) 个文件", level: .info, category: "Scan")
                 
                 await MainActor.run {
-                    self.deviceFiles = deviceFiles
-                    self.localFiles = localFiles
+                    self.allDeviceFiles = deviceFilesResult
+                    self.localFiles = localFilesResult
                 }
                 
                 await compareDifferences()
@@ -266,7 +295,7 @@ class MainViewModel: ObservableObject {
         logManager.log("开始比对文件差异...", level: .info, category: "Diff")
         
         let result = await diffEngine.compare(
-            deviceFiles: deviceFiles,
+            deviceFiles: allDeviceFiles,
             localFiles: localFiles,
             useHash: configManager.config.enableHashComparison
         )
@@ -288,31 +317,22 @@ class MainViewModel: ObservableObject {
             return
         }
         
+        lastSyncResult = nil
+        isSyncing = true
+        
         Task {
-            isSyncing = true
-            defer { isSyncing = false }
-            
             do {
                 let resolvedBase = try await resolveScanRootPath(for: device)
                 
-                let selectedItems: [FileInfo]
+                // Determine the source list of files based on browsing state
+                let sourceFileList = isBrowsing ? deviceFiles : allDeviceFiles
                 
-                if isBrowsingMode {
-                    selectedItems = deviceFiles.filter { file in
-                        let key = relativeKey(forDeviceFullPath: file.path, resolvedBasePath: resolvedBase)
-                        return selectedFiles.contains(key)
-                    }
-                } else {
-                    guard let diff = diffResult else {
-                        showErrorAlert("请先进行差异比对")
-                        return
-                    }
-                    let candidates = diff.newFiles + diff.modifiedFiles
-                    selectedItems = candidates.filter { selectedFiles.contains(normalizeRelativeKey($0.relativePath)) }
-                }
-                
+                let allFilesMap = Dictionary(sourceFileList.map { (normalizeRelativeKey($0.relativePath), $0) }, uniquingKeysWith: { (first, _) in first })
+                let selectedItems = selectedFiles.compactMap { allFilesMap[$0] }
+
                 guard !selectedItems.isEmpty else {
                     showErrorAlert("请选择要同步的文件或文件夹")
+                    isSyncing = false
                     return
                 }
                 
@@ -326,17 +346,37 @@ class MainViewModel: ObservableObject {
                     conflictResolution: conflictResolution
                 )
                 
-                logManager.log("同步完成", level: .info, category: "Sync")
+                logManager.log("同步任务已提交", level: .info, category: "Sync")
                 configManager.updateLastSyncPath(targetPath, for: device.serialNumber)
                 
-                if !isBrowsingMode {
+                if !isBrowsing {
                     await compareDifferences()
                 }
                 
             } catch {
                 handleError(error, message: "同步失败")
+                isSyncing = false // Manually reset on pre-flight failure
             }
         }
+    }
+
+    func pauseSync() {
+        guard let task = activeSyncTask else { return }
+        Task { await syncManager.pauseSync(taskId: task.id) }
+    }
+
+    func resumeSync() {
+        guard let task = activeSyncTask else { return }
+        Task { try? await syncManager.resumeSync(taskId: task.id) }
+    }
+
+    func cancelSync() {
+        guard let task = activeSyncTask else { return }
+        Task { await syncManager.cancelSync(taskId: task.id) }
+    }
+
+    func dismissSyncResult() {
+        lastSyncResult = nil
     }
     
     // MARK: - Selection
@@ -378,6 +418,7 @@ class MainViewModel: ObservableObject {
     // MARK: - 清理
     
     private func clearScanResults() {
+        allDeviceFiles = []
         deviceFiles = []
         localFiles = []
         diffResult = nil
@@ -386,7 +427,7 @@ class MainViewModel: ObservableObject {
         
         currentDevicePath = scanRootPath
         pathHistory = []
-        isBrowsingMode = false
+        directoryLoadTask?.cancel()
         
         directorySizes = [:]
         loadingDirectorySizes = []
@@ -421,21 +462,21 @@ class MainViewModel: ObservableObject {
     func loadCurrentDirectory() {
         guard let device = selectedDevice else { return }
         
-        isBrowsingMode = true
+        directoryLoadTask?.cancel()
         
-        Task {
+        directoryLoadTask = Task {
             isLoadingDirectory = true
             defer { isLoadingDirectory = false }
             
             do {
                 _ = try await resolveScanRootPath(for: device)
                 
-                deviceFiles = try await adbManager.listFiles(
+                let files = try await adbManager.listFiles(
                     serialNumber: device.serialNumber,
                     path: currentDevicePath
                 )
                 
-                deviceFiles.sort { file1, file2 in
+                deviceFiles = files.sorted { file1, file2 in
                     if file1.isDirectory != file2.isDirectory {
                         return file1.isDirectory
                     }
@@ -445,18 +486,23 @@ class MainViewModel: ObservableObject {
                 loadAllDirectorySizes()
                 
             } catch is CancellationError {
-                // ignore
+                logManager.log("目录加载已取消: \(currentDevicePath)", level: .info, category: "Browse")
             } catch {
                 handleError(error, message: "加载目录失败")
             }
         }
     }
     
+    func cancelLoadingDirectory() {
+        directoryLoadTask?.cancel()
+        isLoadingDirectory = false
+        logManager.log("用户取消目录加载", level: .info, category: "Browse")
+    }
+    
     func exitBrowsingMode() {
-        isBrowsingMode = false
-        deviceFiles = []
         currentDevicePath = scanRootPath
         pathHistory = []
+        deviceFiles = []
         
         directorySizes = [:]
         loadingDirectorySizes = []

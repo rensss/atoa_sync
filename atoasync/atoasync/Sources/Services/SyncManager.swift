@@ -3,15 +3,18 @@ import Combine
 import AppKit
 
 /// 同步管理器 - 负责文件同步任务的调度和执行
-actor SyncManager: ObservableObject {
+@MainActor
+class SyncManager: ObservableObject {
     static let shared = SyncManager()
     
-    @MainActor @Published var activeTasks: [SyncTask] = []
-    @MainActor @Published var completedTasks: [SyncTask] = []
+    @Published var activeTasks: [SyncTask] = []
+    @Published var completedTasks: [SyncTask] = []
+    @Published var isPreparing: Bool = false
     
     private var taskCancellations: [UUID: Bool] = [:]
     private var taskPauses: [UUID: Bool] = [:]
     private var resumeStates: [UUID: ResumeState] = [:]
+    private var taskWideConflictResolution: [UUID: ConflictResolution] = [:]
     
     private init() {}
     
@@ -32,6 +35,9 @@ actor SyncManager: ObservableObject {
         targetPath: String,
         conflictResolution: ConflictResolution
     ) async throws {
+        isPreparing = true
+        defer { isPreparing = false }
+
         // 统一展开：把选择项（包含目录）展开成最终文件列表
         let allFiles = try await expandSelectionToFiles(
             items: items,
@@ -41,74 +47,65 @@ actor SyncManager: ObservableObject {
         
         guard !allFiles.isEmpty else {
             LogManager.shared.log("没有文件需要同步", level: .warning, category: "Sync")
-            return
+            throw SyncError.noFilesToSync
         }
         
-        let task = await MainActor.run {
-            SyncTask(
-                files: allFiles,
-                sourceDevice: device,
-                targetPath: targetPath,
-                conflictResolution: conflictResolution
-            )
-        }
+        let task = SyncTask(
+            files: allFiles,
+            sourceDevice: device,
+            targetPath: targetPath,
+            conflictResolution: conflictResolution
+        )
         
         taskCancellations[task.id] = false
         taskPauses[task.id] = false
+        // 清理之前可能存在的任务范围冲突解决策略
+        taskWideConflictResolution.removeValue(forKey: task.id)
         
-        await MainActor.run {
-            self.activeTasks.append(task)
-            StatusBarManager.shared.startSyncing()
-        }
+        self.activeTasks.append(task)
+        StatusBarManager.shared.startSyncing()
         
         do {
             try await performSync(task: task)
             
-            await MainActor.run {
-                task.status = .completed
-                self.activeTasks.removeAll { $0.id == task.id }
-                self.completedTasks.append(task)
-            }
+            task.status = .completed
+            self.activeTasks.removeAll { $0.id == task.id }
+            self.completedTasks.append(task)
             
             // 保存同步缓存
-            await saveSyncCache(task: task)
+            saveSyncCache(task: task)
             
             // 记录同步历史
             let duration = Date().timeIntervalSince(task.startTime)
             SyncHistoryManager.shared.addFromTask(task, duration: duration)
             
             // 更新菜单栏状态
-            await StatusBarManager.shared.stopSyncing(success: true)
+            StatusBarManager.shared.stopSyncing(success: true)
             
             LogManager.shared.log("同步完成: \(task.processedFiles) 个文件", level: .info, category: "Sync")
             NotificationCenter.default.post(name: .syncCompleted, object: task)
             
         } catch SyncError.cancelled {
-            await MainActor.run {
-                task.status = .cancelled
-                self.activeTasks.removeAll { $0.id == task.id }
-            }
+            task.status = .cancelled
+            self.activeTasks.removeAll { $0.id == task.id }
+            taskWideConflictResolution.removeValue(forKey: task.id)
             LogManager.shared.log("同步已取消", level: .info, category: "Sync")
             
         } catch SyncError.paused {
             // 暂停时保存续传状态
-            await MainActor.run {
-                task.status = .paused
-            }
+            task.status = .paused
             LogManager.shared.log("同步已暂停", level: .info, category: "Sync")
             
         } catch {
-            await MainActor.run {
-                task.status = .failed
-                task.error = error
-            }
+            task.status = .failed
+            task.error = error
             
             // 记录失败历史
             let duration = Date().timeIntervalSince(task.startTime)
             SyncHistoryManager.shared.addFromTask(task, duration: duration)
             
             // 更新菜单栏状态
-            await StatusBarManager.shared.stopSyncing(success: false)
+            StatusBarManager.shared.stopSyncing(success: false)
             
             LogManager.shared.log("同步失败: \(error.localizedDescription)", level: .error, category: "Sync")
             NotificationCenter.default.post(name: .syncFailed, object: error)
@@ -126,27 +123,37 @@ actor SyncManager: ObservableObject {
     ) async throws -> [FileInfo] {
         var allFiles: [FileInfo] = []
         
-        for item in items {
-            if item.isDirectory {
-                let dirFiles = try await expandDirectory(
-                    directory: item,
-                    device: device,
-                    sourceBasePath: sourceBasePath
-                )
-                allFiles.append(contentsOf: dirFiles)
-            } else {
-                let relativePath = computeRelativePath(fullPath: item.path, basePath: sourceBasePath)
-                allFiles.append(
-                    FileInfo(
-                        path: item.path,
-                        relativePath: relativePath,
-                        size: item.size,
-                        modified: item.modified,
-                        hash: item.hash,
-                        isDirectory: false
+        try await withThrowingTaskGroup(of: [FileInfo].self) { group in
+            var standaloneFiles: [FileInfo] = []
+            
+            for item in items {
+                if item.isDirectory {
+                    group.addTask {
+                        try await self.expandDirectory(
+                            directory: item,
+                            device: device,
+                            sourceBasePath: sourceBasePath
+                        )
+                    }
+                } else {
+                    let relativePath = self.computeRelativePath(fullPath: item.path, basePath: sourceBasePath)
+                    standaloneFiles.append(
+                        FileInfo(
+                            path: item.path,
+                            relativePath: relativePath,
+                            size: item.size,
+                            modified: item.modified,
+                            hash: item.hash,
+                            isDirectory: false
+                        )
                     )
-                )
+                }
             }
+            
+            for try await filesInDir in group {
+                allFiles.append(contentsOf: filesInDir)
+            }
+            allFiles.append(contentsOf: standaloneFiles)
         }
         
         return allFiles
@@ -196,11 +203,9 @@ actor SyncManager: ObservableObject {
     // MARK: - 并行同步执行
     
     private func performSync(task: SyncTask) async throws {
-        await MainActor.run {
-            task.status = .running
-        }
+        task.status = .running
         
-        let maxConcurrent = await MainActor.run { ConfigManager.shared.config.maxConcurrentTransfers }
+        let maxConcurrent = ConfigManager.shared.config.maxConcurrentTransfers
         let startIndex = resumeStates[task.id]?.completedIndex ?? 0
         let remainingFiles = Array(task.files.dropFirst(startIndex))
         
@@ -250,11 +255,9 @@ actor SyncManager: ObservableObject {
                 activeCount -= 1
                 
                 // 更新进度
-                await MainActor.run {
-                    task.bytesTransferred += fileSize
-                    task.processedFiles = completedCount
-                    task.progress = Double(completedCount) / Double(task.totalFiles)
-                }
+                task.bytesTransferred += fileSize
+                task.processedFiles = completedCount
+                task.progress = Double(completedCount) / Double(task.totalFiles)
                 
                 // 更新速度（每秒更新一次）
                 let now = Date()
@@ -263,12 +266,10 @@ actor SyncManager: ObservableObject {
                     let timeDiff = now.timeIntervalSince(lastSpeedUpdate)
                     let speed = Double(bytesDiff) / timeDiff
                     
-                    await MainActor.run {
-                        task.speed = speed
-                        let remainingBytes = task.totalBytes - task.bytesTransferred
-                        if speed > 0 {
-                            task.estimatedTimeRemaining = Double(remainingBytes) / speed
-                        }
+                    task.speed = speed
+                    let remainingBytes = task.totalBytes - task.bytesTransferred
+                    if speed > 0 {
+                        task.estimatedTimeRemaining = Double(remainingBytes) / speed
                     }
                     
                     lastSpeedUpdate = now
@@ -291,16 +292,15 @@ actor SyncManager: ObservableObject {
             }
         }
         
-        // 清理续传状态
+        // 清理续传和冲突解决状态
         resumeStates.removeValue(forKey: task.id)
+        taskWideConflictResolution.removeValue(forKey: task.id)
     }
     
     // MARK: - 单文件传输
     
     private func transferFile(file: FileInfo, index: Int, task: SyncTask) async throws {
-        await MainActor.run {
-            task.currentFile = file.relativePath
-        }
+        task.currentFile = file.relativePath
         
         let targetFileURL = URL(fileURLWithPath: task.targetPath)
             .appendingPathComponent(file.relativePath)
@@ -344,7 +344,7 @@ actor SyncManager: ObservableObject {
             }
         case .wifi:
             // 使用 WiFi 传输
-            let connectedDevices = await MainActor.run { WiFiManager.shared.connectedDevices }
+            let connectedDevices = WiFiManager.shared.connectedDevices
             if let wifiDevice = connectedDevices.first(where: {
                 $0.host == task.sourceDevice.serialNumber.components(separatedBy: ":").first
             }) {
@@ -363,12 +363,28 @@ actor SyncManager: ObservableObject {
     
     // MARK: - 冲突处理
     
+    private enum UserConflictChoice {
+        case overwrite, skip, overwriteAll, skipAll
+    }
+    
     private func handleConflict(
         file: FileInfo,
         targetPath: String,
         resolution: ConflictResolution,
         task: SyncTask
     ) async throws -> Bool {
+        // 检查任务范围内的冲突解决策略
+        if let taskResolution = self.taskWideConflictResolution[task.id] {
+            switch taskResolution {
+            case .overwrite:
+                return true
+            case .skip:
+                return false
+            default:
+                break
+            }
+        }
+        
         switch resolution {
         case .overwrite:
             return true
@@ -384,7 +400,19 @@ actor SyncManager: ObservableObject {
             return true
             
         case .askEachTime:
-            return await askUserForConflictResolution(file: file, targetPath: targetPath)
+            let choice = await askUserForConflictResolution(file: file)
+            switch choice {
+            case .overwrite:
+                return true
+            case .skip:
+                return false
+            case .overwriteAll:
+                self.taskWideConflictResolution[task.id] = .overwrite
+                return true
+            case .skipAll:
+                self.taskWideConflictResolution[task.id] = .skip
+                return false
+            }
         }
     }
     
@@ -407,27 +435,35 @@ actor SyncManager: ObservableObject {
         return newPath
     }
     
-    @MainActor
-    private func askUserForConflictResolution(file: FileInfo, targetPath: String) async -> Bool {
+    private func askUserForConflictResolution(file: FileInfo) async -> UserConflictChoice {
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+            LogManager.shared.log("无法显示冲突对话框，因为没有活动的窗口。默认跳过文件: \(file.relativePath)", level: .warning, category: "Sync")
+            return .skip
+        }
+        
         return await withCheckedContinuation { continuation in
             let alert = NSAlert()
             alert.messageText = "文件冲突"
-            alert.informativeText = "文件 \(file.relativePath) 已存在。\n\n是否覆盖？"
+            alert.informativeText = "文件 “\(file.relativePath)” 已存在。您要怎么做？"
             alert.alertStyle = .warning
             alert.addButton(withTitle: "覆盖")
             alert.addButton(withTitle: "跳过")
             alert.addButton(withTitle: "全部覆盖")
             alert.addButton(withTitle: "全部跳过")
             
-            let response = alert.runModal()
-            
-            switch response {
-            case .alertFirstButtonReturn:
-                continuation.resume(returning: true)
-            case .alertSecondButtonReturn:
-                continuation.resume(returning: false)
-            default:
-                continuation.resume(returning: false)
+            alert.beginSheetModal(for: window) { response in
+                switch response {
+                case .alertFirstButtonReturn:
+                    continuation.resume(returning: .overwrite)
+                case .alertSecondButtonReturn:
+                    continuation.resume(returning: .skip)
+                case .alertThirdButtonReturn:
+                    continuation.resume(returning: .overwriteAll)
+                case NSApplication.ModalResponse(1003):
+                    continuation.resume(returning: .skipAll)
+                default:
+                    continuation.resume(returning: .skip)
+                }
             }
         }
     }
@@ -446,22 +482,20 @@ actor SyncManager: ObservableObject {
         }
     }
     
-    private func saveSyncCache(task: SyncTask) async {
-        await MainActor.run {
-            var cache = ConfigManager.shared.loadCache() ?? SyncCache()
-            var deviceCache = cache.deviceCaches[task.sourceDevice.serialNumber]
-                ?? DeviceCache(deviceSerial: task.sourceDevice.serialNumber)
-            
-            for file in task.files {
-                deviceCache.files[file.relativePath] = CachedFileInfo(from: file)
-            }
-            deviceCache.lastSyncDate = Date()
-            
-            cache.deviceCaches[task.sourceDevice.serialNumber] = deviceCache
-            cache.lastUpdated = Date()
-            
-            ConfigManager.shared.saveCache(cache)
+    private func saveSyncCache(task: SyncTask) {
+        var cache = ConfigManager.shared.loadCache() ?? SyncCache()
+        var deviceCache = cache.deviceCaches[task.sourceDevice.serialNumber]
+            ?? DeviceCache(deviceSerial: task.sourceDevice.serialNumber)
+        
+        for file in task.files {
+            deviceCache.files[file.relativePath] = CachedFileInfo(from: file)
         }
+        deviceCache.lastSyncDate = Date()
+        
+        cache.deviceCaches[task.sourceDevice.serialNumber] = deviceCache
+        cache.lastUpdated = Date()
+        
+        ConfigManager.shared.saveCache(cache)
     }
     
     // MARK: - 任务控制
@@ -474,7 +508,7 @@ actor SyncManager: ObservableObject {
     
     /// 恢复同步任务
     func resumeSync(taskId: UUID) async throws {
-        guard let task = await MainActor.run(body: { activeTasks.first(where: { $0.id == taskId }) }) else {
+        guard let task = activeTasks.first(where: { $0.id == taskId }) else {
             throw SyncError.taskNotFound
         }
         
@@ -485,47 +519,32 @@ actor SyncManager: ObservableObject {
         
         try await performSync(task: task)
         
-        await MainActor.run {
-            task.status = .completed
-            self.activeTasks.removeAll { $0.id == taskId }
-            self.completedTasks.append(task)
-        }
+        task.status = .completed
+        self.activeTasks.removeAll { $0.id == taskId }
+        self.completedTasks.append(task)
     }
     
     /// 取消同步任务
     func cancelSync(taskId: UUID) {
         taskCancellations[taskId] = true
         resumeStates.removeValue(forKey: taskId)
+        taskWideConflictResolution.removeValue(forKey: taskId)
         
-        Task { @MainActor in
-            if let task = activeTasks.first(where: { $0.id == taskId }) {
-                task.status = .cancelled
-            }
-            activeTasks.removeAll { $0.id == taskId }
+        if let task = activeTasks.first(where: { $0.id == taskId }) {
+            task.status = .cancelled
         }
+        activeTasks.removeAll { $0.id == taskId }
         
         LogManager.shared.log("取消同步任务", level: .info, category: "Sync")
     }
     
     /// 取消所有同步任务
     func cancelAllSyncs() {
-        for taskId in taskCancellations.keys {
-            taskCancellations[taskId] = true
-        }
-        resumeStates.removeAll()
-        
-        Task { @MainActor in
-            for task in activeTasks {
-                task.status = .cancelled
-            }
-            activeTasks.removeAll()
-        }
-        
-        LogManager.shared.log("取消所有同步任务", level: .info, category: "Sync")
+        let taskIds = activeTasks.map { $0.id }
+        taskIds.forEach { cancelSync(taskId: $0) }
     }
     
     /// 清除已完成的任务
-    @MainActor
     func clearCompletedTasks() {
         completedTasks.removeAll()
     }
@@ -548,6 +567,7 @@ enum SyncError: LocalizedError {
     case fileNotFound
     case transferFailed(String)
     case hashMismatch
+    case noFilesToSync
     
     var errorDescription: String? {
         switch self {
@@ -569,6 +589,8 @@ enum SyncError: LocalizedError {
             return "传输失败: \(message)"
         case .hashMismatch:
             return "文件校验失败"
+        case .noFilesToSync:
+            return "没有需要同步的文件。您选择的文件夹可能是空的。"
         }
     }
 }

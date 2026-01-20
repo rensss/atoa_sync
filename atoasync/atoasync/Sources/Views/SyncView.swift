@@ -13,7 +13,18 @@ struct SyncView: View {
             Divider()
 
             // 主内容区状态机
-            if viewModel.selectedDevice == nil {
+            if let task = viewModel.activeSyncTask {
+                SyncingView(
+                    syncTask: task,
+                    onPause: { viewModel.pauseSync() },
+                    onResume: { viewModel.resumeSync() },
+                    onCancel: { viewModel.cancelSync() }
+                )
+            } else if let result = viewModel.lastSyncResult {
+                SyncCompleteView(result: result) {
+                    viewModel.dismissSyncResult()
+                }
+            } else if viewModel.selectedDevice == nil {
                 NoDeviceSelectedPlaceholder()
             } else if viewModel.targetPath.isEmpty {
                 NoTargetPathPlaceholder(viewModel: viewModel)
@@ -23,31 +34,31 @@ struct SyncView: View {
                 }
             } else if viewModel.isComparing {
                 ComparingView()
-            } else if viewModel.isLoadingDirectory {
-                LoadingDirectoryView()
-            } else if viewModel.isBrowsingMode {
-                DeviceBrowserView(viewModel: viewModel)
             } else if let diff = viewModel.filteredDiffResult {
-                VStack(spacing: 0) {
-                    // 过滤栏（替代缺失的 FilterBar）
-                    FilterBarInline(
-                        searchText: $viewModel.searchText,
-                        selectedDiffType: $selectedDiffType,
-                        selectedFileTypes: $viewModel.selectedFileTypes
-                    )
+                if viewModel.isBrowsing {
+                    DeviceBrowserView(viewModel: viewModel)
+                } else {
+                    VStack(spacing: 0) {
+                        // 过滤栏（替代缺失的 FilterBar）
+                        FilterBarInline(
+                            searchText: $viewModel.searchText,
+                            selectedDiffType: $selectedDiffType,
+                            selectedFileTypes: $viewModel.selectedFileTypes
+                        )
 
-                    Divider()
+                        Divider()
 
-                    DiffResultView(
-                        diffResult: diff,
-                        selectedDiffType: selectedDiffType,
-                        selectedFiles: $viewModel.selectedFiles,
-                        onToggleSelection: viewModel.toggleFileSelection,
-                        onDirectoryTap: { file in
-                            viewModel.enterDirectory(file)
-                        },
-                        viewModel: viewModel // 注入 viewModel 以便获取目录大小
-                    )
+                        DiffResultView(
+                            diffResult: diff,
+                            selectedDiffType: selectedDiffType,
+                            selectedFiles: $viewModel.selectedFiles,
+                            onToggleSelection: viewModel.toggleFileSelection,
+                            onDirectoryTap: { file in
+                                viewModel.enterDirectory(file)
+                            },
+                            viewModel: viewModel // 注入 viewModel 以便获取目录大小
+                        )
+                    }
                 }
             } else {
                 ReadyToScanPlaceholder(viewModel: viewModel)
@@ -105,7 +116,7 @@ private struct SyncHeaderBar: View {
                 Label("扫描并比对", systemImage: "doc.text.magnifyingglass")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.selectedDevice == nil || viewModel.targetPath.isEmpty || viewModel.isScanning)
+            .disabled(viewModel.selectedDevice == nil || viewModel.targetPath.isEmpty || viewModel.isScanning || viewModel.activeSyncTask != nil)
 
             Button {
                 viewModel.loadCurrentDirectory()
@@ -113,7 +124,7 @@ private struct SyncHeaderBar: View {
                 Label("浏览设备", systemImage: "folder")
             }
             .buttonStyle(.bordered)
-            .disabled(viewModel.selectedDevice == nil || viewModel.isLoadingDirectory)
+            .disabled(viewModel.selectedDevice == nil || viewModel.isLoadingDirectory || viewModel.activeSyncTask != nil)
 
             Button {
                 viewModel.startSync()
@@ -121,7 +132,7 @@ private struct SyncHeaderBar: View {
                 Label("开始同步", systemImage: "arrow.down.circle.fill")
             }
             .buttonStyle(.bordered)
-            .disabled(viewModel.selectedFiles.isEmpty || viewModel.isSyncing || viewModel.targetPath.isEmpty)
+            .disabled(viewModel.selectedFiles.isEmpty || viewModel.activeSyncTask != nil || viewModel.targetPath.isEmpty)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -271,12 +282,12 @@ private struct SyncStatusBarInline: View {
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if viewModel.isScanning {
+                if let task = viewModel.activeSyncTask {
+                    Label("\(task.status.rawValue)…", systemImage: "arrow.down.circle")
+                } else if viewModel.isScanning {
                     Label("扫描中… \(viewModel.scanProgress)", systemImage: "magnifyingglass")
                 } else if viewModel.isComparing {
                     Label("比对中…", systemImage: "arrow.triangle.2.circlepath")
-                } else if viewModel.isSyncing {
-                    Label("同步中…", systemImage: "arrow.down.circle")
                 } else {
                     Label("就绪", systemImage: "checkmark.circle")
                 }
@@ -286,7 +297,7 @@ private struct SyncStatusBarInline: View {
 
             Spacer()
 
-            if let diff = viewModel.diffResult {
+            if let diff = viewModel.diffResult, viewModel.activeSyncTask == nil {
                 Text("差异：\(diff.summary)")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
@@ -303,6 +314,7 @@ private struct SyncStatusBarInline: View {
 struct LoadingDirectoryView: View {
     @State private var loadingText = "正在加载目录..."
     @State private var dots = ""
+    var onCancel: (() -> Void)? = nil
 
     let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
@@ -317,6 +329,12 @@ struct LoadingDirectoryView: View {
             Text("如果目录包含大量文件，加载可能需要较长时间")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            
+            if let onCancel {
+                Button("取消加载", role: .cancel, action: onCancel)
+                    .buttonStyle(.bordered)
+                    .padding(.top, 8)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(timer) { _ in
@@ -340,7 +358,11 @@ struct DeviceBrowserView: View {
 
             Divider()
 
-            if viewModel.deviceFiles.isEmpty {
+            if viewModel.isLoadingDirectory {
+                LoadingDirectoryView {
+                    viewModel.cancelLoadingDirectory()
+                }
+            } else if viewModel.deviceFiles.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "folder")
                         .font(.system(size: 48))
@@ -437,7 +459,7 @@ struct BrowserSelectionBar: View {
                 Label("同步选中", systemImage: "arrow.down.circle.fill")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isSyncing || viewModel.targetPath.isEmpty)
+            .disabled(viewModel.activeSyncTask != nil || viewModel.targetPath.isEmpty)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -594,22 +616,17 @@ struct BrowserFileRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            if file.isDirectory {
-                onTap()
-            } else {
-                onToggleSelection?()
+            onToggleSelection?()
+        }
+        .onAppear {
+            if file.isDirectory && directorySize == nil && !isLoadingSize && !isFailedSize {
+                onRetryDirectorySize?()
             }
         }
     }
 
     @ViewBuilder
     private var directorySizeView: some View {
-        // DEBUG: 用来确认这段代码是否真的在运行
-        // 你应该能在每个目录行看到一段类似：D:true L:false F:false
-        Text("D:\(file.isDirectory ? "true" : "false") L:\(isLoadingSize ? "true" : "false") F:\(isFailedSize ? "true" : "false")")
-            .font(.system(size: 9))
-            .foregroundColor(.secondary)
-
         if let size = directorySize {
             Text(formatBytes(size))
         } else if isLoadingSize {
@@ -780,28 +797,23 @@ struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if !file.isDirectory && (diffType == .new || diffType == .modified) {
+            // 为“新增”或“修改”状态的文件和目录显示复选框
+            if diffType == .new || diffType == .modified {
                 Toggle("", isOn: Binding(
                     get: { isSelected },
                     set: { _ in onToggle() }
                 ))
                 .toggleStyle(CheckboxToggleStyle())
-            } else if file.isDirectory {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(.blue)
-                    .frame(width: 20)
             } else {
-                Spacer()
-                    .frame(width: 20)
+                // 为不可选中的项保留空间以对齐
+                Spacer().frame(width: 20)
             }
 
-            if !file.isDirectory {
-                Image(systemName: FileType.from(path: file.path).icon)
-                    .font(.system(size: 16))
-                    .foregroundColor(iconColor)
-                    .frame(width: 24)
-            }
+            // 文件/目录图标
+            Image(systemName: file.isDirectory ? "folder.fill" : FileType.from(path: file.path).icon)
+                .font(.system(size: 16))
+                .foregroundColor(file.isDirectory ? .blue : iconColor)
+                .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.fileName)
@@ -852,9 +864,16 @@ struct FileRow: View {
             Spacer()
 
             if file.isDirectory {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                Button {
+                    onDirectoryTap?()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             } else {
                 HStack(spacing: 4) {
                     Image(systemName: diffType.systemImage)
@@ -871,10 +890,18 @@ struct FileRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            if file.isDirectory {
-                onDirectoryTap?()
-            } else if diffType == .new || diffType == .modified {
+            // 仅当项目是“新增”或“修改”时，点击行本身切换选中状态
+            if diffType == .new || diffType == .modified {
                 onToggle()
+            }
+        }
+        .onAppear {
+            if file.isDirectory {
+                if viewModel.directorySizes[file.path] == nil &&
+                   !viewModel.isLoadingSize(for: file.path) &&
+                   !viewModel.isFailedSize(for: file.path) {
+                    viewModel.loadDirectorySize(for: file)
+                }
             }
         }
     }
@@ -961,6 +988,166 @@ struct ComparingView: View {
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 同步视图
+
+struct SyncingView: View {
+    @ObservedObject var syncTask: SyncTask
+    var onPause: () -> Void
+    var onResume: () -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("正在同步...")
+                .font(.largeTitle)
+                .fontWeight(.light)
+            
+            VStack(spacing: 8) {
+                HStack {
+                    Text("总体进度")
+                    Spacer()
+                    Text("\(syncTask.progressPercentage)%")
+                }
+                .font(.subheadline)
+                
+                ProgressView(value: syncTask.progress)
+                    .progressViewStyle(.linear)
+            }
+            .padding(.horizontal, 40)
+            
+            Text(syncTask.currentFile ?? "正在准备文件...")
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: 400)
+            
+            Divider()
+            
+            HStack(spacing: 30) {
+                StatItem(label: "已同步", value: "\(syncTask.processedFiles) / \(syncTask.totalFiles)")
+                StatItem(label: "大小", value: syncTask.formattedBytesTransferred)
+                StatItem(label: "速度", value: syncTask.formattedSpeed)
+                StatItem(label: "剩余时间", value: syncTask.formattedTimeRemaining)
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 12) {
+                if syncTask.status == .paused {
+                    Button(action: onResume) {
+                        Label("继续", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut("r")
+                } else {
+                    Button(action: onPause) {
+                        Label("暂停", systemImage: "pause.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut("p")
+                }
+                
+                Button("取消", role: .cancel, action: onCancel)
+                    .keyboardShortcut(.escape)
+            }
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private struct StatItem: View {
+        let label: String
+        let value: String
+        
+        var body: some View {
+            VStack(spacing: 4) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.headline)
+                    .fontWeight(.semibold)
+            }
+            .frame(minWidth: 100)
+        }
+    }
+}
+
+struct SyncCompleteView: View {
+    let result: SyncHistoryEntry
+    var onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: result.status.icon)
+                .font(.system(size: 60))
+                .foregroundColor(statusColor)
+
+            Text("同步\(result.status.rawValue)")
+                .font(.largeTitle)
+                .fontWeight(.light)
+
+            if let errorMessage = result.errorMessage, result.status == .failed {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                    .frame(maxWidth: 400)
+            }
+
+            Divider()
+                .frame(width: 300)
+
+            VStack(alignment: .leading, spacing: 12) {
+                SummaryRow(label: "同步文件", value: "\(result.filesCount) 个")
+                SummaryRow(label: "总大小", value: result.formattedBytes)
+                SummaryRow(label: "耗时", value: result.formattedDuration)
+                SummaryRow(label: "目标目录", value: result.targetPath)
+            }
+            .frame(width: 350)
+
+            Spacer()
+            
+            Button("完成") {
+                onDismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var statusColor: Color {
+        switch result.status {
+        case .success: .green
+        case .failed: .red
+        case .cancelled: .orange
+        }
+    }
+    
+    private struct SummaryRow: View {
+        let label: String
+        let value: String
+        
+        var body: some View {
+            HStack {
+                Text(label)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(value)
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
     }
 }
 

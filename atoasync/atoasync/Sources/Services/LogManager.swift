@@ -37,7 +37,7 @@ class LogManager: ObservableObject {
         }
         
         #if DEBUG
-        print("[\(level.rawValue)] [\(category)] \(message)")
+        print("[\(Date.now)] [\(level.rawValue)] [\(category)] \(message)")
         #endif
     }
     

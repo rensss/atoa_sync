@@ -11,6 +11,8 @@ struct WiFiConnectionView: View {
     @State private var isConnecting: Bool = false
     @State private var errorMessage: String?
     @State private var showError: Bool = false
+    @State private var ftpUsername: String = ""
+    @State private var ftpPassword: String = ""
     
     var body: some View {
         VStack(spacing: 20) {
@@ -46,6 +48,18 @@ struct WiFiConnectionView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+                
+                if selectedProtocol == .ftp {
+                    Section("FTP 凭据 (可选)") {
+                        TextField("用户名", text: $ftpUsername)
+                            .textFieldStyle(.roundedBorder)
+                            .help("如果 FTP 服务器需要，请输入用户名。")
+                        
+                        SecureField("密码", text: $ftpPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .help("如果 FTP 服务器需要，请输入密码。")
+                    }
                 }
                 
                 Section("说明") {
