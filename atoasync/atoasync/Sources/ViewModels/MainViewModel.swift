@@ -27,6 +27,7 @@ class MainViewModel: ObservableObject {
     @Published var isScanning: Bool = false
     @Published var isComparing: Bool = false
     @Published var isSyncing: Bool = false // Kept for monitoring completion
+    @Published var isPreparingForSync: Bool = false
     @Published var activeSyncTask: SyncTask?
     @Published var lastSyncResult: SyncHistoryEntry?
     @Published var errorMessage: String?
@@ -117,6 +118,10 @@ class MainViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .map(\.first) // Assuming one sync task at a time for this UI
             .assign(to: &$activeSyncTask)
+            
+        syncManager.$isPreparing
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isPreparingForSync)
 
         // When a sync task disappears but we were in a syncing state, show the result.
         $activeSyncTask
@@ -362,7 +367,7 @@ class MainViewModel: ObservableObject {
 
     func pauseSync() {
         guard let task = activeSyncTask else { return }
-        Task { await syncManager.pauseSync(taskId: task.id) }
+        syncManager.pauseSync(taskId: task.id)
     }
 
     func resumeSync() {
@@ -372,7 +377,7 @@ class MainViewModel: ObservableObject {
 
     func cancelSync() {
         guard let task = activeSyncTask else { return }
-        Task { await syncManager.cancelSync(taskId: task.id) }
+        syncManager.cancelSync(taskId: task.id)
     }
 
     func dismissSyncResult() {
