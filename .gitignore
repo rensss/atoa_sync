@@ -1,0 +1,16 @@
+# Python caches
+__pycache__/
+*.pyc
+.DS_Store
+
+# Receiver uploads
+receiver/received/*
+!receiver/received/.gitkeep
+
+# Android generated build intermediates
+android/build/apk-*/
+android/build/test-classes/
+android/build/test-sources.list
+android/build/AndroidSync-debug.apk
+android/build/AndroidSync-debug.apk.idsig
+android/debug.keystore

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>相册同步原型</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell" aria-label="安卓相册同步应用原型">
+      <section id="home-screen" class="screen screen-active" aria-labelledby="home-title">
+        <header class="topbar">
+          <div>
+            <p class="status-kicker">本地相册备份</p>
+            <h1 id="home-title">相册同步</h1>
+          </div>
+          <button class="icon-button" type="button" data-action="open-settings" aria-label="打开设置">
+            <span class="icon dots-icon" aria-hidden="true"></span>
+          </button>
+        </header>
+
+        <section class="target-strip" aria-label="当前备份目标">
+          <div class="target-icon nas-icon" aria-hidden="true"></div>
+          <div class="target-copy">
+            <strong>家庭 NAS</strong>
+            <span>192.168.1.100 / PhotosBackup</span>
+          </div>
+          <div class="wifi-state">
+            <span class="icon wifi-icon" aria-hidden="true"></span>
+            <span>Wi-Fi 已连接</span>
+          </div>
+        </section>
+
+        <section class="sync-hero" aria-label="同步状态">
+          <div class="progress-ring" style="--progress: 86">
+            <div class="ring-core">
+              <span class="icon sync-icon" aria-hidden="true"></span>
+              <strong id="sync-state-label">正在同步</strong>
+              <span id="sync-percent">86%</span>
+              <small>正在备份照片和视频<br />请保持应用在前台运行</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="stats-list" aria-label="同步摘要">
+          <button class="stat-row" type="button" data-action="show-queue">
+            <span class="icon image-icon" aria-hidden="true"></span>
+            <span>今日已备份</span>
+            <strong>1,286 张照片，156 个视频</strong>
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+          <button class="stat-row" type="button" data-action="show-queue">
+            <span class="icon clock-icon" aria-hidden="true"></span>
+            <span>剩余</span>
+            <strong>234 张照片，28 个视频</strong>
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+          <div class="stat-row">
+            <span class="icon success-icon" aria-hidden="true"></span>
+            <span>上次同步</span>
+            <strong>今天 14:32 <em>成功</em></strong>
+          </div>
+          <div class="stat-row">
+            <span class="icon gauge-icon" aria-hidden="true"></span>
+            <span>传输速度</span>
+            <strong id="speed-label">16.8 MB/s</strong>
+          </div>
+        </section>
+
+        <section class="quick-actions" aria-label="快捷操作">
+          <button class="quick-action active" type="button" id="pause-button" data-action="toggle-sync">
+            <span class="icon pause-icon" aria-hidden="true"></span>
+            <span>暂停同步</span>
+          </button>
+          <button class="quick-action" type="button" data-action="open-target">
+            <span class="icon drive-icon" aria-hidden="true"></span>
+            <span>选择目标</span>
+          </button>
+          <button class="quick-action" type="button" data-action="open-albums">
+            <span class="icon folder-icon" aria-hidden="true"></span>
+            <span>选择相册</span>
+          </button>
+          <button class="quick-action" type="button" data-action="retry-failed">
+            <span class="icon retry-icon" aria-hidden="true"></span>
+            <span>失败重试</span>
+          </button>
+        </section>
+
+        <section class="activity-block" aria-labelledby="activity-title">
+          <div class="section-heading">
+            <h2 id="activity-title">最近活动</h2>
+            <button type="button" data-action="show-queue">全部</button>
+          </div>
+          <div id="recent-activity" class="activity-list"></div>
+        </section>
+
+        <p class="footer-note">
+          <span class="icon shield-icon" aria-hidden="true"></span>
+          仅在 Wi-Fi 环境下同步 · 仅备份相机胶卷中的照片和视频
+        </p>
+      </section>
+
+      <section id="queue-screen" class="screen" aria-labelledby="queue-title">
+        <header class="queue-topbar">
+          <div class="queue-device">
+            <div class="target-icon nas-icon compact" aria-hidden="true"></div>
+            <div>
+              <h1 id="queue-title">家庭 NAS</h1>
+              <span>192.168.1.100 · 信号强 -52 dBm</span>
+            </div>
+          </div>
+          <button class="queue-upload" type="button" data-action="toggle-sync">
+            <span class="mini-ring" aria-hidden="true"></span>
+            <span><strong id="queue-state">正在上传</strong><small>8 个文件 · 42.3 MB/s</small></span>
+            <span class="chevron down" aria-hidden="true"></span>
+          </button>
+        </header>
+
+        <nav class="filter-tabs" aria-label="队列筛选">
+          <button class="filter-tab selected" type="button" data-filter="all">全部</button>
+          <button class="filter-tab" type="button" data-filter="photo">照片</button>
+          <button class="filter-tab" type="button" data-filter="video">视频</button>
+          <button class="filter-tab" type="button" data-filter="failed">失败</button>
+        </nav>
+
+        <section class="queue-list" aria-label="同步任务列表">
+          <div id="queue-content"></div>
+        </section>
+
+        <section class="queue-summary" aria-label="目标空间和同步规则">
+          <button type="button" class="summary-row" data-action="open-target">
+            <span class="icon drive-icon" aria-hidden="true"></span>
+            <span><strong>家庭 NAS / 照片备份</strong><small>已用 1.23 TB / 共 4.0 TB</small></span>
+            <span class="capacity-bar" aria-hidden="true"><i></i></span>
+            <em>30%</em>
+            <span class="chevron" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="summary-row" data-action="open-rules">
+            <span class="icon shield-icon" aria-hidden="true"></span>
+            <span><strong>同步规则</strong><small>仅备份相机相册中的新文件 · 跳过已存在文件</small></span>
+            <span class="chevron down" aria-hidden="true"></span>
+          </button>
+        </section>
+      </section>
+
+      <nav class="bottom-nav" aria-label="底部导航">
+        <button class="nav-item selected" type="button" data-nav="home">
+          <span class="icon home-icon" aria-hidden="true"></span>
+          <span>首页</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="queue">
+          <span class="icon list-icon" aria-hidden="true"></span>
+          <span>队列</span>
+        </button>
+        <button class="nav-item" type="button" data-action="open-albums">
+          <span class="icon album-icon" aria-hidden="true"></span>
+          <span>相册</span>
+        </button>
+        <button class="nav-item" type="button" data-action="open-settings">
+          <span class="icon settings-icon" aria-hidden="true"></span>
+          <span>设置</span>
+        </button>
+      </nav>
+
+      <aside id="drawer" class="drawer" aria-hidden="true" aria-label="设置面板">
+        <div class="drawer-backdrop" data-action="close-drawer"></div>
+        <section class="drawer-panel">
+          <div class="drawer-handle" aria-hidden="true"></div>
+          <div id="drawer-content"></div>
+        </section>
+      </aside>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
