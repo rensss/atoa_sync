@@ -41,6 +41,7 @@ import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
+import com.androidsync.app.core.TaskWindow;
 
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -50,6 +51,7 @@ import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_MEDIA_PERMISSION = 40;
+    private static final int QUEUE_PAGE_SIZE = 80;
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
 
@@ -67,6 +69,7 @@ public final class MainActivity extends Activity {
     private boolean syncing;
     private boolean scanning;
     private String scanMessage = "等待扫描";
+    private int queueVisibleLimit = QUEUE_PAGE_SIZE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -279,7 +282,7 @@ public final class MainActivity extends Activity {
         page.addView(title("同步明细", 30));
         page.addView(filterStrip());
         page.addView(queueSummary());
-        page.addView(taskList(filteredTasks(), true));
+        page.addView(queueTaskList(filteredTasks()));
         return scroll;
     }
 
@@ -346,10 +349,30 @@ public final class MainActivity extends Activity {
             @Override
             public void onClick(View view) {
                 filter = value;
+                queueVisibleLimit = QUEUE_PAGE_SIZE;
                 render();
             }
         });
         return button;
+    }
+
+    private View queueTaskList(List<SyncTask> tasks) {
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        TaskWindow window = TaskWindow.from(tasks, queueVisibleLimit);
+        container.addView(taskList(window.visibleTasks(), true));
+        if (window.hasMore()) {
+            Button more = smallButton("再显示 " + Math.min(QUEUE_PAGE_SIZE, window.hiddenCount()) + " 条，还剩 " + window.hiddenCount() + " 条");
+            more.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    queueVisibleLimit += QUEUE_PAGE_SIZE;
+                    render();
+                }
+            });
+            container.addView(more);
+        }
+        return container;
     }
 
     private View taskList(List<SyncTask> tasks, boolean showEmpty) {

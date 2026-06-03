@@ -2,6 +2,7 @@ import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
+import com.androidsync.app.core.TaskWindow;
 
 import java.util.List;
 import java.util.Set;
@@ -13,6 +14,7 @@ public final class SyncQueueTest {
         summaryCountsTasksByStatus();
         marksRemoteExistingMediaAsDone();
         marksRemoteExistingMediaByFingerprintAsDone();
+        taskWindowLimitsRowsAndReportsMore();
     }
 
     private static void enqueuesNewMediaOnlyOnce() {
@@ -94,6 +96,21 @@ public final class SyncQueueTest {
         SyncQueue.Summary summary = queue.summary();
         assertEquals(1, summary.done(), "remote existing fingerprint should be counted as done");
         assertEquals(1, summary.waiting(), "missing fingerprint should remain waiting");
+    }
+
+    private static void taskWindowLimitsRowsAndReportsMore() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(List.of(
+                item("12", "content://media/12", "IMG_0012.jpg", 1200L),
+                item("13", "content://media/13", "IMG_0013.jpg", 1300L),
+                item("14", "content://media/14", "IMG_0014.jpg", 1400L)
+        ));
+
+        TaskWindow window = TaskWindow.from(queue.tasks(), 2);
+
+        assertEquals(2, window.visibleTasks().size(), "task window should cap visible rows");
+        assertEquals(true, window.hasMore(), "task window should report hidden rows");
+        assertEquals(3, window.totalCount(), "task window should preserve total count");
     }
 
     private static MediaItem item(String stableId, String uri, String displayName, long sizeBytes) {

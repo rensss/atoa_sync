@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 - 2026-06-03
+
+- Fixed queue tab crash risk by limiting queue rendering to a paged window instead of creating all scanned media rows and thumbnails at once.
+- Added a tested `TaskWindow` helper for capped queue display.
+
 ## 0.1.0 - 2026-06-03
 
 - Added Android MVP for scanning phone photos/videos, queueing sync tasks, showing thumbnails, opening local media, retrying failures, and uploading over HTTP/WebDAV-style `PUT`.
