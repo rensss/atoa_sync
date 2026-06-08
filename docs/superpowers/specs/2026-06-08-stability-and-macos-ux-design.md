@@ -1,178 +1,156 @@
-# Android Sync Stability and macOS UX Design
+# Android Sync 稳定性与 macOS 体验改进设计
 
-## Scope
+## 范围
 
-This change addresses the reported Android crash and queue flicker, then
-standardizes the macOS media-library layout, controls, localization, version
-display, Quick Look behavior, failed-upload cleanup, and sorting semantics.
+本次改动先解决 Android 崩溃和队列页面闪烁，再统一 macOS 媒体库的
+布局、控件、国际化、版本显示、Quick Look、失败上传清理和排序语义。
 
-The implementation keeps the current dependency-free Android application and
-SwiftPM macOS application. It does not replace either UI stack or add an
-external update framework.
+实现继续沿用当前无第三方依赖的 Android 应用和 SwiftPM macOS 应用，
+不替换现有 UI 技术栈，也不添加在线更新框架。
 
-## Android Stability
+## Android 稳定性
 
-### Queue rendering
+### 队列渲染
 
-The queue screen must not rebuild the activity content tree for every upload
-state transition or pagination event. The screen will retain its current view
-hierarchy and update the affected summary and task row in place.
+上传状态变化或自动分页时，队列页面不得反复重建 Activity 的整棵视图。
+页面应保留当前视图层级，只原地更新受影响的统计数据和任务行。
 
-Pagination will append the next bounded task window without replacing the
-`ScrollView`, preserving the current scroll position. Filter or navigation
-changes may still perform a full screen render because those are explicit user
-transitions rather than continuous background updates.
+分页时追加下一批有上限的任务，不替换 `ScrollView`，并保留当前滚动位置。
+筛选或页面导航属于用户主动切换，可以继续执行完整页面渲染。
 
-### Thumbnail memory use
+### 缩略图内存
 
-Thumbnail requests will use the actual rendered pixel target instead of a
-density-expanded `96dp` request. A bounded in-memory cache will reuse small
-thumbnails across row updates and screen transitions. Async results must only
-be applied when the target view still represents the same media URI.
+缩略图请求使用实际显示像素尺寸，不再把已经是 dp 的尺寸再次按屏幕密度
+放大。使用有容量上限的内存缓存，在任务行更新和页面切换时复用小图。
+异步加载结果只能设置到仍然对应同一个媒体 URI 的视图。
 
-The detail preview will request a size bounded to the visible preview area,
-with `OutOfMemoryError` handled alongside normal decode failures. Detached
-views must not retain newly decoded bitmaps.
+详情预览图按实际可见区域限制请求尺寸。除普通解码异常外，还必须处理
+`OutOfMemoryError`。视图已经移除时，不得继续持有新解码的 Bitmap。
 
-### Home status grid
+### 首页状态方格
 
-Each recent-task tile remains square. Its image fills the square with centered
-cropping, the tile clips image content to the rounded shape, and the status
-border/strip remains visible above the image.
+最近任务缩略图保持正方形。图片居中裁切并铺满方格，内容裁切到统一圆角，
+状态边框和底部状态条显示在图片上方。
 
-## macOS Window Layout
+## macOS 窗口布局
 
-The main window will use native toolbar placements instead of an additional
-toolbar row inside the detail content.
+主窗口使用 macOS 原生窗口工具栏，不再在详情内容内部额外绘制一行工具栏。
 
-The window toolbar contains:
+窗口工具栏包含：
 
-- current category title and item count
-- date filter
-- sort selection
-- grid/list layout selection
-- filename search
-- settings entry
-- inspector toggle at the right edge
+- 当前分类名称和数量
+- 日期筛选
+- 排序选择
+- 网格/列表布局切换
+- 文件名搜索
+- 设置入口
+- 位于右侧的 Inspector 开关
 
-The library content contains only receiver status and the media grid/list.
-Search must not overlay the inspector or media detail content.
+媒体库内容区只显示接收状态和媒体网格/列表。搜索框不得覆盖 Inspector
+或媒体详情内容。
 
-Date and sort controls use one menu layer with direct actions and checkmarks.
-They must not wrap a `Picker` inside a `Menu`, which currently causes the extra
-intermediate menu action.
+日期和排序控件使用单层菜单，菜单项可直接选择并显示选中标记。不得继续
+使用 `Menu` 中再嵌套 `Picker` 的方式，避免当前先出现多余弹层、再进入
+选择列表的双重动作。
 
-## macOS Thumbnail Layout
+## macOS 缩略图布局
 
-Grid items use a fixed thumbnail frame of 180 by 124 points. The media preview
-uses aspect-fit scaling inside that frame so the complete image remains
-visible. The frame clips to a consistent rounded rectangle and supplies a
-neutral background for unused letterbox space.
+网格缩略图使用固定的 180 × 124 点显示区域。媒体内容在区域内等比完整
+缩放，空余区域使用中性背景。缩略图统一裁切为圆角矩形。
 
-Grid metadata appears below the fixed preview and must not change the height or
-position of neighboring thumbnails. List and inspector thumbnails also use
-explicit fixed frames with aspect-fit scaling.
+文件名和元数据放在固定预览区域下方，不得因为原图比例不同而改变相邻
+缩略图的位置或造成重叠。列表和 Inspector 中的缩略图也使用明确的固定
+尺寸与等比完整缩放。
 
-## Localization
+## 国际化
 
-The macOS app supports Simplified Chinese and English. A language picker in
-Settings provides manual selection:
+macOS 应用支持简体中文和英文，并在设置中提供手动语言选择：
 
-- Simplified Chinese is the default when no preference exists.
-- English can be selected explicitly.
-- The selection persists in `UserDefaults`.
-- Switching language updates the primary app UI without relaunching.
+- 尚未保存语言偏好时默认简体中文
+- 用户可以明确切换为英文
+- 选择结果持久化到 `UserDefaults`
+- 切换后主要界面即时更新，不要求重启应用
 
-User-facing application strings use centralized localized keys rather than
-view-local English literals. System-generated file, date, byte-size, and error
-descriptions remain system localized where appropriate.
+应用自身的用户可见文字使用统一的本地化键，不在各个 View 内分散硬编码。
+文件名、日期、容量和系统错误等适合由系统格式化的内容继续跟随系统格式。
 
-## Settings
+## 设置
 
-The existing `Settings` scene remains the canonical settings window. A visible
-gear button in the main window toolbar opens it through SwiftUI's settings
-action.
+现有 `Settings` Scene 继续作为唯一的设置窗口。主窗口工具栏增加清晰可见
+的齿轮按钮，通过 SwiftUI 的设置打开动作进入该窗口。
 
-Settings contain:
+设置窗口包含：
 
-- language
-- receive folder
-- receiver port
-- launch at login
-- local-network security description
-- application version and build number
+- 语言
+- 接收目录
+- 接收端口
+- 登录时启动
+- 局域网安全说明
+- 应用版本号和构建号
 
-## Version Control
+## 版本控制
 
-The repository-root `VERSION` file remains the single source for the public
-release version and must use `major.minor.patch`.
+仓库根目录的 `VERSION` 文件继续作为公开发布版本的唯一来源，格式固定为
+`主版本.次版本.修订版本`。
 
-The packaging script writes:
+打包脚本写入：
 
-- `CFBundleShortVersionString` from `VERSION`
-- `CFBundleVersion` from the Git commit count, with a timestamp fallback when
-  Git metadata is unavailable
+- `CFBundleShortVersionString`：读取 `VERSION`
+- `CFBundleVersion`：使用 Git 提交总数；没有 Git 元数据时回退到时间戳
 
-The app reads these values from `Bundle.main` and displays both in Settings.
-This scope does not include online update checking.
+应用从 `Bundle.main` 读取这两个值，并在设置中显示。本次不包含在线检查
+更新。
 
-## Date Filtering and Sorting
+## 日期筛选和排序
 
-The app sorts by the macOS receive timestamp (`receivedAt`):
+macOS 应用统一按实际接收时间 `receivedAt` 排序：
 
-- Newest First: descending receive time
-- Oldest First: ascending receive time
-- Filename: localized ascending filename
-- Largest First: descending byte size
+- 最新优先：接收时间降序
+- 最早优先：接收时间升序
+- 文件名：本地化文件名升序
+- 最大优先：文件大小降序
 
-Date filters use the same receive timestamp and the current calendar. Unit tests
-will lock the visible titles to their comparison direction so labels and output
-cannot drift apart.
+日期筛选也使用同一个实际接收时间和当前日历。单元测试必须同时锁定显示
+名称和比较方向，防止排序文字与实际结果再次相反。
 
 ## Quick Look
 
-When exactly one non-deleted item is selected:
+当前恰好选中一个未删除项目时：
 
-- pressing Space opens Quick Look
-- pressing Space again closes Quick Look
-- double-click and context-menu Quick Look remain available
+- 按空格打开 Quick Look
+- 再按一次空格关闭 Quick Look
+- 双击和右键菜单中的 Quick Look 继续保留
 
-The space command is scoped to the library window and must not fire while a
-text field or rename sheet is editing. Closing Quick Look clears its retained
-preview URL.
+空格命令只作用于媒体库窗口。文本输入框或重命名弹窗正在编辑时不得触发。
+关闭 Quick Look 后清除内部保留的预览 URL。
 
-## Failed Upload Cleanup
+## 失败上传清理
 
-A failed incoming upload must:
+macOS 接收上传失败时必须：
 
-- close its temporary file handle
-- remove its `.incoming/*.part` file
-- remove any temporary in-progress UI state
-- avoid creating a SwiftData library entity
-- avoid appending a successful manifest record
+- 关闭临时文件句柄
+- 删除 `.incoming/*.part` 临时文件
+- 移除界面中的临时传输状态
+- 不创建 SwiftData 图库记录
+- 不追加成功状态的 manifest 记录
 
-Upload failures are distinct from receiver lifecycle failures. A rejected or
-interrupted single upload may surface a transient status message, but it must
-not set the receiver service itself to failed or repeatedly present a global
-alert. Existing successfully received files are never removed by this cleanup.
+单次上传失败与接收服务本身启动失败必须区分。单个上传被拒绝或中途中断时，
+可以显示短暂状态信息，但不得把整个接收服务标记为失败，也不得反复弹出
+全局错误窗口。清理失败上传时绝不能删除以前已经成功接收的文件。
 
-## Verification
+## 验证
 
-Android verification includes:
+Android 验证包括：
 
-- queue/core regression tests
-- APK compilation and signature verification
-- device log review for OOM, fatal exception, ANR, skipped-frame, and thumbnail
-  errors
-- manual queue scrolling and active-upload checks
+- 队列和核心逻辑回归测试
+- APK 编译和签名验证
+- 检查真机日志中的 OOM、Fatal Exception、ANR、掉帧和缩略图错误
+- 真机检查队列滚动和上传状态变化
 
-macOS verification includes:
+macOS 验证包括：
 
-- Swift unit tests for repository cleanup, sort direction, date filtering, and
-  version parsing
-- SwiftPM build and test
-- packaged app Info.plist validation and code-sign verification
-- runtime UI checks for toolbar placement, fixed thumbnails, settings,
-  localization, menu behavior, inspector placement, search, and Space Quick
-  Look toggling
-
+- 仓库清理、排序方向、日期筛选和版本解析的 Swift 单元测试
+- SwiftPM 编译和测试
+- App 包的 Info.plist 与代码签名验证
+- 运行时检查工具栏位置、固定缩略图、设置、语言切换、单层菜单、
+  Inspector、搜索和空格切换 Quick Look
