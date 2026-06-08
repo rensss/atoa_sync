@@ -23,16 +23,23 @@ android/build/AndroidSync-debug.apk
 - Lets the user edit the LAN/NAS target URL inside the app.
 - Shows a native home dashboard and queue detail screen.
 
-For local computer receiving, start:
+For local computer receiving, run the native macOS app:
 
 ```bash
-./receiver/start.sh
+./macos/build_and_run.sh
 ```
 
-Then set the Android target URL to the LAN address printed by the receiver, for example:
+Then set the Android target URL to the LAN address shown by the macOS app, for
+example:
 
 ```text
 http://192.168.1.10:8765/uploads/
 ```
 
-For Synology/QNAP/NAS use, enable WebDAV or run any receiver that accepts HTTP `PUT` at the configured target URL.
+For Synology/QNAP/NAS use, enable WebDAV or run any receiver that accepts HTTP
+`PUT` at the configured target URL.
+
+## Browser prototype
+
+The original interactive UI concept is preserved in `android/prototype/`.
+Serve that directory with any static HTTP server to review it in a browser.
