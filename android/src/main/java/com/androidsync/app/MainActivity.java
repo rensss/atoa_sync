@@ -3,14 +3,19 @@ package com.androidsync.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.drawable.GradientDrawable;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -20,19 +25,22 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.util.Log;
+import android.util.Size;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.MediaController;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.VideoView;
 
 import com.androidsync.app.android.HttpFileUploader;
 import com.androidsync.app.android.MediaStoreScanner;
@@ -43,21 +51,26 @@ import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
 
+import java.text.DateFormat;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
+    private static final String TAG = "AndroidSync";
     private static final int REQUEST_MEDIA_PERMISSION = 40;
     private static final int QUEUE_PAGE_SIZE = 80;
+    private static final int RECENT_GRID_LIMIT = 50;
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
 
     private final SyncQueue queue = new SyncQueue();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService thumbnailExecutor = Executors.newFixedThreadPool(2);
     private final HttpFileUploader uploader = new HttpFileUploader();
     private final RemoteManifestClient manifestClient = new RemoteManifestClient();
 
@@ -66,10 +79,13 @@ public final class MainActivity extends Activity {
     private String screen = "home";
     private String filter = "all";
     private String targetUrl;
+    private String selectedTaskId;
     private boolean syncing;
     private boolean scanning;
+    private boolean queueAutoLoading;
     private String scanMessage = "等待扫描";
     private int queueVisibleLimit = QUEUE_PAGE_SIZE;
+    private int queueScrollY;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,6 +99,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         executor.shutdownNow();
+        thumbnailExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -213,17 +230,43 @@ public final class MainActivity extends Activity {
     private void render() {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(color("#F7F5EF"));
+        root.setBackgroundColor(color("#F4F1EA"));
         setContentView(root);
 
         FrameLayout content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        if ("queue".equals(screen)) {
+        if ("detail".equals(screen)) {
+            content.addView(detailView());
+        } else if ("settings".equals(screen)) {
+            content.addView(settingsView());
+        } else if ("queue".equals(screen)) {
             content.addView(queueView());
         } else {
             content.addView(homeView());
         }
-        root.addView(navBar(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)));
+        if (showsBottomNav()) {
+            root.addView(navBar(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)));
+        }
+    }
+
+    private boolean showsBottomNav() {
+        return "home".equals(screen) || "queue".equals(screen);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if ("detail".equals(screen)) {
+            selectedTaskId = null;
+            screen = "queue";
+            render();
+            return;
+        }
+        if ("settings".equals(screen)) {
+            screen = "home";
+            render();
+            return;
+        }
+        super.onBackPressed();
     }
 
     private View homeView() {
@@ -231,9 +274,16 @@ public final class MainActivity extends Activity {
         LinearLayout page = pageLayout();
         scroll.addView(page);
 
-        page.addView(label("图库自动同步", 12, "#7E7565"));
-        page.addView(title("Android Sync", 30));
+        page.addView(homeHeader());
         page.addView(targetCard());
+
+        if (scanning) {
+            LinearLayout scanningCard = card();
+            scanningCard.addView(title("正在扫描相册", 20));
+            scanningCard.addView(label(scanMessage, 13, "#6B6257"));
+            page.addView(scanningCard);
+            return scroll;
+        }
 
         SyncQueue.Summary summary = queue.summary();
         float progress = summary.total() == 0 ? 0f : (float) summary.done() / (float) summary.total();
@@ -270,20 +320,378 @@ public final class MainActivity extends Activity {
         page.addView(label(scanning ? "扫描中..." : scanMessage, 12, "#7C7367"));
 
         page.addView(sectionHeader("最近任务"));
-        page.addView(taskList(recentTasks(5), false));
+        page.addView(recentGrid(queue.recentWindow(RECENT_GRID_LIMIT).visibleTasks()));
         return scroll;
     }
 
     private View queueView() {
-        ScrollView scroll = new ScrollView(this);
+        final FrameLayout frame = new FrameLayout(this);
+        final ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.setScrollbarFadingEnabled(false);
         LinearLayout page = pageLayout();
         scroll.addView(page);
         page.addView(label("任务队列", 12, "#7E7565"));
         page.addView(title("同步明细", 30));
+        if (scanning) {
+            LinearLayout scanningCard = card();
+            scanningCard.addView(title("正在扫描相册", 20));
+            scanningCard.addView(label("扫描完成后会自动显示队列", 13, "#6B6257"));
+            page.addView(scanningCard);
+            frame.addView(scroll);
+            return frame;
+        }
         page.addView(filterStrip());
         page.addView(queueSummary());
-        page.addView(queueTaskList(filteredTasks()));
+        page.addView(queueTaskList(queue.window(filter, queueVisibleLimit)));
+        frame.addView(scroll);
+
+        final Button backTop = smallButton("回顶部");
+        backTop.setTextColor(Color.WHITE);
+        backTop.setBackground(rounded("#182B28", "#182B28", 0, 22));
+        backTop.setVisibility(queueScrollY > dp(240) ? View.VISIBLE : View.GONE);
+        backTop.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                queueScrollY = 0;
+                scroll.smoothScrollTo(0, 0);
+                backTop.setVisibility(View.GONE);
+            }
+        });
+        FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44));
+        topParams.gravity = Gravity.BOTTOM | Gravity.RIGHT;
+        topParams.setMargins(0, 0, dp(18), dp(18));
+        frame.addView(backTop, topParams);
+
+        scroll.setOnScrollChangeListener(new View.OnScrollChangeListener() {
+            @Override
+            public void onScrollChange(View view, int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
+                queueScrollY = scrollY;
+                backTop.setVisibility(scrollY > dp(240) ? View.VISIBLE : View.GONE);
+                if (shouldLoadMore(scroll)) {
+                    queueAutoLoading = true;
+                    queueVisibleLimit += QUEUE_PAGE_SIZE;
+                    render();
+                }
+            }
+        });
+        scroll.post(new Runnable() {
+            @Override
+            public void run() {
+                scroll.scrollTo(0, queueScrollY);
+                queueAutoLoading = false;
+            }
+        });
+        return frame;
+    }
+
+    private View detailView() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout page = pageLayout();
+        scroll.addView(page);
+
+        SyncTask task = selectedTaskId == null ? null : queue.findById(selectedTaskId);
+        page.addView(backHeader("任务详情", "同步详情", "queue"));
+        if (task == null) {
+            LinearLayout missing = card();
+            missing.addView(title("任务不存在", 20));
+            missing.addView(label("这个任务可能已经从队列里移除，请返回队列重新选择。", 13, "#6B6257"));
+            page.addView(missing);
+            return scroll;
+        }
+
+        MediaItem media = task.media();
+        LinearLayout previewCard = card();
+        previewCard.setPadding(0, 0, 0, dp(12));
+        if (media.isVideo()) {
+            FrameLayout videoFrame = new FrameLayout(this);
+            videoFrame.setBackgroundColor(Color.BLACK);
+            final VideoView video = new VideoView(this);
+            video.setBackgroundColor(Color.BLACK);
+            video.setVideoURI(Uri.parse(media.uri()));
+            final MediaController controller = new MediaController(this);
+            controller.setAnchorView(videoFrame);
+            video.setMediaController(controller);
+            FrameLayout.LayoutParams videoParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            videoParams.gravity = Gravity.CENTER;
+            videoFrame.addView(video, videoParams);
+            final TextView playToggle = textButton("播放 / 暂停", "#182B28", "#EFE8DA");
+            playToggle.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    if (video.isPlaying()) {
+                        video.pause();
+                    } else {
+                        video.start();
+                        controller.show(3000);
+                    }
+                }
+            });
+            video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                @Override
+                public void onPrepared(MediaPlayer player) {
+                    video.requestFocus();
+                    video.start();
+                    controller.show(3000);
+                    playToggle.setText("播放 / 暂停");
+                }
+            });
+            video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override
+                public boolean onError(MediaPlayer player, int what, int extra) {
+                    Toast.makeText(MainActivity.this, "视频无法播放，可用其他应用打开", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+            });
+            previewCard.addView(videoFrame, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)));
+            LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+            playParams.setMargins(dp(16), dp(12), dp(16), 0);
+            previewCard.addView(playToggle, playParams);
+        } else {
+            final FrameLayout preview = new FrameLayout(this);
+            preview.setBackgroundColor(Color.BLACK);
+            final ImageView image = new ImageView(this);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            final TextView loading = label("加载预览...", 14, "#FFFFFF");
+            loading.setGravity(Gravity.CENTER);
+            preview.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            preview.addView(loading, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            previewCard.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)));
+            loadPreviewAsync(image, loading, media.uri());
+        }
+        previewCard.addView(label(media.displayName(), 18, "#182B28"), paddedTextParams());
+        previewCard.addView(label(statusText(task), 13, statusColor(task.status())), paddedTextParams());
+        page.addView(previewCard);
+
+        LinearLayout meta = card();
+        meta.addView(title("文件信息", 20));
+        meta.addView(metaRow("类型", media.isVideo() ? "视频" : "照片"));
+        meta.addView(metaRow("MIME", media.mimeType()));
+        meta.addView(metaRow("大小", formatBytes(media.sizeBytes())));
+        meta.addView(metaRow("同步状态", statusText(task)));
+        meta.addView(metaRow("拍摄时间", formatDate(media.dateTakenMillis())));
+        meta.addView(metaRow("添加时间", formatDate(media.dateAddedMillis())));
+        meta.addView(metaRow("修改时间", formatDate(media.dateModifiedMillis())));
+        if (task.errorMessage() != null) {
+            meta.addView(metaRow("错误", task.errorMessage()));
+        }
+        page.addView(meta);
+
+        Button external = actionButton("用其他应用打开", new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                SyncTask current = selectedTaskId == null ? null : queue.findById(selectedTaskId);
+                if (current != null) {
+                    openMedia(current.media());
+                }
+            }
+        });
+        page.addView(external);
         return scroll;
+    }
+
+    private View settingsView() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout page = pageLayout();
+        scroll.addView(page);
+        page.addView(backHeader("设置", "同步设置", "home"));
+
+        LinearLayout target = card();
+        target.addView(title("接收端服务", 20));
+        target.addView(label(networkLabel(), 13, "#6E665A"));
+        target.addView(label(targetUrl, 14, "#1F332F"));
+        Button edit = smallButton("修改接收端地址");
+        edit.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                editTarget();
+            }
+        });
+        target.addView(edit);
+        page.addView(target);
+
+        LinearLayout maintenance = card();
+        maintenance.addView(title("本机相册", 20));
+        maintenance.addView(label(scanMessage, 13, "#6B6257"));
+        Button rescan = actionButton(scanning ? "扫描中..." : "重新扫描", new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                scanMedia();
+            }
+        });
+        rescan.setEnabled(!scanning);
+        maintenance.addView(rescan);
+        page.addView(maintenance);
+
+        LinearLayout about = card();
+        about.addView(title("版本", 20));
+        about.addView(label(appVersionText(), 13, "#6B6257"));
+        page.addView(about);
+        return scroll;
+    }
+
+    private View homeHeader() {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.addView(label("图库自动同步", 12, "#7E7565"));
+        copy.addView(title("Android Sync", 30));
+        header.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button settings = smallButton("设置");
+        settings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                screen = "settings";
+                render();
+            }
+        });
+        header.addView(settings);
+        return header;
+    }
+
+    private View backHeader(String labelText, String titleText, final String backScreen) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back = textButton("‹", "#FFFFFF", "#182B28");
+        back.setTextSize(28);
+        back.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if ("queue".equals(backScreen)) {
+                    selectedTaskId = null;
+                }
+                screen = backScreen;
+                render();
+            }
+        });
+        header.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(12), 0, 0, 0);
+        copy.addView(label(labelText, 12, "#7E7565"));
+        copy.addView(title(titleText, 28));
+        header.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return header;
+    }
+
+    private View recentGrid(List<SyncTask> tasks) {
+        LinearLayout grid = card();
+        grid.setPadding(dp(10), dp(10), dp(10), dp(10));
+        if (tasks.isEmpty()) {
+            grid.addView(label("还没有任务", 14, "#6B6257"));
+            return grid;
+        }
+        int width = getResources().getDisplayMetrics().widthPixels;
+        final int columns = 10;
+        final int gap = dp(4);
+        final int cellSize = Math.max(dp(24), (width - dp(40) - dp(20) - gap * (columns - 1)) / columns);
+        LinearLayout row = null;
+        for (int index = 0; index < tasks.size(); index++) {
+            if (index % columns == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                rowParams.setMargins(0, index == 0 ? 0 : gap, 0, 0);
+                grid.addView(row, rowParams);
+            }
+            LinearLayout.LayoutParams cellParams = new LinearLayout.LayoutParams(cellSize, cellSize);
+            if (index % columns != columns - 1) {
+                cellParams.setMargins(0, 0, gap, 0);
+            }
+            row.addView(recentTaskTile(tasks.get(index)), cellParams);
+        }
+        return grid;
+    }
+
+    private View recentTaskTile(SyncTask task) {
+        FrameLayout tile = new FrameLayout(this);
+        GradientDrawable border = new GradientDrawable();
+        border.setColor(color("#F7F5EF"));
+        border.setCornerRadius(dp(8));
+        border.setStroke(dp(2), statusBorderColor(task.status()));
+        tile.setBackground(border);
+        tile.setPadding(dp(2), dp(2), dp(2), dp(2));
+        tile.addView(thumbnail(task), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        TextView strip = new TextView(this);
+        strip.setBackgroundColor(statusBorderColor(task.status()));
+        strip.setText(task.status() == SyncStatus.UPLOADING ? "..." : "");
+        strip.setTextColor(Color.WHITE);
+        strip.setGravity(Gravity.CENTER);
+        strip.setTextSize(8);
+        FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5));
+        stripParams.gravity = Gravity.BOTTOM;
+        tile.addView(strip, stripParams);
+        return tile;
+    }
+
+    private boolean shouldLoadMore(ScrollView scroll) {
+        if (queueAutoLoading || !"queue".equals(screen)) {
+            return false;
+        }
+        TaskWindow window = queue.window(filter, queueVisibleLimit);
+        if (!window.hasMore() || scroll.getChildCount() == 0) {
+            return false;
+        }
+        View child = scroll.getChildAt(0);
+        int distanceToBottom = child.getBottom() - (scroll.getHeight() + scroll.getScrollY());
+        return distanceToBottom < dp(220);
+    }
+
+    private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
+        image.setTag(mediaUri);
+        thumbnailExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                final Bitmap bitmap = loadPreviewBitmap(mediaUri);
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!mediaUri.equals(image.getTag())) {
+                            return;
+                        }
+                        if (bitmap == null) {
+                            loading.setText("无法加载预览");
+                            return;
+                        }
+                        image.setImageBitmap(bitmap);
+                        loading.setVisibility(View.GONE);
+                    }
+                });
+            }
+        });
+    }
+
+    private Bitmap loadPreviewBitmap(String mediaUri) {
+        if (Build.VERSION.SDK_INT < 29) {
+            return null;
+        }
+        try {
+            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(dp(1200), dp(1200)), null);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private View metaRow(String name, String value) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(8), 0, 0);
+        TextView key = label(name, 13, "#7C7367");
+        TextView val = label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28");
+        val.setGravity(Gravity.RIGHT);
+        row.addView(key, new LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(val, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return row;
+    }
+
+    private LinearLayout.LayoutParams paddedTextParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(dp(16), dp(10), dp(16), 0);
+        return params;
     }
 
     private View targetCard() {
@@ -330,47 +738,42 @@ public final class MainActivity extends Activity {
     }
 
     private View filterStrip() {
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(filterButton("all", "全部"));
-        row.addView(filterButton("photo", "照片"));
-        row.addView(filterButton("video", "视频"));
-        row.addView(filterButton("failed", "失败"));
-        scroll.addView(row);
-        return scroll;
+        row.addView(filterButton("all", "全部"), weightParams());
+        row.addView(filterButton("photo", "照片"), weightParams());
+        row.addView(filterButton("video", "视频"), weightParams());
+        row.addView(filterButton("failed", "失败"), weightParams());
+        return row;
     }
 
     private Button filterButton(final String value, String text) {
         Button button = smallButton(text);
         button.setTextColor(value.equals(filter) ? Color.WHITE : color("#2F3D38"));
-        button.setBackgroundColor(value.equals(filter) ? color("#2F6B5F") : color("#E9E2D5"));
+        button.setBackground(value.equals(filter)
+                ? rounded("#2F6B5F", "#2F6B5F", 0, 12)
+                : rounded("#E9E2D5", "#DDD3C4", 1, 12));
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 filter = value;
                 queueVisibleLimit = QUEUE_PAGE_SIZE;
+                queueScrollY = 0;
                 render();
             }
         });
         return button;
     }
 
-    private View queueTaskList(List<SyncTask> tasks) {
+    private View queueTaskList(TaskWindow window) {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        TaskWindow window = TaskWindow.from(tasks, queueVisibleLimit);
         container.addView(taskList(window.visibleTasks(), true));
         if (window.hasMore()) {
-            Button more = smallButton("再显示 " + Math.min(QUEUE_PAGE_SIZE, window.hiddenCount()) + " 条，还剩 " + window.hiddenCount() + " 条");
-            more.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    queueVisibleLimit += QUEUE_PAGE_SIZE;
-                    render();
-                }
-            });
-            container.addView(more);
+            TextView hint = label("继续向下滑动加载后续 " + window.hiddenCount() + " 条", 12, "#7C7367");
+            hint.setGravity(Gravity.CENTER);
+            hint.setPadding(0, dp(10), 0, dp(18));
+            container.addView(hint);
         }
         return container;
     }
@@ -395,7 +798,6 @@ public final class MainActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView thumb = icon(task.media().isVideo() ? "VID" : "IMG");
         row.addView(thumbnail(task), new LinearLayout.LayoutParams(dp(54), dp(54)));
 
         LinearLayout copy = new LinearLayout(this);
@@ -427,32 +829,84 @@ public final class MainActivity extends Activity {
         row.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                openMedia(task.media());
+                selectedTaskId = task.id();
+                screen = "detail";
+                render();
             }
         });
         return row;
     }
 
     private View thumbnail(SyncTask task) {
+        final FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(color("#D9D0C2"));
+
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setBackgroundColor(color("#D9D0C2"));
         image.setContentDescription(task.media().displayName());
-        try {
-            image.setImageURI(Uri.parse(task.media().uri()));
-        } catch (Exception ignored) {
-            image.setImageDrawable(null);
+        frame.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final TextView placeholder = icon(task.media().isVideo() ? "VID" : "IMG");
+        frame.addView(placeholder, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        final String mediaUri = task.media().uri();
+        image.setTag(mediaUri);
+        loadThumbnailAsync(image, placeholder, mediaUri);
+        return frame;
+    }
+
+    private void loadThumbnailAsync(final ImageView image, final TextView placeholder, final String mediaUri) {
+        thumbnailExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                final Bitmap bitmap = loadThumbnailBitmap(mediaUri);
+                if (bitmap == null) {
+                    return;
+                }
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!mediaUri.equals(image.getTag())) {
+                            return;
+                        }
+                        image.setImageBitmap(bitmap);
+                        placeholder.setVisibility(View.GONE);
+                    }
+                });
+            }
+        });
+    }
+
+    private Bitmap loadThumbnailBitmap(String mediaUri) {
+        if (Build.VERSION.SDK_INT < 29) {
+            return null;
         }
-        return image;
+        try {
+            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(dp(96), dp(96)), null);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void openMedia(MediaItem media) {
+        Uri uri = Uri.parse(media.uri());
+        String mimeType = media.mimeType();
+        if (mimeType == null || mimeType.trim().isEmpty()) {
+            mimeType = getContentResolver().getType(uri);
+        }
+        if (mimeType == null || mimeType.trim().isEmpty()) {
+            mimeType = media.isVideo() ? "video/*" : "image/*";
+        }
+
         Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(Uri.parse(media.uri()), media.mimeType());
+        intent.setDataAndType(uri, mimeType);
+        intent.setClipData(ClipData.newUri(getContentResolver(), media.displayName(), uri));
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
+            Log.i(TAG, "Opening media " + media.displayName() + " as " + mimeType);
             startActivity(intent);
         } catch (Exception error) {
+            Log.w(TAG, "Unable to open media " + media.displayName(), error);
             Toast.makeText(this, "无法打开：" + cleanError(error), Toast.LENGTH_SHORT).show();
         }
     }
@@ -470,11 +924,14 @@ public final class MainActivity extends Activity {
 
     private Button navButton(String text, final String nextScreen) {
         Button button = smallButton(text);
-        button.setTextColor(nextScreen.equals(screen) ? Color.WHITE : color("#2E3B37"));
-        button.setBackgroundColor(nextScreen.equals(screen) ? color("#182B28") : color("#E4DAC9"));
+        button.setTextColor(nextScreen.equals(navSelection()) ? Color.WHITE : color("#2E3B37"));
+        button.setBackground(nextScreen.equals(navSelection())
+                ? rounded("#182B28", "#182B28", 0, 14)
+                : rounded("#E4DAC9", "#D8CCB9", 1, 14));
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                selectedTaskId = null;
                 screen = nextScreen;
                 render();
             }
@@ -482,29 +939,14 @@ public final class MainActivity extends Activity {
         return button;
     }
 
-    private List<SyncTask> filteredTasks() {
-        List<SyncTask> result = new ArrayList<>();
-        for (SyncTask task : queue.tasks()) {
-            if ("photo".equals(filter) && task.media().isVideo()) {
-                continue;
-            }
-            if ("video".equals(filter) && !task.media().isVideo()) {
-                continue;
-            }
-            if ("failed".equals(filter) && task.status() != SyncStatus.FAILED) {
-                continue;
-            }
-            result.add(task);
+    private String navSelection() {
+        if ("detail".equals(screen)) {
+            return "queue";
         }
-        return result;
-    }
-
-    private List<SyncTask> recentTasks(int limit) {
-        List<SyncTask> tasks = queue.tasks();
-        if (tasks.size() <= limit) {
-            return tasks;
+        if ("settings".equals(screen)) {
+            return "home";
         }
-        return new ArrayList<>(tasks.subList(0, limit));
+        return screen;
     }
 
     private void editTarget() {
@@ -532,7 +974,7 @@ public final class MainActivity extends Activity {
     private LinearLayout pageLayout() {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), dp(18), dp(20), dp(28));
+        page.setPadding(dp(20), statusBarHeight() + dp(18), dp(20), dp(28));
         return page;
     }
 
@@ -540,7 +982,7 @@ public final class MainActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackgroundColor(Color.WHITE);
+        card.setBackground(rounded("#FFFFFF", "#E8E0D4", 1, 12));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(8), 0, dp(8));
         card.setLayoutParams(params);
@@ -573,14 +1015,14 @@ public final class MainActivity extends Activity {
         TextView view = label(text, 13, "#FFFFFF");
         view.setGravity(Gravity.CENTER);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setBackgroundColor(color("#2F6B5F"));
+        view.setBackground(rounded("#2F6B5F", "#2F6B5F", 0, 12));
         return view;
     }
 
     private Button actionButton(String text, View.OnClickListener listener) {
         Button button = smallButton(text);
         button.setTextColor(Color.WHITE);
-        button.setBackgroundColor(color("#182B28"));
+        button.setBackground(rounded("#182B28", "#182B28", 0, 12));
         button.setOnClickListener(listener);
         return button;
     }
@@ -589,10 +1031,23 @@ public final class MainActivity extends Activity {
         Button button = new Button(this);
         button.setText(text);
         button.setTextSize(13);
+        button.setTextColor(color("#2E3B37"));
         button.setAllCaps(false);
         button.setMinHeight(dp(40));
         button.setPadding(dp(10), 0, dp(10), 0);
+        button.setBackground(rounded("#EEE7DB", "#DDD3C4", 1, 12));
         return button;
+    }
+
+    private TextView textButton(String text, String textColor, String backgroundColor) {
+        TextView view = label(text, 14, textColor);
+        view.setGravity(Gravity.CENTER);
+        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        view.setPadding(dp(14), 0, dp(14), 0);
+        view.setBackground(rounded(backgroundColor, backgroundColor, 0, 21));
+        view.setClickable(true);
+        view.setFocusable(true);
+        return view;
     }
 
     private View statRow(String aLabel, String aValue, String bLabel, String bValue, String cLabel, String cValue) {
@@ -647,6 +1102,36 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private int statusBorderColor(SyncStatus status) {
+        switch (status) {
+            case WAITING:
+                return color("#B8AEA1");
+            case UPLOADING:
+                return color("#2F6B5F");
+            case DONE:
+                return color("#3D7A46");
+            case FAILED:
+                return color("#A54135");
+            default:
+                return color("#B8AEA1");
+        }
+    }
+
+    private String statusColor(SyncStatus status) {
+        switch (status) {
+            case WAITING:
+                return "#786F63";
+            case UPLOADING:
+                return "#2F6B5F";
+            case DONE:
+                return "#3D7A46";
+            case FAILED:
+                return "#A54135";
+            default:
+                return "#786F63";
+        }
+    }
+
     private String percent(float progress) {
         return String.valueOf(Math.round(progress * 100f)) + "%";
     }
@@ -665,6 +1150,25 @@ public final class MainActivity extends Activity {
         return bytes + " B";
     }
 
+    private String formatDate(long millis) {
+        if (millis <= 0L) {
+            return "-";
+        }
+        return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault()).format(new Date(millis));
+    }
+
+    private String appVersionText() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            if (Build.VERSION.SDK_INT >= 28) {
+                return info.versionName + " (" + info.getLongVersionCode() + ")";
+            }
+            return info.versionName + " (" + info.versionCode + ")";
+        } catch (Exception error) {
+            return "未知版本";
+        }
+    }
+
     private String cleanError(Exception error) {
         String message = error.getMessage();
         if (message == null || message.length() == 0) {
@@ -677,8 +1181,26 @@ public final class MainActivity extends Activity {
         return Color.parseColor(value);
     }
 
+    private GradientDrawable rounded(String fillColor, String strokeColor, int strokeDp, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color(fillColor));
+        drawable.setCornerRadius(dp(radiusDp));
+        if (strokeDp > 0) {
+            drawable.setStroke(dp(strokeDp), color(strokeColor));
+        }
+        return drawable;
+    }
+
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private int statusBarHeight() {
+        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resourceId <= 0) {
+            return 0;
+        }
+        return getResources().getDimensionPixelSize(resourceId);
     }
 
     private SharedPreferences prefs() {

@@ -10,16 +10,51 @@ import java.util.Set;
 public final class SyncQueue {
     private final Map<String, SyncTask> tasksByMediaId = new LinkedHashMap<>();
 
-    public synchronized void enqueueAll(List<MediaItem> mediaItems) {
+    public void enqueueAll(List<MediaItem> mediaItems) {
         for (MediaItem item : mediaItems) {
-            if (!tasksByMediaId.containsKey(item.stableId())) {
-                tasksByMediaId.put(item.stableId(), SyncTask.waiting(item));
+            synchronized (this) {
+                if (!tasksByMediaId.containsKey(item.stableId())) {
+                    tasksByMediaId.put(item.stableId(), SyncTask.waiting(item));
+                }
             }
         }
     }
 
     public synchronized List<SyncTask> tasks() {
         return Collections.unmodifiableList(new ArrayList<>(tasksByMediaId.values()));
+    }
+
+    public synchronized SyncTask findById(String taskId) {
+        return find(taskId);
+    }
+
+    public synchronized TaskWindow window(String filter, int maxVisibleCount) {
+        int safeLimit = Math.max(0, maxVisibleCount);
+        List<SyncTask> visible = new ArrayList<>();
+        int total = 0;
+        for (SyncTask task : tasksByMediaId.values()) {
+            if (!matchesFilter(task, filter)) {
+                continue;
+            }
+            total++;
+            if (visible.size() < safeLimit) {
+                visible.add(task);
+            }
+        }
+        return TaskWindow.of(visible, total);
+    }
+
+    public synchronized TaskWindow recentWindow(int maxVisibleCount) {
+        int safeLimit = Math.max(0, maxVisibleCount);
+        List<SyncTask> visible = new ArrayList<>();
+        int total = tasksByMediaId.size();
+        for (SyncTask task : tasksByMediaId.values()) {
+            if (visible.size() >= safeLimit) {
+                break;
+            }
+            visible.add(task);
+        }
+        return TaskWindow.of(visible, total);
     }
 
     public synchronized void markUploading(String taskId) {
@@ -111,6 +146,19 @@ public final class SyncQueue {
             }
         }
         return null;
+    }
+
+    private boolean matchesFilter(SyncTask task, String filter) {
+        if ("photo".equals(filter)) {
+            return !task.media().isVideo();
+        }
+        if ("video".equals(filter)) {
+            return task.media().isVideo();
+        }
+        if ("failed".equals(filter)) {
+            return task.status() == SyncStatus.FAILED;
+        }
+        return true;
     }
 
     public static final class Summary {

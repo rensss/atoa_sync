@@ -13,10 +13,14 @@ public final class TaskWindow {
         this.totalCount = totalCount;
     }
 
+    public static TaskWindow of(List<SyncTask> visibleTasks, int totalCount) {
+        return new TaskWindow(Collections.unmodifiableList(new ArrayList<>(visibleTasks)), Math.max(0, totalCount));
+    }
+
     public static TaskWindow from(List<SyncTask> tasks, int maxVisibleCount) {
         int safeLimit = Math.max(0, maxVisibleCount);
         int end = Math.min(tasks.size(), safeLimit);
-        return new TaskWindow(Collections.unmodifiableList(new ArrayList<>(tasks.subList(0, end))), tasks.size());
+        return of(tasks.subList(0, end), tasks.size());
     }
 
     public List<SyncTask> visibleTasks() {

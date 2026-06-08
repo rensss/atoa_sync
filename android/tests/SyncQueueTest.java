@@ -15,6 +15,8 @@ public final class SyncQueueTest {
         marksRemoteExistingMediaAsDone();
         marksRemoteExistingMediaByFingerprintAsDone();
         taskWindowLimitsRowsAndReportsMore();
+        queueBuildsFilteredWindowWithoutFullList();
+        findsTaskByIdForDetailScreens();
     }
 
     private static void enqueuesNewMediaOnlyOnce() {
@@ -111,6 +113,37 @@ public final class SyncQueueTest {
         assertEquals(2, window.visibleTasks().size(), "task window should cap visible rows");
         assertEquals(true, window.hasMore(), "task window should report hidden rows");
         assertEquals(3, window.totalCount(), "task window should preserve total count");
+    }
+
+    private static void queueBuildsFilteredWindowWithoutFullList() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(List.of(
+                item("15", "content://media/15", "IMG_0015.jpg", 1500L),
+                item("16", "content://media/16", "VID_0016.mp4", 1600L),
+                item("17", "content://media/17", "VID_0017.mp4", 1700L)
+        ));
+
+        TaskWindow videos = queue.window("video", 1);
+
+        assertEquals(1, videos.visibleTasks().size(), "filtered queue window should cap visible rows");
+        assertEquals(2, videos.totalCount(), "filtered queue window should report matching total");
+        assertEquals(true, videos.hasMore(), "filtered queue window should report more matching rows");
+        assertEquals("VID_0016.mp4", videos.visibleTasks().get(0).media().displayName(), "filtered queue window should preserve order");
+    }
+
+    private static void findsTaskByIdForDetailScreens() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(List.of(
+                item("18", "content://media/18", "IMG_0018.jpg", 1800L),
+                item("19", "content://media/19", "VID_0019.mp4", 1900L)
+        ));
+
+        SyncTask first = queue.tasks().get(0);
+        SyncTask second = queue.tasks().get(1);
+
+        assertEquals(first.id(), queue.findById(first.id()).id(), "queue should find first task by id");
+        assertEquals(second.media().displayName(), queue.findById(second.id()).media().displayName(), "queue should return matching task metadata");
+        assertEquals(null, queue.findById("missing"), "queue should return null for missing task ids");
     }
 
     private static MediaItem item(String stableId, String uri, String displayName, long sizeBytes) {
