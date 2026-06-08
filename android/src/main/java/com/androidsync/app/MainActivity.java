@@ -64,6 +64,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "AndroidSync";
@@ -74,6 +75,7 @@ public final class MainActivity extends Activity {
     private static final String KEY_TARGET_URL = "target_url";
     private static final long MIN_THUMBNAIL_CACHE_BYTES = 4L * 1024L * 1024L;
     private static final int FAILED_THUMBNAIL_CACHE_ENTRIES = 256;
+    private static final int FAILED_PREVIEW_CACHE_ENTRIES = 64;
 
     private final SyncQueue queue = new SyncQueue();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -89,8 +91,12 @@ public final class MainActivity extends Activity {
     };
     private final LruCache<String, Boolean> failedThumbnailCache =
             new LruCache<>(FAILED_THUMBNAIL_CACHE_ENTRIES);
+    private final LruCache<String, Boolean> failedPreviewCache =
+            new LruCache<>(FAILED_PREVIEW_CACHE_ENTRIES);
     private final Object thumbnailRequestsLock = new Object();
     private final Map<String, List<ThumbnailTarget>> thumbnailRequests = new HashMap<>();
+    private final Object previewRequestsLock = new Object();
+    private final Map<String, PreviewTarget> previewInFlight = new HashMap<>();
 
     private LinearLayout root;
     private MediaStoreScanner scanner;
@@ -104,6 +110,8 @@ public final class MainActivity extends Activity {
     private String scanMessage = "等待扫描";
     private int queueVisibleLimit = QUEUE_PAGE_SIZE;
     private int queueScrollY;
+    private int renderGeneration;
+    private volatile boolean destroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,11 +124,19 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        executor.shutdownNow();
-        thumbnailExecutor.shutdownNow();
+        destroyed = true;
+        mainHandler.removeCallbacksAndMessages(null);
         synchronized (thumbnailRequestsLock) {
+            for (List<ThumbnailTarget> targets : thumbnailRequests.values()) {
+                targets.clear();
+            }
             thumbnailRequests.clear();
         }
+        synchronized (previewRequestsLock) {
+            previewInFlight.clear();
+        }
+        executor.shutdownNow();
+        thumbnailExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -155,6 +171,9 @@ public final class MainActivity extends Activity {
     }
 
     private void scanMedia() {
+        if (destroyed) {
+            return;
+        }
         if (!hasMediaPermission()) {
             ensureMediaPermissionThenScan();
             return;
@@ -162,10 +181,16 @@ public final class MainActivity extends Activity {
         scanning = true;
         scanMessage = "正在扫描本机相册...";
         render();
-        executor.execute(new Runnable() {
+        boolean submitted = submitTask(new Runnable() {
             @Override
             public void run() {
+                if (destroyed) {
+                    return;
+                }
                 final List<MediaItem> media = scanner.scanAll();
+                if (destroyed) {
+                    return;
+                }
                 queue.enqueueAll(media);
                 int remoteMatches = 0;
                 String remoteMessage = "";
@@ -180,7 +205,7 @@ public final class MainActivity extends Activity {
                 final int scannedCount = media.size();
                 final int matchedCount = remoteMatches;
                 final String suffix = remoteMessage;
-                mainHandler.post(new Runnable() {
+                postTask(new Runnable() {
                     @Override
                     public void run() {
                         scanning = false;
@@ -191,9 +216,16 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+        if (!submitted && !destroyed) {
+            scanning = false;
+            render();
+        }
     }
 
     private void startSync() {
+        if (destroyed) {
+            return;
+        }
         if (syncing) {
             syncing = false;
             render();
@@ -201,12 +233,15 @@ public final class MainActivity extends Activity {
         }
         syncing = true;
         render();
-        executor.execute(new Runnable() {
+        boolean submitted = submitTask(new Runnable() {
             @Override
             public void run() {
+                if (destroyed) {
+                    return;
+                }
                 List<SyncTask> snapshot = queue.tasks();
                 for (SyncTask task : snapshot) {
-                    if (!syncing) {
+                    if (destroyed || !syncing) {
                         break;
                     }
                     if (task.status() != SyncStatus.WAITING && task.status() != SyncStatus.FAILED) {
@@ -226,6 +261,10 @@ public final class MainActivity extends Activity {
                 postRender();
             }
         });
+        if (!submitted && !destroyed) {
+            syncing = false;
+            render();
+        }
     }
 
     private void retryFailed() {
@@ -240,7 +279,7 @@ public final class MainActivity extends Activity {
     }
 
     private void postRender() {
-        mainHandler.post(new Runnable() {
+        postTask(new Runnable() {
             @Override
             public void run() {
                 render();
@@ -248,7 +287,37 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private boolean submitTask(Runnable task) {
+        if (destroyed) {
+            return false;
+        }
+        try {
+            executor.execute(task);
+            return true;
+        } catch (RejectedExecutionException error) {
+            return false;
+        }
+    }
+
+    private void postTask(final Runnable task) {
+        if (destroyed) {
+            return;
+        }
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!destroyed) {
+                    task.run();
+                }
+            }
+        });
+    }
+
     private void render() {
+        if (destroyed) {
+            return;
+        }
+        renderGeneration++;
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(color("#F4F1EA"));
@@ -399,6 +468,9 @@ public final class MainActivity extends Activity {
         scroll.post(new Runnable() {
             @Override
             public void run() {
+                if (destroyed) {
+                    return;
+                }
                 scroll.scrollTo(0, queueScrollY);
                 queueAutoLoading = false;
             }
@@ -665,29 +737,94 @@ public final class MainActivity extends Activity {
     }
 
     private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
+        if (destroyed) {
+            return;
+        }
         image.setTag(mediaUri);
         final int availableWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
         final int requestPixels = ThumbnailPolicy.previewRequestPixels(availableWidth);
-        thumbnailExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                final Bitmap bitmap = loadPreviewBitmap(mediaUri, requestPixels);
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (!mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
-                            return;
-                        }
-                        if (bitmap == null) {
-                            loading.setText("无法加载预览");
-                            return;
-                        }
-                        image.setImageBitmap(bitmap);
-                        loading.setVisibility(View.GONE);
-                    }
-                });
+        final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
+        if (failedPreviewCache.get(cacheKey) != null) {
+            loading.setText("无法加载预览");
+            return;
+        }
+
+        final PreviewTarget target = new PreviewTarget(image, loading);
+        boolean shouldSubmit = false;
+        boolean failed = false;
+        synchronized (previewRequestsLock) {
+            if (destroyed) {
+                return;
             }
-        });
+            if (failedPreviewCache.get(cacheKey) != null) {
+                failed = true;
+            } else if (previewInFlight.containsKey(cacheKey)) {
+                previewInFlight.put(cacheKey, target);
+            } else {
+                previewInFlight.put(cacheKey, target);
+                shouldSubmit = true;
+            }
+        }
+        if (failed) {
+            loading.setText("无法加载预览");
+            return;
+        }
+        if (!shouldSubmit) {
+            return;
+        }
+
+        try {
+            thumbnailExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Bitmap loadedBitmap = null;
+                    try {
+                        loadedBitmap = loadPreviewBitmap(mediaUri, requestPixels);
+                        if (loadedBitmap == null) {
+                            failedPreviewCache.put(cacheKey, Boolean.TRUE);
+                        }
+                    } finally {
+                        final PreviewTarget completedTarget;
+                        synchronized (previewRequestsLock) {
+                            completedTarget = previewInFlight.remove(cacheKey);
+                        }
+                        if (completedTarget != null && !destroyed) {
+                            final Bitmap bitmap = loadedBitmap;
+                            postTask(new Runnable() {
+                                @Override
+                                public void run() {
+                                    completePreviewRequest(mediaUri, bitmap, completedTarget);
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            synchronized (previewRequestsLock) {
+                previewInFlight.remove(cacheKey);
+            }
+        }
+    }
+
+    private void completePreviewRequest(String mediaUri, Bitmap bitmap, PreviewTarget target) {
+        if (destroyed) {
+            return;
+        }
+        ImageView image = target.image.get();
+        TextView loading = target.loading.get();
+        if (image == null || loading == null
+                || !mediaUri.equals(image.getTag())
+                || !image.isAttachedToWindow()
+                || !loading.isAttachedToWindow()) {
+            return;
+        }
+        if (bitmap == null) {
+            loading.setText("无法加载预览");
+            return;
+        }
+        image.setImageBitmap(bitmap);
+        loading.setVisibility(View.GONE);
     }
 
     private Bitmap loadPreviewBitmap(String mediaUri, int requestPixels) {
@@ -891,6 +1028,9 @@ public final class MainActivity extends Activity {
         final String mediaUri,
         final int requestPixels
     ) {
+        if (destroyed) {
+            return;
+        }
         final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
         Bitmap cached = thumbnailCache.get(cacheKey);
         if (cached != null) {
@@ -902,9 +1042,12 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        final ThumbnailTarget target = new ThumbnailTarget(image, placeholder);
+        final ThumbnailTarget target = new ThumbnailTarget(image, placeholder, renderGeneration);
         boolean shouldSubmit = false;
         synchronized (thumbnailRequestsLock) {
+            if (destroyed) {
+                return;
+            }
             cached = thumbnailCache.get(cacheKey);
             if (cached == null && failedThumbnailCache.get(cacheKey) == null) {
                 List<ThumbnailTarget> targets = thumbnailRequests.get(cacheKey);
@@ -913,6 +1056,7 @@ public final class MainActivity extends Activity {
                     thumbnailRequests.put(cacheKey, targets);
                     shouldSubmit = true;
                 }
+                pruneThumbnailTargets(targets, image);
                 targets.add(target);
             }
         }
@@ -926,36 +1070,70 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        thumbnailExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                Bitmap loadedBitmap = null;
-                try {
-                    loadedBitmap = loadThumbnailBitmap(mediaUri, requestPixels);
-                    if (loadedBitmap == null) {
-                        failedThumbnailCache.put(cacheKey, Boolean.TRUE);
-                    } else {
-                        thumbnailCache.put(cacheKey, loadedBitmap);
-                    }
-                } finally {
-                    final Bitmap bitmap = loadedBitmap;
-                    mainHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            completeThumbnailRequest(cacheKey, mediaUri, bitmap);
+        try {
+            thumbnailExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Bitmap loadedBitmap = null;
+                    try {
+                        loadedBitmap = loadThumbnailBitmap(mediaUri, requestPixels);
+                        if (loadedBitmap == null) {
+                            failedThumbnailCache.put(cacheKey, Boolean.TRUE);
+                        } else {
+                            thumbnailCache.put(cacheKey, loadedBitmap);
                         }
-                    });
+                    } finally {
+                        final List<ThumbnailTarget> targets;
+                        synchronized (thumbnailRequestsLock) {
+                            List<ThumbnailTarget> inFlightTargets = thumbnailRequests.remove(cacheKey);
+                            targets = inFlightTargets == null
+                                    ? null
+                                    : new ArrayList<>(inFlightTargets);
+                            if (inFlightTargets != null) {
+                                inFlightTargets.clear();
+                            }
+                        }
+                        if (targets != null && !destroyed) {
+                            final Bitmap bitmap = loadedBitmap;
+                            postTask(new Runnable() {
+                                @Override
+                                public void run() {
+                                    completeThumbnailRequest(mediaUri, bitmap, targets);
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            synchronized (thumbnailRequestsLock) {
+                List<ThumbnailTarget> targets = thumbnailRequests.remove(cacheKey);
+                if (targets != null) {
+                    targets.clear();
                 }
             }
-        });
+        }
     }
 
-    private void completeThumbnailRequest(String cacheKey, String mediaUri, Bitmap bitmap) {
-        final List<ThumbnailTarget> targets;
-        synchronized (thumbnailRequestsLock) {
-            targets = thumbnailRequests.remove(cacheKey);
+    private void pruneThumbnailTargets(List<ThumbnailTarget> targets, ImageView currentImage) {
+        for (int index = targets.size() - 1; index >= 0; index--) {
+            ThumbnailTarget target = targets.get(index);
+            ImageView targetImage = target.image.get();
+            if (targetImage == null
+                    || targetImage == currentImage
+                    || (!targetImage.isAttachedToWindow()
+                    && target.renderGeneration != renderGeneration)) {
+                targets.remove(index);
+            }
         }
-        if (bitmap == null || targets == null) {
+    }
+
+    private void completeThumbnailRequest(
+        String mediaUri,
+        Bitmap bitmap,
+        List<ThumbnailTarget> targets
+    ) {
+        if (destroyed || bitmap == null) {
             return;
         }
         for (ThumbnailTarget target : targets) {
@@ -965,7 +1143,7 @@ public final class MainActivity extends Activity {
             }
             image.setImageBitmap(bitmap);
             TextView placeholder = target.placeholder.get();
-            if (placeholder != null) {
+            if (placeholder != null && placeholder.isAttachedToWindow()) {
                 placeholder.setVisibility(View.GONE);
             }
         }
@@ -998,10 +1176,22 @@ public final class MainActivity extends Activity {
     private static final class ThumbnailTarget {
         private final WeakReference<ImageView> image;
         private final WeakReference<TextView> placeholder;
+        private final int renderGeneration;
 
-        private ThumbnailTarget(ImageView image, TextView placeholder) {
+        private ThumbnailTarget(ImageView image, TextView placeholder, int renderGeneration) {
             this.image = new WeakReference<>(image);
             this.placeholder = new WeakReference<>(placeholder);
+            this.renderGeneration = renderGeneration;
+        }
+    }
+
+    private static final class PreviewTarget {
+        private final WeakReference<ImageView> image;
+        private final WeakReference<TextView> loading;
+
+        private PreviewTarget(ImageView image, TextView loading) {
+            this.image = new WeakReference<>(image);
+            this.loading = new WeakReference<>(loading);
         }
     }
 
