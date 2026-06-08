@@ -53,11 +53,15 @@ import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
 import com.androidsync.app.core.ThumbnailPolicy;
 
+import java.lang.ref.WeakReference;
 import java.text.DateFormat;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -69,6 +73,7 @@ public final class MainActivity extends Activity {
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
     private static final long MIN_THUMBNAIL_CACHE_BYTES = 4L * 1024L * 1024L;
+    private static final int FAILED_THUMBNAIL_CACHE_ENTRIES = 256;
 
     private final SyncQueue queue = new SyncQueue();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -82,6 +87,10 @@ public final class MainActivity extends Activity {
             return bitmap.getAllocationByteCount();
         }
     };
+    private final LruCache<String, Boolean> failedThumbnailCache =
+            new LruCache<>(FAILED_THUMBNAIL_CACHE_ENTRIES);
+    private final Object thumbnailRequestsLock = new Object();
+    private final Map<String, List<ThumbnailTarget>> thumbnailRequests = new HashMap<>();
 
     private LinearLayout root;
     private MediaStoreScanner scanner;
@@ -109,6 +118,9 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         executor.shutdownNow();
         thumbnailExecutor.shutdownNow();
+        synchronized (thumbnailRequestsLock) {
+            thumbnailRequests.clear();
+        }
         super.onDestroy();
     }
 
@@ -880,32 +892,83 @@ public final class MainActivity extends Activity {
         final int requestPixels
     ) {
         final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
-        final Bitmap cached = thumbnailCache.get(cacheKey);
+        Bitmap cached = thumbnailCache.get(cacheKey);
         if (cached != null) {
             image.setImageBitmap(cached);
             placeholder.setVisibility(View.GONE);
             return;
         }
+        if (failedThumbnailCache.get(cacheKey) != null) {
+            return;
+        }
+
+        final ThumbnailTarget target = new ThumbnailTarget(image, placeholder);
+        boolean shouldSubmit = false;
+        synchronized (thumbnailRequestsLock) {
+            cached = thumbnailCache.get(cacheKey);
+            if (cached == null && failedThumbnailCache.get(cacheKey) == null) {
+                List<ThumbnailTarget> targets = thumbnailRequests.get(cacheKey);
+                if (targets == null) {
+                    targets = new ArrayList<>();
+                    thumbnailRequests.put(cacheKey, targets);
+                    shouldSubmit = true;
+                }
+                targets.add(target);
+            }
+        }
+
+        if (cached != null) {
+            image.setImageBitmap(cached);
+            placeholder.setVisibility(View.GONE);
+            return;
+        }
+        if (!shouldSubmit) {
+            return;
+        }
+
         thumbnailExecutor.execute(new Runnable() {
             @Override
             public void run() {
-                final Bitmap bitmap = loadThumbnailBitmap(mediaUri, requestPixels);
-                if (bitmap == null) {
-                    return;
-                }
-                thumbnailCache.put(cacheKey, bitmap);
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (!mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
-                            return;
-                        }
-                        image.setImageBitmap(bitmap);
-                        placeholder.setVisibility(View.GONE);
+                Bitmap loadedBitmap = null;
+                try {
+                    loadedBitmap = loadThumbnailBitmap(mediaUri, requestPixels);
+                    if (loadedBitmap == null) {
+                        failedThumbnailCache.put(cacheKey, Boolean.TRUE);
+                    } else {
+                        thumbnailCache.put(cacheKey, loadedBitmap);
                     }
-                });
+                } finally {
+                    final Bitmap bitmap = loadedBitmap;
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            completeThumbnailRequest(cacheKey, mediaUri, bitmap);
+                        }
+                    });
+                }
             }
         });
+    }
+
+    private void completeThumbnailRequest(String cacheKey, String mediaUri, Bitmap bitmap) {
+        final List<ThumbnailTarget> targets;
+        synchronized (thumbnailRequestsLock) {
+            targets = thumbnailRequests.remove(cacheKey);
+        }
+        if (bitmap == null || targets == null) {
+            return;
+        }
+        for (ThumbnailTarget target : targets) {
+            ImageView image = target.image.get();
+            if (image == null || !mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
+                continue;
+            }
+            image.setImageBitmap(bitmap);
+            TextView placeholder = target.placeholder.get();
+            if (placeholder != null) {
+                placeholder.setVisibility(View.GONE);
+            }
+        }
     }
 
     private Bitmap loadThumbnailBitmap(String mediaUri, int requestPixels) {
@@ -930,6 +993,16 @@ public final class MainActivity extends Activity {
 
     private static String thumbnailCacheKey(String mediaUri, int requestPixels) {
         return mediaUri + "#" + requestPixels + "x" + requestPixels;
+    }
+
+    private static final class ThumbnailTarget {
+        private final WeakReference<ImageView> image;
+        private final WeakReference<TextView> placeholder;
+
+        private ThumbnailTarget(ImageView image, TextView placeholder) {
+            this.image = new WeakReference<>(image);
+            this.placeholder = new WeakReference<>(placeholder);
+        }
     }
 
     private void openMedia(MediaItem media) {
