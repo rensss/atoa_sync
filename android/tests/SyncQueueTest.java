@@ -150,8 +150,12 @@ public final class SyncQueueTest {
     }
 
     private static void thumbnailPolicyCapsGridAndPreviewRequests() {
+        assertEquals(1, ThumbnailPolicy.gridRequestPixels(0), "grid thumbnails should clamp zero-sized requests");
+        assertEquals(1, ThumbnailPolicy.gridRequestPixels(1), "grid thumbnails should preserve the minimum positive request");
         assertEquals(96, ThumbnailPolicy.gridRequestPixels(320), "grid thumbnails should be capped");
         assertEquals(96, ThumbnailPolicy.gridRequestPixels(96), "grid thumbnails should preserve max-sized requests");
+        assertEquals(1, ThumbnailPolicy.previewRequestPixels(-5), "preview thumbnails should clamp negative-sized requests");
+        assertEquals(1, ThumbnailPolicy.previewRequestPixels(1), "preview thumbnails should preserve the minimum positive request");
         assertEquals(1024, ThumbnailPolicy.previewRequestPixels(1440), "preview thumbnails should be capped");
         assertEquals(640, ThumbnailPolicy.previewRequestPixels(640), "preview thumbnails should preserve under-cap requests");
     }
@@ -168,6 +172,7 @@ public final class SyncQueueTest {
 
         assertEquals(2, window.visibleTasks().size(), "recent window should cap visible rows");
         assertEquals("new.jpg", window.visibleTasks().get(0).media().displayName(), "recent window should preserve scanner newest-first order");
+        assertEquals("middle.jpg", window.visibleTasks().get(1).media().displayName(), "recent window should preserve the complete limited order");
     }
 
     private static MediaItem item(String stableId, String uri, String displayName, long sizeBytes) {

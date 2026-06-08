@@ -1,8 +1,8 @@
 package com.androidsync.app.core;
 
 public final class ThumbnailPolicy {
-    public static final int GRID_MAX_PIXELS = 96;
-    public static final int PREVIEW_MAX_PIXELS = 1024;
+    private static final int GRID_MAX_PIXELS = 96;
+    private static final int PREVIEW_MAX_PIXELS = 1024;
 
     private ThumbnailPolicy() {
     }
