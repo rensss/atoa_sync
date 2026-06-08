@@ -26,6 +26,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
+import android.util.LruCache;
 import android.util.Size;
 import android.view.Gravity;
 import android.view.View;
@@ -50,6 +51,7 @@ import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
+import com.androidsync.app.core.ThumbnailPolicy;
 
 import java.text.DateFormat;
 import java.text.DecimalFormat;
@@ -66,6 +68,7 @@ public final class MainActivity extends Activity {
     private static final int RECENT_GRID_LIMIT = 50;
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
+    private static final long MIN_THUMBNAIL_CACHE_BYTES = 4L * 1024L * 1024L;
 
     private final SyncQueue queue = new SyncQueue();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -73,6 +76,12 @@ public final class MainActivity extends Activity {
     private final ExecutorService thumbnailExecutor = Executors.newFixedThreadPool(2);
     private final HttpFileUploader uploader = new HttpFileUploader();
     private final RemoteManifestClient manifestClient = new RemoteManifestClient();
+    private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(thumbnailCacheBytes()) {
+        @Override
+        protected int sizeOf(String key, Bitmap bitmap) {
+            return bitmap.getAllocationByteCount();
+        }
+    };
 
     private LinearLayout root;
     private MediaStoreScanner scanner;
@@ -613,6 +622,7 @@ public final class MainActivity extends Activity {
         border.setCornerRadius(dp(8));
         border.setStroke(dp(2), statusBorderColor(task.status()));
         tile.setBackground(border);
+        tile.setClipToOutline(true);
         tile.setPadding(dp(2), dp(2), dp(2), dp(2));
         tile.addView(thumbnail(task), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -624,6 +634,7 @@ public final class MainActivity extends Activity {
         strip.setTextSize(8);
         FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5));
         stripParams.gravity = Gravity.BOTTOM;
+        strip.setVisibility(View.VISIBLE);
         tile.addView(strip, stripParams);
         return tile;
     }
@@ -643,14 +654,16 @@ public final class MainActivity extends Activity {
 
     private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
         image.setTag(mediaUri);
+        final int availableWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+        final int requestPixels = ThumbnailPolicy.previewRequestPixels(availableWidth);
         thumbnailExecutor.execute(new Runnable() {
             @Override
             public void run() {
-                final Bitmap bitmap = loadPreviewBitmap(mediaUri);
+                final Bitmap bitmap = loadPreviewBitmap(mediaUri, requestPixels);
                 mainHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        if (!mediaUri.equals(image.getTag())) {
+                        if (!mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
                             return;
                         }
                         if (bitmap == null) {
@@ -665,13 +678,17 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private Bitmap loadPreviewBitmap(String mediaUri) {
+    private Bitmap loadPreviewBitmap(String mediaUri, int requestPixels) {
         if (Build.VERSION.SDK_INT < 29) {
             return null;
         }
         try {
-            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(dp(1200), dp(1200)), null);
-        } catch (Exception ignored) {
+            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
+        } catch (OutOfMemoryError error) {
+            Log.w(TAG, "Unable to load preview " + mediaUri, error);
+            return null;
+        } catch (Exception error) {
+            Log.w(TAG, "Unable to load preview " + mediaUri, error);
             return null;
         }
     }
@@ -851,22 +868,36 @@ public final class MainActivity extends Activity {
 
         final String mediaUri = task.media().uri();
         image.setTag(mediaUri);
-        loadThumbnailAsync(image, placeholder, mediaUri);
+        final int requestPixels = ThumbnailPolicy.gridRequestPixels(96);
+        loadThumbnailAsync(image, placeholder, mediaUri, requestPixels);
         return frame;
     }
 
-    private void loadThumbnailAsync(final ImageView image, final TextView placeholder, final String mediaUri) {
+    private void loadThumbnailAsync(
+        final ImageView image,
+        final TextView placeholder,
+        final String mediaUri,
+        final int requestPixels
+    ) {
+        final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
+        final Bitmap cached = thumbnailCache.get(cacheKey);
+        if (cached != null) {
+            image.setImageBitmap(cached);
+            placeholder.setVisibility(View.GONE);
+            return;
+        }
         thumbnailExecutor.execute(new Runnable() {
             @Override
             public void run() {
-                final Bitmap bitmap = loadThumbnailBitmap(mediaUri);
+                final Bitmap bitmap = loadThumbnailBitmap(mediaUri, requestPixels);
                 if (bitmap == null) {
                     return;
                 }
+                thumbnailCache.put(cacheKey, bitmap);
                 mainHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        if (!mediaUri.equals(image.getTag())) {
+                        if (!mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
                             return;
                         }
                         image.setImageBitmap(bitmap);
@@ -877,15 +908,28 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private Bitmap loadThumbnailBitmap(String mediaUri) {
+    private Bitmap loadThumbnailBitmap(String mediaUri, int requestPixels) {
         if (Build.VERSION.SDK_INT < 29) {
             return null;
         }
         try {
-            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(dp(96), dp(96)), null);
-        } catch (Exception ignored) {
+            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
+        } catch (OutOfMemoryError error) {
+            Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
+            return null;
+        } catch (Exception error) {
+            Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
             return null;
         }
+    }
+
+    private static int thumbnailCacheBytes() {
+        long requestedBytes = Math.max(MIN_THUMBNAIL_CACHE_BYTES, Runtime.getRuntime().maxMemory() / 16L);
+        return (int) Math.min((long) Integer.MAX_VALUE, requestedBytes);
+    }
+
+    private static String thumbnailCacheKey(String mediaUri, int requestPixels) {
+        return mediaUri + "#" + requestPixels + "x" + requestPixels;
     }
 
     private void openMedia(MediaItem media) {
