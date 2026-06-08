@@ -1,5 +1,6 @@
 .DS_Store
 .superpowers/
+.worktrees/
 
 # Android generated build intermediates
 android/build/apk-*/
