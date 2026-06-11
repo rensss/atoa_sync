@@ -9,15 +9,23 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct AppStrings {
-    let language: AppLanguage
+enum AppStringKey: String {
+    case settings
+}
 
-    var settings: String {
-        switch language {
-        case .simplifiedChinese:
-            "设置"
-        case .english:
-            "Settings"
-        }
+enum AppStrings {
+    private static let table: [AppLanguage: [AppStringKey: String]] = [
+        .simplifiedChinese: [
+            .settings: "设置",
+        ],
+        .english: [
+            .settings: "Settings",
+        ],
+    ]
+
+    static func text(_ key: AppStringKey, language: AppLanguage) -> String {
+        table[language]?[key]
+            ?? table[AppLanguage.default]?[key]
+            ?? key.rawValue
     }
 }

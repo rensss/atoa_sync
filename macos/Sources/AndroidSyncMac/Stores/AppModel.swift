@@ -148,6 +148,16 @@ final class AppModel {
         calendar: Calendar
     ) -> [MediaItemEntity] {
         let startOfToday = calendar.startOfDay(for: now)
+        let startOfSevenDays = calendar.date(
+            byAdding: .day,
+            value: -6,
+            to: startOfToday
+        ) ?? startOfToday
+        let startOfThirtyDays = calendar.date(
+            byAdding: .day,
+            value: -29,
+            to: startOfToday
+        ) ?? startOfToday
         let filtered = items.filter { item in
             let categoryMatches: Bool
             switch category {
@@ -160,7 +170,9 @@ final class AppModel {
             case .files:
                 categoryMatches = !item.deleted && item.kind == .file
             case .recent:
-                categoryMatches = !item.deleted && item.receivedAt >= startOfToday
+                categoryMatches = !item.deleted
+                    && item.receivedAt >= startOfToday
+                    && item.receivedAt <= now
             case .deleted:
                 categoryMatches = item.deleted
             }
@@ -170,18 +182,13 @@ final class AppModel {
                 dateMatches = true
             case .today:
                 dateMatches = item.receivedAt >= startOfToday
+                    && item.receivedAt <= now
             case .sevenDays:
-                dateMatches = item.receivedAt >= calendar.date(
-                    byAdding: .day,
-                    value: -7,
-                    to: now
-                )!
+                dateMatches = item.receivedAt >= startOfSevenDays
+                    && item.receivedAt <= now
             case .thirtyDays:
-                dateMatches = item.receivedAt >= calendar.date(
-                    byAdding: .day,
-                    value: -30,
-                    to: now
-                )!
+                dateMatches = item.receivedAt >= startOfThirtyDays
+                    && item.receivedAt <= now
             }
             return categoryMatches && dateMatches
                 && (searchText.isEmpty

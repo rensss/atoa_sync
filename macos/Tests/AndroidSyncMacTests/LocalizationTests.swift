@@ -7,7 +7,13 @@ final class LocalizationTests: XCTestCase {
     }
 
     func testSettingsTitleMapsToChineseAndEnglish() {
-        XCTAssertEqual(AppStrings(language: .simplifiedChinese).settings, "设置")
-        XCTAssertEqual(AppStrings(language: .english).settings, "Settings")
+        XCTAssertEqual(
+            AppStrings.text(.settings, language: .simplifiedChinese),
+            "设置"
+        )
+        XCTAssertEqual(
+            AppStrings.text(.settings, language: .english),
+            "Settings"
+        )
     }
 }

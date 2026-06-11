@@ -41,9 +41,10 @@ final class AppModelQueryTests: XCTestCase {
     func testTodayFilterUsesInjectedNowAndCalendar() {
         let startOfToday = makeItem(filename: "today.jpg", receivedAt: date(2026, 6, 11, 0))
         let yesterday = makeItem(filename: "yesterday.jpg", receivedAt: date(2026, 6, 10, 23, 59))
+        let future = makeItem(filename: "future.jpg", receivedAt: date(2026, 6, 11, 15, 1))
 
         let result = AppModel.filterItems(
-            [yesterday, startOfToday],
+            [yesterday, startOfToday, future],
             category: .all,
             dateFilter: .today,
             sort: .newest,
@@ -53,6 +54,71 @@ final class AppModelQueryTests: XCTestCase {
         )
 
         XCTAssertEqual(result.map(\.filename), ["today.jpg"])
+    }
+
+    func testRecentCategoryExcludesItemsAfterNow() {
+        let current = makeItem(filename: "current.jpg", receivedAt: date(2026, 6, 11, 15))
+        let future = makeItem(filename: "future.jpg", receivedAt: date(2026, 6, 11, 15, 1))
+
+        let result = AppModel.filterItems(
+            [future, current],
+            category: .recent,
+            dateFilter: .all,
+            sort: .newest,
+            searchText: "",
+            now: date(2026, 6, 11, 15),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.map(\.filename), ["current.jpg"])
+    }
+
+    func testSevenDaysUsesNaturalDayBoundaryAndExcludesFutureItems() {
+        let lowerBoundary = makeItem(
+            filename: "boundary.jpg",
+            receivedAt: date(2026, 6, 5, 0)
+        )
+        let beforeBoundary = makeItem(
+            filename: "before.jpg",
+            receivedAt: date(2026, 6, 4, 23, 59)
+        )
+        let future = makeItem(filename: "future.jpg", receivedAt: date(2026, 6, 11, 15, 1))
+
+        let result = AppModel.filterItems(
+            [beforeBoundary, lowerBoundary, future],
+            category: .all,
+            dateFilter: .sevenDays,
+            sort: .newest,
+            searchText: "",
+            now: date(2026, 6, 11, 15),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.map(\.filename), ["boundary.jpg"])
+    }
+
+    func testThirtyDaysUsesNaturalDayBoundaryAndExcludesFutureItems() {
+        let lowerBoundary = makeItem(
+            filename: "boundary.jpg",
+            receivedAt: date(2026, 5, 13, 0)
+        )
+        let beforeBoundary = makeItem(
+            filename: "before.jpg",
+            receivedAt: date(2026, 5, 12, 23, 59)
+        )
+        let future = makeItem(filename: "future.jpg", receivedAt: date(2026, 6, 11, 15, 1))
+
+        let result = AppModel.filterItems(
+            [beforeBoundary, lowerBoundary, future],
+            category: .all,
+            dateFilter: .thirtyDays,
+            sort: .newest,
+            searchText: "",
+            now: date(2026, 6, 11, 15),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.map(\.filename), ["boundary.jpg"])
     }
 
     private func makeItem(filename: String, receivedAt: Date) -> MediaItemEntity {
