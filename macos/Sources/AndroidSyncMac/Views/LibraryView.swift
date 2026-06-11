@@ -62,12 +62,12 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.filename)
                         .lineLimit(1)
-                    Text(item.receivedAt, format: .dateTime.year().month().day().hour().minute())
+                    Text(model.formatDate(item.receivedAt))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+                Text(model.formatByteCount(item.sizeBytes))
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 3)
@@ -120,9 +120,9 @@ private struct MediaGridItem: View {
                 .lineLimit(1)
                 .font(.callout.weight(.medium))
             HStack {
-                Text(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+                Text(model.formatByteCount(item.sizeBytes))
                 Spacer()
-                Text(item.receivedAt, style: .date)
+                Text(model.formatDateOnly(item.receivedAt))
             }
             .font(.caption)
             .foregroundStyle(.secondary)

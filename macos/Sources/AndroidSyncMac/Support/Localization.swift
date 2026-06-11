@@ -1,3 +1,4 @@
+import AndroidSyncCore
 import Foundation
 
 enum AppLanguage: String, CaseIterable, Identifiable {
@@ -44,6 +45,9 @@ enum AppStringKey: String, CaseIterable {
     case categoryFiles
     case categoryRecent
     case categoryDeleted
+    case kindPhoto
+    case kindVideo
+    case kindFile
     case dateAny
     case dateToday
     case dateSevenDays
@@ -129,6 +133,9 @@ enum AppStrings {
             .categoryFiles: "其他文件",
             .categoryRecent: "最近接收",
             .categoryDeleted: "已删除",
+            .kindPhoto: "照片",
+            .kindVideo: "视频",
+            .kindFile: "文件",
             .dateAny: "不限日期",
             .dateToday: "今天",
             .dateSevenDays: "最近 7 天",
@@ -211,6 +218,9 @@ enum AppStrings {
             .categoryFiles: "Other Files",
             .categoryRecent: "Recently Received",
             .categoryDeleted: "Deleted",
+            .kindPhoto: "Photo",
+            .kindVideo: "Video",
+            .kindFile: "File",
             .dateAny: "Any Date",
             .dateToday: "Today",
             .dateSevenDays: "Last 7 Days",
@@ -292,6 +302,17 @@ enum AppStrings {
             ?? key.rawValue
     }
 
+    static func hasTranslation(
+        _ key: AppStringKey,
+        language: AppLanguage
+    ) -> Bool {
+        table[language]?[key] != nil
+    }
+
+    static func tableKeys(for language: AppLanguage) -> Set<AppStringKey> {
+        Set(table[language, default: [:]].keys)
+    }
+
     static func format(
         _ key: AppStringKey,
         language: AppLanguage,
@@ -301,5 +322,61 @@ enum AppStrings {
             format: text(key, language: language),
             arguments: arguments
         )
+    }
+}
+
+extension UploadKind {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
+        switch self {
+        case .photo: key = .kindPhoto
+        case .video: key = .kindVideo
+        case .file: key = .kindFile
+        }
+        return AppStrings.text(key, language: language)
+    }
+}
+
+enum AppFormatters {
+    static func contentType(
+        _ contentType: String?,
+        kind: UploadKind,
+        language: AppLanguage
+    ) -> String {
+        let normalized = contentType?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized, !normalized.isEmpty else {
+            return kind.title(using: language)
+        }
+        return normalized
+    }
+
+    static func byteCountStyle(
+        language: AppLanguage
+    ) -> ByteCountFormatStyle {
+        ByteCountFormatStyle(style: .file)
+            .locale(language.locale)
+    }
+
+    static func byteCount(_ byteCount: Int64, language: AppLanguage) -> String {
+        byteCount.formatted(byteCountStyle(language: language))
+    }
+
+    static func dateStyle(language: AppLanguage) -> Date.FormatStyle {
+        Date.FormatStyle(date: .abbreviated, time: .shortened)
+            .locale(language.locale)
+    }
+
+    static func dateOnlyStyle(language: AppLanguage) -> Date.FormatStyle {
+        Date.FormatStyle(date: .abbreviated, time: .omitted)
+            .locale(language.locale)
+    }
+
+    static func date(_ date: Date, language: AppLanguage) -> String {
+        date.formatted(dateStyle(language: language))
+    }
+
+    static func dateOnly(_ date: Date, language: AppLanguage) -> String {
+        date.formatted(dateOnlyStyle(language: language))
     }
 }

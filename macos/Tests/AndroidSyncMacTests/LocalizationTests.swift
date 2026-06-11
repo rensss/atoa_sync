@@ -1,3 +1,4 @@
+import AndroidSyncCore
 import SwiftData
 import XCTest
 @testable import AndroidSyncMac
@@ -88,15 +89,80 @@ final class LocalizationTests: XCTestCase {
         )
     }
 
-    func testEveryStringKeyHasChineseAndEnglishText() {
+    func testEveryStringKeyHasAnExplicitChineseAndEnglishTranslation() {
+        let expectedKeys = Set(AppStringKey.allCases)
+
         for language in AppLanguage.allCases {
+            XCTAssertEqual(
+                AppStrings.tableKeys(for: language),
+                expectedKeys,
+                "Translation table keys differ for \(language.rawValue)"
+            )
             for key in AppStringKey.allCases {
-                XCTAssertNotEqual(
-                    AppStrings.text(key, language: language),
-                    key.rawValue,
-                    "Missing \(language.rawValue) text for \(key.rawValue)"
+                XCTAssertTrue(
+                    AppStrings.hasTranslation(key, language: language),
+                    "Missing explicit \(language.rawValue) text for \(key.rawValue)"
                 )
             }
+        }
+    }
+
+    func testUploadKindTitlesFollowSelectedLanguage() {
+        XCTAssertEqual(
+            UploadKind.photo.title(using: .simplifiedChinese),
+            "照片"
+        )
+        XCTAssertEqual(
+            UploadKind.video.title(using: .simplifiedChinese),
+            "视频"
+        )
+        XCTAssertEqual(
+            UploadKind.file.title(using: .simplifiedChinese),
+            "文件"
+        )
+        XCTAssertEqual(UploadKind.photo.title(using: .english), "Photo")
+        XCTAssertEqual(UploadKind.video.title(using: .english), "Video")
+        XCTAssertEqual(UploadKind.file.title(using: .english), "File")
+    }
+
+    func testMissingOrBlankContentTypeUsesLocalizedUploadKind() {
+        XCTAssertEqual(
+            AppFormatters.contentType(
+                nil,
+                kind: .photo,
+                language: .simplifiedChinese
+            ),
+            "照片"
+        )
+        XCTAssertEqual(
+            AppFormatters.contentType(
+                "  ",
+                kind: .video,
+                language: .english
+            ),
+            "Video"
+        )
+        XCTAssertEqual(
+            AppFormatters.contentType(
+                "image/heic",
+                kind: .photo,
+                language: .simplifiedChinese
+            ),
+            "image/heic"
+        )
+    }
+
+    func testMetadataFormattersUseSelectedLanguageLocale() {
+        for language in AppLanguage.allCases {
+            XCTAssertEqual(
+                AppFormatters.byteCountStyle(language: language)
+                    .locale.identifier,
+                language.locale.identifier
+            )
+            XCTAssertEqual(
+                AppFormatters.dateStyle(language: language).locale,
+                language.locale
+            )
         }
     }
 

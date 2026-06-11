@@ -50,26 +50,28 @@ struct InspectorView: View {
     @ViewBuilder
     private func metadata(_ item: MediaItemEntity) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-            row(model.text(.metadataType), item.contentType ?? item.kind.rawValue)
+            row(
+                model.text(.metadataType),
+                AppFormatters.contentType(
+                    item.contentType,
+                    kind: item.kind,
+                    language: model.language
+                )
+            )
             row(
                 model.text(.metadataSize),
-                ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)
+                model.formatByteCount(item.sizeBytes)
             )
             row(
                 model.text(.metadataReceived),
-                item.receivedAt.formatted(
-                    Date.FormatStyle(date: .abbreviated, time: .shortened)
-                        .locale(model.language.locale)
-                )
+                model.formatDate(item.receivedAt)
             )
             if let millis = item.dateTakenMillis {
                 row(
                     model.text(.metadataCaptured),
-                    Date(timeIntervalSince1970: Double(millis) / 1_000)
-                        .formatted(
-                            Date.FormatStyle(date: .abbreviated, time: .shortened)
-                                .locale(model.language.locale)
-                        )
+                    model.formatDate(
+                        Date(timeIntervalSince1970: Double(millis) / 1_000)
+                    )
                 )
             }
             if let sourceIP = item.sourceIP {

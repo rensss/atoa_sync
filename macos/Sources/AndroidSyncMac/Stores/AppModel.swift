@@ -154,6 +154,18 @@ final class AppModel {
         )
     }
 
+    func formatByteCount(_ byteCount: Int64) -> String {
+        AppFormatters.byteCount(byteCount, language: language)
+    }
+
+    func formatDate(_ date: Date) -> String {
+        AppFormatters.date(date, language: language)
+    }
+
+    func formatDateOnly(_ date: Date) -> String {
+        AppFormatters.dateOnly(date, language: language)
+    }
+
     var filteredItems: [MediaItemEntity] {
         Self.filterItems(
             items,
