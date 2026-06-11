@@ -9,27 +9,32 @@ struct ContentView: View {
         NavigationSplitView {
             SidebarView(model: model)
         } detail: {
-            if model.receiveDirectory == nil {
-                OnboardingView(model: model)
-            } else {
-                VStack(spacing: 0) {
-                    ReceiverStatusView(model: model)
-                    Divider()
-                    LibraryToolbar(model: model)
-                    LibraryView(model: model)
-                }
-                .searchable(
-                    text: $model.searchText,
-                    prompt: Text(model.text(.searchFilenames))
-                )
-                .inspector(isPresented: $model.inspectorPresented) {
-                    InspectorView(
-                        model: model,
-                        renamePresented: $renamePresented,
-                        renameValue: $renameValue
+            Group {
+                if model.receiveDirectory == nil {
+                    OnboardingView(model: model)
+                } else {
+                    VStack(spacing: 0) {
+                        ReceiverStatusView(model: model)
+                        Divider()
+                        LibraryView(model: model)
+                    }
+                    .searchable(
+                        text: $model.searchText,
+                        placement: .toolbar,
+                        prompt: Text(model.text(.searchFilenames))
                     )
-                    .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+                    .inspector(isPresented: $model.inspectorPresented) {
+                        InspectorView(
+                            model: model,
+                            renamePresented: $renamePresented,
+                            renameValue: $renameValue
+                        )
+                        .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+                    }
                 }
+            }
+            .toolbar {
+                LibraryToolbar(model: model)
             }
         }
         .sheet(isPresented: $renamePresented) {
