@@ -127,8 +127,27 @@ final class AppModel {
     }
 
     var filteredItems: [MediaItemEntity] {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: Date())
+        Self.filterItems(
+            items,
+            category: category,
+            dateFilter: dateFilter,
+            sort: sort,
+            searchText: searchText,
+            now: Date(),
+            calendar: Calendar.current
+        )
+    }
+
+    static func filterItems(
+        _ items: [MediaItemEntity],
+        category: LibraryCategory,
+        dateFilter: LibraryDateFilter,
+        sort: LibrarySort,
+        searchText: String,
+        now: Date,
+        calendar: Calendar
+    ) -> [MediaItemEntity] {
+        let startOfToday = calendar.startOfDay(for: now)
         let filtered = items.filter { item in
             let categoryMatches: Bool
             switch category {
@@ -155,13 +174,13 @@ final class AppModel {
                 dateMatches = item.receivedAt >= calendar.date(
                     byAdding: .day,
                     value: -7,
-                    to: Date()
+                    to: now
                 )!
             case .thirtyDays:
                 dateMatches = item.receivedAt >= calendar.date(
                     byAdding: .day,
                     value: -30,
-                    to: Date()
+                    to: now
                 )!
             }
             return categoryMatches && dateMatches

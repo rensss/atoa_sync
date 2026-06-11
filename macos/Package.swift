@@ -25,6 +25,11 @@ let package = Package(
             name: "AndroidSyncCoreTests",
             dependencies: ["AndroidSyncCore"],
             path: "Tests/AndroidSyncCoreTests"
+        ),
+        .testTarget(
+            name: "AndroidSyncMacTests",
+            dependencies: ["AndroidSyncMac", "AndroidSyncCore"],
+            path: "Tests/AndroidSyncMacTests"
         )
     ]
 )
