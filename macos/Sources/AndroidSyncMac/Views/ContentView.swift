@@ -18,7 +18,10 @@ struct ContentView: View {
                     LibraryToolbar(model: model)
                     LibraryView(model: model)
                 }
-                .searchable(text: $model.searchText, prompt: "Search filenames")
+                .searchable(
+                    text: $model.searchText,
+                    prompt: Text(model.text(.searchFilenames))
+                )
                 .inspector(isPresented: $model.inspectorPresented) {
                     InspectorView(
                         model: model,
@@ -31,6 +34,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $renamePresented) {
             RenameSheet(
+                model: model,
                 filename: $renameValue,
                 onCancel: { renamePresented = false },
                 onRename: {
@@ -46,7 +50,7 @@ struct ContentView: View {
                 set: { if !$0 { model.lastError = nil } }
             )
         ) {
-            Button("OK") { model.lastError = nil }
+            Button(model.text(.ok)) { model.lastError = nil }
         } message: {
             Text(model.lastError ?? "")
         }
@@ -54,22 +58,23 @@ struct ContentView: View {
 }
 
 private struct RenameSheet: View {
+    @Bindable var model: AppModel
     @Binding var filename: String
     let onCancel: () -> Void
     let onRename: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Rename File")
+            Text(model.text(.renameFile))
                 .font(.headline)
-            TextField("Filename", text: $filename)
+            TextField(model.text(.filename), text: $filename)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(onRename)
             HStack {
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button(model.text(.cancel), action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Rename", action: onRename)
+                Button(model.text(.rename), action: onRename)
                     .keyboardShortcut(.defaultAction)
                     .disabled(filename.trimmingCharacters(in: .whitespaces).isEmpty)
             }

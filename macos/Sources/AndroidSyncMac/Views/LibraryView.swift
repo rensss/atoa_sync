@@ -9,12 +9,16 @@ struct LibraryView: View {
             if model.filteredItems.isEmpty {
                 if model.searchText.isEmpty {
                     ContentUnavailableView(
-                        "No Received Files",
+                        model.text(.noReceivedFiles),
                         systemImage: "tray.and.arrow.down",
-                        description: Text("Files sent from Android will appear here.")
+                        description: Text(model.text(.receivedFilesDescription))
                     )
                 } else {
-                    ContentUnavailableView.search(text: model.searchText)
+                    ContentUnavailableView(
+                        model.text(.noSearchResults),
+                        systemImage: "magnifyingglass",
+                        description: Text(model.text(.noSearchResultsDescription))
+                    )
                 }
             } else if model.layout == .grid {
                 grid
@@ -32,6 +36,7 @@ struct LibraryView: View {
             ) {
                 ForEach(model.filteredItems) { item in
                     MediaGridItem(
+                        model: model,
                         item: item,
                         selected: model.selectedIDs.contains(item.id),
                         onSelect: {
@@ -79,12 +84,12 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func itemMenu(_ item: MediaItemEntity) -> some View {
-        Button("Quick Look") { model.preview(item) }
+        Button(model.text(.quickLook)) { model.preview(item) }
             .disabled(item.deleted)
-        Button("Show in Finder") { model.reveal(item) }
+        Button(model.text(.showInFinder)) { model.reveal(item) }
             .disabled(item.deleted)
         Divider()
-        Button("Move to Trash", role: .destructive) {
+        Button(model.text(.moveToTrash), role: .destructive) {
             model.selectedIDs = [item.id]
             Task { await model.deleteSelected() }
         }
@@ -93,6 +98,7 @@ struct LibraryView: View {
 }
 
 private struct MediaGridItem: View {
+    @Bindable var model: AppModel
     let item: MediaItemEntity
     let selected: Bool
     let onSelect: () -> Void
@@ -125,9 +131,9 @@ private struct MediaGridItem: View {
         .onTapGesture(perform: onSelect)
         .onTapGesture(count: 2, perform: onPreview)
         .contextMenu {
-            Button("Quick Look", action: onPreview)
+            Button(model.text(.quickLook), action: onPreview)
                 .disabled(item.deleted)
-            Button("Show in Finder", action: onReveal)
+            Button(model.text(.showInFinder), action: onReveal)
                 .disabled(item.deleted)
         }
     }

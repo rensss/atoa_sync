@@ -20,17 +20,17 @@ struct InspectorView: View {
                             .textSelection(.enabled)
                         metadata(item)
                         HStack {
-                            Button("Quick Look") { model.preview(item) }
+                            Button(model.text(.quickLook)) { model.preview(item) }
                                 .disabled(item.deleted)
-                            Button("Finder") { model.reveal(item) }
+                            Button(model.text(.finder)) { model.reveal(item) }
                                 .disabled(item.deleted)
                         }
-                        Button("Rename…") {
+                        Button(model.text(.renameEllipsis)) {
                             renameValue = item.filename
                             renamePresented = true
                         }
                         .disabled(item.deleted)
-                        Button("Move to Trash", role: .destructive) {
+                        Button(model.text(.moveToTrash), role: .destructive) {
                             Task { await model.deleteSelected() }
                         }
                         .disabled(item.deleted)
@@ -39,9 +39,9 @@ struct InspectorView: View {
                 }
             } else {
                 ContentUnavailableView(
-                    "No Selection",
+                    model.text(.noSelection),
                     systemImage: "sidebar.right",
-                    description: Text("Select one item to see its metadata.")
+                    description: Text(model.text(.selectionDescription))
                 )
             }
         }
@@ -50,20 +50,35 @@ struct InspectorView: View {
     @ViewBuilder
     private func metadata(_ item: MediaItemEntity) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
-            row("Type", item.contentType ?? item.kind.rawValue)
-            row("Size", ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
-            row("Received", item.receivedAt.formatted(date: .abbreviated, time: .shortened))
+            row(model.text(.metadataType), item.contentType ?? item.kind.rawValue)
+            row(
+                model.text(.metadataSize),
+                ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)
+            )
+            row(
+                model.text(.metadataReceived),
+                item.receivedAt.formatted(
+                    Date.FormatStyle(date: .abbreviated, time: .shortened)
+                        .locale(model.language.locale)
+                )
+            )
             if let millis = item.dateTakenMillis {
-                row("Captured", Date(timeIntervalSince1970: Double(millis) / 1_000)
-                    .formatted(date: .abbreviated, time: .shortened))
+                row(
+                    model.text(.metadataCaptured),
+                    Date(timeIntervalSince1970: Double(millis) / 1_000)
+                        .formatted(
+                            Date.FormatStyle(date: .abbreviated, time: .shortened)
+                                .locale(model.language.locale)
+                        )
+                )
             }
             if let sourceIP = item.sourceIP {
-                row("Source", sourceIP)
+                row(model.text(.metadataSource), sourceIP)
             }
             if let stableID = item.stableID {
-                row("Sync ID", stableID)
+                row(model.text(.metadataSyncID), stableID)
             }
-            row("Location", item.filePath)
+            row(model.text(.metadataLocation), item.filePath)
         }
         .font(.caption)
         .textSelection(.enabled)

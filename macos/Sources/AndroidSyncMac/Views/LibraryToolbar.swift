@@ -5,7 +5,7 @@ struct LibraryToolbar: View {
 
     var body: some View {
         HStack {
-            Text(model.category.title)
+            Text(model.category.title(using: model.language))
                 .font(.title2.bold())
             Text("\(model.filteredItems.count)")
                 .foregroundStyle(.secondary)
@@ -14,34 +14,40 @@ struct LibraryToolbar: View {
                 Button(role: .destructive) {
                     Task { await model.deleteSelected() }
                 } label: {
-                    Label("Move to Trash", systemImage: "trash")
+                    Label(model.text(.moveToTrash), systemImage: "trash")
                 }
                 .disabled(model.category == .deleted)
             }
             Menu {
-                Picker("Date", selection: $model.dateFilter) {
+                Picker(model.text(.date), selection: $model.dateFilter) {
                     ForEach(LibraryDateFilter.allCases) { filter in
-                        Text(filter.title).tag(filter)
+                        Text(filter.title(using: model.language)).tag(filter)
                     }
                 }
             } label: {
-                Label(model.dateFilter.title, systemImage: "calendar")
+                Label(
+                    model.dateFilter.title(using: model.language),
+                    systemImage: "calendar"
+                )
             }
             Menu {
-                Picker("Sort", selection: $model.sort) {
+                Picker(model.text(.sort), selection: $model.sort) {
                     ForEach(LibrarySort.allCases) { sort in
-                        Text(sort.title).tag(sort)
+                        Text(sort.title(using: model.language)).tag(sort)
                     }
                 }
             } label: {
-                Label(model.sort.title, systemImage: "arrow.up.arrow.down")
+                Label(
+                    model.sort.title(using: model.language),
+                    systemImage: "arrow.up.arrow.down"
+                )
             }
             Button {
                 model.inspectorPresented.toggle()
             } label: {
-                Label("Inspector", systemImage: "sidebar.right")
+                Label(model.text(.inspector), systemImage: "sidebar.right")
             }
-            Picker("Layout", selection: $model.layout) {
+            Picker(model.text(.layout), selection: $model.layout) {
                 Image(systemName: "square.grid.2x2").tag(LibraryLayout.grid)
                 Image(systemName: "list.bullet").tag(LibraryLayout.list)
             }

@@ -15,15 +15,17 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
         switch self {
-        case .all: "All Items"
-        case .photos: "Photos"
-        case .videos: "Videos"
-        case .files: "Other Files"
-        case .recent: "Recently Received"
-        case .deleted: "Deleted"
+        case .all: key = .categoryAll
+        case .photos: key = .categoryPhotos
+        case .videos: key = .categoryVideos
+        case .files: key = .categoryFiles
+        case .recent: key = .categoryRecent
+        case .deleted: key = .categoryDeleted
         }
+        return AppStrings.text(key, language: language)
     }
 
     var systemImage: String {
@@ -51,13 +53,15 @@ enum LibraryDateFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
         switch self {
-        case .all: "Any Date"
-        case .today: "Today"
-        case .sevenDays: "Last 7 Days"
-        case .thirtyDays: "Last 30 Days"
+        case .all: key = .dateAny
+        case .today: key = .dateToday
+        case .sevenDays: key = .dateSevenDays
+        case .thirtyDays: key = .dateThirtyDays
         }
+        return AppStrings.text(key, language: language)
     }
 }
 
@@ -69,13 +73,15 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
         switch self {
-        case .newest: "Newest First"
-        case .oldest: "Oldest First"
-        case .filename: "Filename"
-        case .size: "Largest First"
+        case .newest: key = .sortNewest
+        case .oldest: key = .sortOldest
+        case .filename: key = .sortFilename
+        case .size: key = .sortSize
         }
+        return AppStrings.text(key, language: language)
     }
 }
 
@@ -95,6 +101,7 @@ final class AppModel {
         category: "AppModel"
     )
     private let modelContext: ModelContext
+    private let userDefaults: UserDefaults
     private var repository: LibraryRepository?
     private var receiverService: ReceiverService?
     private var scopedDirectoryURL: URL?
@@ -111,19 +118,40 @@ final class AppModel {
     var status: ReceiverStatus = .needsDirectory
     var receiveDirectory: URL?
     var uploadURL = ""
+    var language: AppLanguage {
+        didSet {
+            language.save(to: userDefaults)
+        }
+    }
     var port: UInt16 {
         didSet {
-            UserDefaults.standard.set(Int(port), forKey: "receiverPort")
+            userDefaults.set(Int(port), forKey: "receiverPort")
         }
     }
     var launchAtLogin: Bool
     var lastError: String?
 
-    init(modelContainer: ModelContainer) {
+    init(
+        modelContainer: ModelContainer,
+        userDefaults: UserDefaults = .standard
+    ) {
         modelContext = ModelContext(modelContainer)
-        let storedPort = UserDefaults.standard.integer(forKey: "receiverPort")
+        self.userDefaults = userDefaults
+        language = AppLanguage.load(from: userDefaults)
+        let storedPort = userDefaults.integer(forKey: "receiverPort")
         port = storedPort == 0 ? 8765 : UInt16(clamping: storedPort)
         launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    func text(_ key: AppStringKey) -> String {
+        AppStrings.text(key, language: language)
+    }
+
+    func format(_ key: AppStringKey, _ arguments: CVarArg...) -> String {
+        String(
+            format: text(key),
+            arguments: arguments
+        )
     }
 
     var filteredItems: [MediaItemEntity] {
@@ -248,8 +276,8 @@ final class AppModel {
 
     func chooseDirectory() {
         let panel = NSOpenPanel()
-        panel.title = "Choose where Android Sync stores received files"
-        panel.prompt = "Choose Folder"
+        panel.title = text(.receivePanelTitle)
+        panel.prompt = text(.chooseFolder)
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true

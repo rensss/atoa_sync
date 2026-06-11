@@ -29,12 +29,13 @@ struct AndroidSyncMacApp: App {
         WindowGroup("Android Sync", id: "main") {
             ContentView(model: appModel)
                 .frame(minWidth: 860, minHeight: 560)
+                .environment(\.locale, appModel.language.locale)
                 .task { await appModel.launchIfNeeded() }
         }
         .modelContainer(modelContainer)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("Choose Receive Folder…") {
+                Button(appModel.text(.chooseReceiveFolderEllipsis)) {
                     appModel.chooseDirectory()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -43,10 +44,12 @@ struct AndroidSyncMacApp: App {
 
         MenuBarExtra("Android Sync", systemImage: appModel.menuBarSystemImage) {
             MenuBarView(model: appModel)
+                .environment(\.locale, appModel.language.locale)
         }
 
         Settings {
             SettingsView(model: appModel)
+                .environment(\.locale, appModel.language.locale)
         }
     }
 }
