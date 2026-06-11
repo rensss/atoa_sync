@@ -256,15 +256,16 @@ public final class MainActivity extends Activity {
                     if (task.status() != SyncStatus.WAITING && task.status() != SyncStatus.FAILED) {
                         continue;
                     }
+                    SyncStatus previousStatus = task.status();
                     queue.markUploading(task.id());
-                    postTaskUpdate(task.id());
+                    postTaskUpdate(task.id(), previousStatus);
                     try {
                         uploader.upload(getContentResolver(), task.media(), targetUrl);
                         queue.markDone(task.id());
                     } catch (Exception error) {
                         queue.markFailed(task.id(), cleanError(error));
                     }
-                    postTaskUpdate(task.id());
+                    postTaskUpdate(task.id(), SyncStatus.UPLOADING);
                 }
                 boolean shouldRenderFinishedScreen = syncing;
                 syncing = false;
@@ -288,13 +289,15 @@ public final class MainActivity extends Activity {
         render();
     }
 
-    private void postTaskUpdate(final String taskId) {
+    private void postTaskUpdate(final String taskId, final SyncStatus previousStatus) {
         postTask(new Runnable() {
             @Override
             public void run() {
                 if ("queue".equals(screen)) {
                     refreshQueueSummary();
-                    refreshQueueRow(taskId);
+                    SyncTask task = queue.findById(taskId);
+                    SyncStatus currentStatus = task == null ? null : task.status();
+                    refreshQueueRow(taskId, previousStatus, currentStatus);
                 }
             }
         });
@@ -806,18 +809,18 @@ public final class MainActivity extends Activity {
         queueRetryFailedButton.setVisibility(summary.failed() > 0 ? View.VISIBLE : View.GONE);
     }
 
-    private void refreshQueueRow(String taskId) {
+    private void refreshQueueRow(String taskId, SyncStatus previousStatus, SyncStatus currentStatus) {
         if (!"queue".equals(screen) || queueTaskContainer == null) {
             return;
         }
         SyncTask task = queue.findById(taskId);
         QueueRowViews views = queueRows.get(taskId);
         if ("failed".equals(filter)) {
-            boolean failed = task != null && task.status() == SyncStatus.FAILED;
-            boolean displayed = views != null;
-            if (failed != displayed) {
+            boolean previousFailed = previousStatus == SyncStatus.FAILED;
+            boolean currentFailed = currentStatus == SyncStatus.FAILED;
+            if (previousFailed != currentFailed) {
                 rebuildQueueTaskContainerPreservingScroll();
-            } else if (failed) {
+            } else if (currentFailed && task != null && views != null) {
                 bindQueueRow(task, views);
             }
             return;
@@ -1151,7 +1154,7 @@ public final class MainActivity extends Activity {
             public void onClick(View view) {
                 queue.retry(task.id());
                 refreshQueueSummary();
-                refreshQueueRow(task.id());
+                refreshQueueRow(task.id(), SyncStatus.FAILED, SyncStatus.WAITING);
             }
         });
         row.addView(retry);
