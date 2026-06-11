@@ -253,23 +253,26 @@ public final class MainActivity extends Activity {
                     if (destroyed || !syncing) {
                         break;
                     }
-                    if (task.status() != SyncStatus.WAITING && task.status() != SyncStatus.FAILED) {
+                    SyncTask currentTask = queue.findById(task.id());
+                    if (currentTask == null
+                            || (currentTask.status() != SyncStatus.WAITING
+                            && currentTask.status() != SyncStatus.FAILED)) {
                         continue;
                     }
-                    final SyncStatus previousStatus = task.status();
-                    queue.markUploading(task.id());
-                    postTaskUpdate(task.id(), previousStatus, SyncStatus.UPLOADING);
+                    final SyncStatus previousStatus = currentTask.status();
+                    queue.markUploading(currentTask.id());
+                    postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
                     SyncStatus terminalStatus;
                     try {
-                        uploader.upload(getContentResolver(), task.media(), targetUrl);
-                        queue.markDone(task.id());
+                        uploader.upload(getContentResolver(), currentTask.media(), targetUrl);
+                        queue.markDone(currentTask.id());
                         terminalStatus = SyncStatus.DONE;
                     } catch (Exception error) {
-                        queue.markFailed(task.id(), cleanError(error));
+                        queue.markFailed(currentTask.id(), cleanError(error));
                         terminalStatus = SyncStatus.FAILED;
                     }
                     final SyncStatus finalStatus = terminalStatus;
-                    postTaskUpdate(task.id(), SyncStatus.UPLOADING, finalStatus);
+                    postTaskUpdate(currentTask.id(), SyncStatus.UPLOADING, finalStatus);
                 }
                 boolean shouldRenderFinishedScreen = syncing;
                 syncing = false;
@@ -284,8 +287,9 @@ public final class MainActivity extends Activity {
 
     private void retryFailed() {
         for (SyncTask task : queue.tasks()) {
-            if (task.status() == SyncStatus.FAILED) {
-                queue.retry(task.id());
+            SyncTask currentTask = queue.findById(task.id());
+            if (currentTask != null && currentTask.status() == SyncStatus.FAILED) {
+                queue.retry(currentTask.id());
             }
         }
         screen = "queue";
@@ -1158,9 +1162,14 @@ public final class MainActivity extends Activity {
         retry.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                queue.retry(task.id());
+                SyncTask currentTask = queue.findById(task.id());
+                if (currentTask == null || currentTask.status() != SyncStatus.FAILED) {
+                    return;
+                }
+                SyncStatus previousStatus = currentTask.status();
+                queue.retry(currentTask.id());
                 refreshQueueSummary();
-                refreshQueueRow(task.id(), SyncStatus.FAILED, SyncStatus.WAITING);
+                refreshQueueRow(currentTask.id(), previousStatus, SyncStatus.WAITING);
             }
         });
         row.addView(retry);
