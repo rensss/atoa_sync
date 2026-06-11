@@ -810,12 +810,18 @@ public final class MainActivity extends Activity {
         if (!"queue".equals(screen) || queueTaskContainer == null) {
             return;
         }
-        if ("failed".equals(filter)) {
-            rebuildQueueTaskContainerPreservingScroll();
-            return;
-        }
         SyncTask task = queue.findById(taskId);
         QueueRowViews views = queueRows.get(taskId);
+        if ("failed".equals(filter)) {
+            boolean failed = task != null && task.status() == SyncStatus.FAILED;
+            boolean displayed = views != null;
+            if (failed != displayed) {
+                rebuildQueueTaskContainerPreservingScroll();
+            } else if (failed) {
+                bindQueueRow(task, views);
+            }
+            return;
+        }
         if (task != null && views != null) {
             bindQueueRow(task, views);
         }
