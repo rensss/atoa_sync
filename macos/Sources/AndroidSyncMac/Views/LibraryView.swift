@@ -31,7 +31,15 @@ struct LibraryView: View {
     private var grid: some View {
         ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 150, maximum: 230), spacing: 14)],
+                columns: [
+                    GridItem(
+                        .adaptive(
+                            minimum: ThumbnailMetrics.gridCardWidth,
+                            maximum: ThumbnailMetrics.gridCardWidth
+                        ),
+                        spacing: 14
+                    )
+                ],
                 spacing: 16
             ) {
                 ForEach(model.filteredItems) { item in
@@ -57,8 +65,7 @@ struct LibraryView: View {
     private var list: some View {
         List(model.filteredItems) { item in
             HStack(spacing: 12) {
-                ThumbnailView(item: item, size: CGSize(width: 56, height: 42))
-                    .frame(width: 56, height: 42)
+                ThumbnailView(item: item, size: ThumbnailMetrics.listSize)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.filename)
                         .lineLimit(1)
@@ -107,26 +114,27 @@ private struct MediaGridItem: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ThumbnailView(item: item, size: CGSize(width: 230, height: 150))
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1.45, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
+            ThumbnailView(item: item, size: ThumbnailMetrics.gridSize)
+                .clipShape(RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 9)
+                    RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius)
                         .stroke(selected ? Color.accentColor : .clear, lineWidth: 3)
                 }
                 .opacity(item.deleted ? 0.45 : 1)
             Text(item.filename)
                 .lineLimit(1)
                 .font(.callout.weight(.medium))
+                .frame(width: ThumbnailMetrics.gridCardWidth, alignment: .leading)
             HStack {
                 Text(model.formatByteCount(item.sizeBytes))
                 Spacer()
                 Text(model.formatDateOnly(item.receivedAt))
             }
+            .frame(width: ThumbnailMetrics.gridCardWidth)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+        .frame(width: ThumbnailMetrics.gridCardWidth, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onTapGesture(count: 2, perform: onPreview)

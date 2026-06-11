@@ -11,9 +11,7 @@ struct InspectorView: View {
             if let item = model.selectedItem {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        ThumbnailView(item: item, size: CGSize(width: 320, height: 220))
-                            .frame(maxWidth: .infinity)
-                            .aspectRatio(1.45, contentMode: .fit)
+                        ThumbnailView(item: item, size: ThumbnailMetrics.inspectorSize)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                         Text(item.filename)
                             .font(.headline)
