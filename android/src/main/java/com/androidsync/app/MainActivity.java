@@ -100,6 +100,13 @@ public final class MainActivity extends Activity {
     private final Map<String, QueueRowViews> queueRows = new HashMap<>();
 
     private LinearLayout root;
+    private ProgressRing homeProgressRing;
+    private TextView homePercentView;
+    private TextView homeSyncedView;
+    private TextView homeWaitingView;
+    private TextView homeUploadingView;
+    private TextView homeFailedView;
+    private Button homeSyncButton;
     private TextView queueSummaryTotalView;
     private TextView queueSummaryDoneView;
     private TextView queueSummaryCapacityView;
@@ -108,6 +115,10 @@ public final class MainActivity extends Activity {
     private TextView queueLoadMoreHint;
     private ScrollView queueScrollView;
     private Button queueBackTopButton;
+    private TextView detailStatusView;
+    private TextView detailMetadataStatusView;
+    private TextView detailErrorView;
+    private View detailErrorRow;
     private MediaStoreScanner scanner;
     private String screen = "home";
     private String filter = "all";
@@ -237,11 +248,11 @@ public final class MainActivity extends Activity {
         }
         if (syncing) {
             syncing = false;
-            render();
+            refreshCurrentScreenSyncState(null);
             return;
         }
         syncing = true;
-        render();
+        refreshCurrentScreenSyncState(null);
         boolean submitted = submitTask(new Runnable() {
             @Override
             public void run() {
@@ -262,26 +273,34 @@ public final class MainActivity extends Activity {
                     final SyncStatus previousStatus = currentTask.status();
                     queue.markUploading(currentTask.id());
                     postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
-                    SyncStatus terminalStatus;
+                    Exception uploadError = null;
                     try {
                         uploader.upload(getContentResolver(), currentTask.media(), targetUrl);
-                        queue.markDone(currentTask.id());
-                        terminalStatus = SyncStatus.DONE;
                     } catch (Exception error) {
-                        queue.markFailed(currentTask.id(), cleanError(error));
-                        terminalStatus = SyncStatus.FAILED;
+                        uploadError = error;
                     }
-                    final SyncStatus finalStatus = terminalStatus;
-                    postTaskUpdate(currentTask.id(), SyncStatus.UPLOADING, finalStatus);
+                    SyncTask liveTask = queue.findById(currentTask.id());
+                    if (liveTask == null) {
+                        continue;
+                    }
+                    SyncStatus previousTerminalStatus = liveTask.status();
+                    if (uploadError == null) {
+                        queue.markDone(currentTask.id());
+                    } else {
+                        queue.markFailed(currentTask.id(), cleanError(uploadError));
+                    }
+                    SyncTask finalTask = queue.findById(currentTask.id());
+                    if (finalTask == null) {
+                        continue;
+                    }
+                    postTaskUpdate(currentTask.id(), previousTerminalStatus, finalTask.status());
                 }
-                boolean shouldRenderFinishedScreen = syncing;
-                syncing = false;
-                postSyncFinished(shouldRenderFinishedScreen);
+                postSyncFinished();
             }
         });
         if (!submitted && !destroyed) {
             syncing = false;
-            render();
+            refreshCurrentScreenSyncState(null);
         }
     }
 
@@ -308,23 +327,21 @@ public final class MainActivity extends Activity {
                 if ("queue".equals(screen)) {
                     refreshQueueSummary();
                     refreshQueueRow(taskId, previousStatus, currentStatus);
+                } else if ("home".equals(screen)) {
+                    refreshHomeSyncState();
+                } else if ("detail".equals(screen)) {
+                    refreshDetailSyncState(taskId);
                 }
             }
         });
     }
 
-    private void postSyncFinished(final boolean shouldRenderFinishedScreen) {
+    private void postSyncFinished() {
         postTask(new Runnable() {
             @Override
             public void run() {
-                if ("queue".equals(screen)) {
-                    refreshQueueSummary();
-                    return;
-                }
-                if (shouldRenderFinishedScreen
-                        && ("home".equals(screen) || "detail".equals(screen))) {
-                    render();
-                }
+                syncing = false;
+                refreshCurrentScreenSyncState(null);
             }
         });
     }
@@ -359,7 +376,7 @@ public final class MainActivity extends Activity {
         if (destroyed) {
             return;
         }
-        clearQueueViewReferences();
+        clearScreenViewReferences();
         renderGeneration++;
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -422,27 +439,38 @@ public final class MainActivity extends Activity {
         float progress = summary.total() == 0 ? 0f : (float) summary.done() / (float) summary.total();
         LinearLayout hero = card();
         hero.setGravity(Gravity.CENTER_HORIZONTAL);
-        ProgressRing ring = new ProgressRing(this);
-        ring.setProgress(progress);
+        homeProgressRing = new ProgressRing(this);
+        homeProgressRing.setProgress(progress);
         LinearLayout.LayoutParams ringParams = new LinearLayout.LayoutParams(dp(176), dp(176));
         ringParams.topMargin = dp(10);
-        hero.addView(ring, ringParams);
-        TextView center = label(percent(progress), 34, "#182B28");
-        center.setGravity(Gravity.CENTER);
-        hero.addView(center);
-        hero.addView(label("已同步 " + summary.done() + " / " + summary.total() + " 个文件", 14, "#6B6257"));
-        hero.addView(statRow("待传", String.valueOf(summary.waiting()), "上传中", String.valueOf(summary.uploading()), "失败", String.valueOf(summary.failed())));
+        hero.addView(homeProgressRing, ringParams);
+        homePercentView = label(percent(progress), 34, "#182B28");
+        homePercentView.setGravity(Gravity.CENTER);
+        hero.addView(homePercentView);
+        homeSyncedView = label("已同步 " + summary.done() + " / " + summary.total() + " 个文件", 14, "#6B6257");
+        hero.addView(homeSyncedView);
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+        stats.setPadding(0, dp(12), 0, 0);
+        homeWaitingView = label(String.valueOf(summary.waiting()), 18, "#182B28");
+        homeUploadingView = label(String.valueOf(summary.uploading()), 18, "#182B28");
+        homeFailedView = label(String.valueOf(summary.failed()), 18, "#182B28");
+        stats.addView(stat("待传", homeWaitingView), weightParams());
+        stats.addView(stat("上传中", homeUploadingView), weightParams());
+        stats.addView(stat("失败", homeFailedView), weightParams());
+        hero.addView(stats);
         page.addView(hero);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
-        actions.addView(actionButton(syncing ? "暂停" : "开始同步", new View.OnClickListener() {
+        homeSyncButton = actionButton(syncing ? "暂停" : "开始同步", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 startSync();
             }
-        }), weightParams());
+        });
+        actions.addView(homeSyncButton, weightParams());
         actions.addView(actionButton("重新扫描", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -599,7 +627,8 @@ public final class MainActivity extends Activity {
             loadPreviewAsync(image, loading, media.uri());
         }
         previewCard.addView(label(media.displayName(), 18, "#182B28"), paddedTextParams());
-        previewCard.addView(label(statusText(task), 13, statusColor(task.status())), paddedTextParams());
+        detailStatusView = label(statusText(task), 13, statusColor(task.status()));
+        previewCard.addView(detailStatusView, paddedTextParams());
         page.addView(previewCard);
 
         LinearLayout meta = card();
@@ -607,13 +636,15 @@ public final class MainActivity extends Activity {
         meta.addView(metaRow("类型", media.isVideo() ? "视频" : "照片"));
         meta.addView(metaRow("MIME", media.mimeType()));
         meta.addView(metaRow("大小", formatBytes(media.sizeBytes())));
-        meta.addView(metaRow("同步状态", statusText(task)));
+        detailMetadataStatusView = label(statusText(task), 13, "#182B28");
+        meta.addView(metaRow("同步状态", detailMetadataStatusView));
         meta.addView(metaRow("拍摄时间", formatDate(media.dateTakenMillis())));
         meta.addView(metaRow("添加时间", formatDate(media.dateAddedMillis())));
         meta.addView(metaRow("修改时间", formatDate(media.dateModifiedMillis())));
-        if (task.errorMessage() != null) {
-            meta.addView(metaRow("错误", task.errorMessage()));
-        }
+        detailErrorView = label(task.errorMessage(), 13, "#182B28");
+        detailErrorRow = metaRow("错误", detailErrorView);
+        detailErrorRow.setVisibility(task.errorMessage() == null ? View.GONE : View.VISIBLE);
+        meta.addView(detailErrorRow);
         page.addView(meta);
 
         Button external = actionButton("用其他应用打开", new View.OnClickListener() {
@@ -819,6 +850,60 @@ public final class MainActivity extends Activity {
         queueRetryFailedButton.setVisibility(summary.failed() > 0 ? View.VISIBLE : View.GONE);
     }
 
+    private void refreshHomeSyncState() {
+        if (!"home".equals(screen)
+                || homeProgressRing == null
+                || homePercentView == null
+                || homeSyncedView == null
+                || homeWaitingView == null
+                || homeUploadingView == null
+                || homeFailedView == null
+                || homeSyncButton == null) {
+            return;
+        }
+        SyncQueue.Summary summary = queue.summary();
+        float progress = summary.total() == 0 ? 0f : (float) summary.done() / (float) summary.total();
+        homeProgressRing.setProgress(progress);
+        homePercentView.setText(percent(progress));
+        homeSyncedView.setText("已同步 " + summary.done() + " / " + summary.total() + " 个文件");
+        homeWaitingView.setText(String.valueOf(summary.waiting()));
+        homeUploadingView.setText(String.valueOf(summary.uploading()));
+        homeFailedView.setText(String.valueOf(summary.failed()));
+        homeSyncButton.setText(syncing ? "暂停" : "开始同步");
+    }
+
+    private void refreshDetailSyncState(String taskId) {
+        if (!"detail".equals(screen)
+                || selectedTaskId == null
+                || !selectedTaskId.equals(taskId)
+                || detailStatusView == null
+                || detailMetadataStatusView == null
+                || detailErrorView == null
+                || detailErrorRow == null) {
+            return;
+        }
+        SyncTask task = queue.findById(taskId);
+        if (task == null) {
+            return;
+        }
+        detailStatusView.setText(statusText(task));
+        detailStatusView.setTextColor(color(statusColor(task.status())));
+        detailMetadataStatusView.setText(statusText(task));
+        String errorMessage = task.errorMessage();
+        detailErrorView.setText(errorMessage == null ? "" : errorMessage);
+        detailErrorRow.setVisibility(errorMessage == null ? View.GONE : View.VISIBLE);
+    }
+
+    private void refreshCurrentScreenSyncState(String taskId) {
+        if ("home".equals(screen)) {
+            refreshHomeSyncState();
+        } else if ("queue".equals(screen)) {
+            refreshQueueSummary();
+        } else if ("detail".equals(screen)) {
+            refreshDetailSyncState(taskId == null ? selectedTaskId : taskId);
+        }
+    }
+
     private void refreshQueueRow(String taskId, SyncStatus previousStatus, SyncStatus currentStatus) {
         if (!"queue".equals(screen) || queueTaskContainer == null) {
             return;
@@ -889,7 +974,14 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void clearQueueViewReferences() {
+    private void clearScreenViewReferences() {
+        homeProgressRing = null;
+        homePercentView = null;
+        homeSyncedView = null;
+        homeWaitingView = null;
+        homeUploadingView = null;
+        homeFailedView = null;
+        homeSyncButton = null;
         queueRows.clear();
         queueSummaryTotalView = null;
         queueSummaryDoneView = null;
@@ -900,6 +992,10 @@ public final class MainActivity extends Activity {
         queueScrollView = null;
         queueBackTopButton = null;
         queueAutoLoading = false;
+        detailStatusView = null;
+        detailMetadataStatusView = null;
+        detailErrorView = null;
+        detailErrorRow = null;
     }
 
     private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
@@ -1009,14 +1105,17 @@ public final class MainActivity extends Activity {
     }
 
     private View metaRow(String name, String value) {
+        return metaRow(name, label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28"));
+    }
+
+    private View metaRow(String name, TextView valueView) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(8), 0, 0);
         TextView key = label(name, 13, "#7C7367");
-        TextView val = label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28");
-        val.setGravity(Gravity.RIGHT);
+        valueView.setGravity(Gravity.RIGHT);
         row.addView(key, new LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT));
-        row.addView(val, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(valueView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return row;
     }
 
