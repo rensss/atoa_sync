@@ -256,16 +256,20 @@ public final class MainActivity extends Activity {
                     if (task.status() != SyncStatus.WAITING && task.status() != SyncStatus.FAILED) {
                         continue;
                     }
-                    SyncStatus previousStatus = task.status();
+                    final SyncStatus previousStatus = task.status();
                     queue.markUploading(task.id());
-                    postTaskUpdate(task.id(), previousStatus);
+                    postTaskUpdate(task.id(), previousStatus, SyncStatus.UPLOADING);
+                    SyncStatus terminalStatus;
                     try {
                         uploader.upload(getContentResolver(), task.media(), targetUrl);
                         queue.markDone(task.id());
+                        terminalStatus = SyncStatus.DONE;
                     } catch (Exception error) {
                         queue.markFailed(task.id(), cleanError(error));
+                        terminalStatus = SyncStatus.FAILED;
                     }
-                    postTaskUpdate(task.id(), SyncStatus.UPLOADING);
+                    final SyncStatus finalStatus = terminalStatus;
+                    postTaskUpdate(task.id(), SyncStatus.UPLOADING, finalStatus);
                 }
                 boolean shouldRenderFinishedScreen = syncing;
                 syncing = false;
@@ -289,14 +293,16 @@ public final class MainActivity extends Activity {
         render();
     }
 
-    private void postTaskUpdate(final String taskId, final SyncStatus previousStatus) {
+    private void postTaskUpdate(
+            final String taskId,
+            final SyncStatus previousStatus,
+            final SyncStatus currentStatus
+    ) {
         postTask(new Runnable() {
             @Override
             public void run() {
                 if ("queue".equals(screen)) {
                     refreshQueueSummary();
-                    SyncTask task = queue.findById(taskId);
-                    SyncStatus currentStatus = task == null ? null : task.status();
                     refreshQueueRow(taskId, previousStatus, currentStatus);
                 }
             }
