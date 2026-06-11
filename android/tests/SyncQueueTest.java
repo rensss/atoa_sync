@@ -1,4 +1,5 @@
 import com.androidsync.app.core.MediaItem;
+import com.androidsync.app.core.SyncRunGate;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
@@ -20,6 +21,8 @@ public final class SyncQueueTest {
         findsTaskByIdForDetailScreens();
         thumbnailPolicyCapsGridAndPreviewRequests();
         recentWindowPreservesScannerNewestFirstOrder();
+        staleSyncRunCannotFinishNewRun();
+        cancelledSyncRunCannotContinue();
     }
 
     private static void enqueuesNewMediaOnlyOnce() {
@@ -173,6 +176,28 @@ public final class SyncQueueTest {
         assertEquals(2, window.visibleTasks().size(), "recent window should cap visible rows");
         assertEquals("new.jpg", window.visibleTasks().get(0).media().displayName(), "recent window should preserve scanner newest-first order");
         assertEquals("middle.jpg", window.visibleTasks().get(1).media().displayName(), "recent window should preserve the complete limited order");
+    }
+
+    private static void staleSyncRunCannotFinishNewRun() {
+        SyncRunGate gate = new SyncRunGate();
+        long staleRun = gate.start();
+        gate.cancel();
+        long currentRun = gate.start();
+
+        assertEquals(false, gate.finish(staleRun), "stale run must not finish a newer run");
+        assertEquals(true, gate.isActive(currentRun), "newer run should remain active after stale completion");
+        assertEquals(true, gate.finish(currentRun), "current run should be allowed to finish itself");
+        assertEquals(false, gate.isActive(), "finishing the current run should clear the active state");
+    }
+
+    private static void cancelledSyncRunCannotContinue() {
+        SyncRunGate gate = new SyncRunGate();
+        long run = gate.start();
+
+        gate.cancel();
+
+        assertEquals(false, gate.isActive(run), "cancelled run should be invalid across worker threads");
+        assertEquals(false, gate.finish(run), "cancelled run should not finish twice");
     }
 
     private static MediaItem item(String stableId, String uri, String displayName, long sizeBytes) {

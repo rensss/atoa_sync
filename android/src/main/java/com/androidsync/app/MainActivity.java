@@ -48,6 +48,7 @@ import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.android.RemoteManifestClient;
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
+import com.androidsync.app.core.SyncRunGate;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
@@ -78,6 +79,7 @@ public final class MainActivity extends Activity {
     private static final int FAILED_PREVIEW_CACHE_ENTRIES = 64;
 
     private final SyncQueue queue = new SyncQueue();
+    private final SyncRunGate syncRuns = new SyncRunGate();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final ExecutorService thumbnailExecutor = Executors.newFixedThreadPool(2);
@@ -124,7 +126,6 @@ public final class MainActivity extends Activity {
     private String filter = "all";
     private String targetUrl;
     private String selectedTaskId;
-    private boolean syncing;
     private boolean scanning;
     private boolean queueAutoLoading;
     private String scanMessage = "等待扫描";
@@ -145,6 +146,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        syncRuns.cancel();
         mainHandler.removeCallbacksAndMessages(null);
         synchronized (thumbnailRequestsLock) {
             for (List<ThumbnailTarget> targets : thumbnailRequests.values()) {
@@ -246,22 +248,22 @@ public final class MainActivity extends Activity {
         if (destroyed) {
             return;
         }
-        if (syncing) {
-            syncing = false;
+        if (syncRuns.isActive()) {
+            syncRuns.cancel();
             refreshCurrentScreenSyncState(null);
             return;
         }
-        syncing = true;
+        final long syncRun = syncRuns.start();
         refreshCurrentScreenSyncState(null);
         boolean submitted = submitTask(new Runnable() {
             @Override
             public void run() {
-                if (destroyed) {
+                if (destroyed || !syncRuns.isActive(syncRun)) {
                     return;
                 }
                 List<SyncTask> snapshot = queue.tasks();
                 for (SyncTask task : snapshot) {
-                    if (destroyed || !syncing) {
+                    if (destroyed || !syncRuns.isActive(syncRun)) {
                         break;
                     }
                     SyncTask currentTask = queue.findById(task.id());
@@ -295,11 +297,11 @@ public final class MainActivity extends Activity {
                     }
                     postTaskUpdate(currentTask.id(), previousTerminalStatus, finalTask.status());
                 }
-                postSyncFinished();
+                postSyncFinished(syncRun);
             }
         });
         if (!submitted && !destroyed) {
-            syncing = false;
+            syncRuns.finish(syncRun);
             refreshCurrentScreenSyncState(null);
         }
     }
@@ -336,11 +338,13 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void postSyncFinished() {
+    private void postSyncFinished(final long syncRun) {
+        if (!syncRuns.finish(syncRun)) {
+            return;
+        }
         postTask(new Runnable() {
             @Override
             public void run() {
-                syncing = false;
                 refreshCurrentScreenSyncState(null);
             }
         });
@@ -464,7 +468,7 @@ public final class MainActivity extends Activity {
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
-        homeSyncButton = actionButton(syncing ? "暂停" : "开始同步", new View.OnClickListener() {
+        homeSyncButton = actionButton(syncRuns.isActive() ? "暂停" : "开始同步", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 startSync();
@@ -869,7 +873,7 @@ public final class MainActivity extends Activity {
         homeWaitingView.setText(String.valueOf(summary.waiting()));
         homeUploadingView.setText(String.valueOf(summary.uploading()));
         homeFailedView.setText(String.valueOf(summary.failed()));
-        homeSyncButton.setText(syncing ? "暂停" : "开始同步");
+        homeSyncButton.setText(syncRuns.isActive() ? "暂停" : "开始同步");
     }
 
     private void refreshDetailSyncState(String taskId) {
