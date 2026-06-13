@@ -13,9 +13,15 @@ public enum ReceiverServiceEvent: Sendable {
 
 public enum ReceiverServiceError: LocalizedError {
     case unavailablePort
+    case alreadyActive
 
     public var errorDescription: String? {
-        "The receiver could not determine its listening port."
+        switch self {
+        case .unavailablePort:
+            return "The receiver could not determine its listening port."
+        case .alreadyActive:
+            return "The receiver is already running or stopping."
+        }
     }
 }
 
@@ -80,6 +86,13 @@ struct ReceiverConnectionLifecycle {
     }
 }
 
+private enum ReceiverServiceState {
+    case idle
+    case running
+    case stopping
+    case stopped
+}
+
 public final class ReceiverService: @unchecked Sendable {
     public typealias EventHandler = @Sendable (ReceiverServiceEvent) -> Void
 
@@ -91,8 +104,7 @@ public final class ReceiverService: @unchecked Sendable {
     private var startContinuation: CheckedContinuation<UInt16, Error>?
     private var activeConnections = 0
     private var sessions: [UUID: ReceiverConnection] = [:]
-    private var stopping = false
-    private var stoppedEmitted = false
+    private var state = ReceiverServiceState.idle
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
@@ -110,12 +122,16 @@ public final class ReceiverService: @unchecked Sendable {
             ? NWEndpoint.Port.any
             : NWEndpoint.Port(rawValue: requestedPort)!
         let listener = try NWListener(using: .tcp, on: port)
-        self.listener = listener
 
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                self.stopping = false
-                self.stoppedEmitted = false
+                guard self.state == .idle || self.state == .stopped else {
+                    listener.cancel()
+                    continuation.resume(throwing: ReceiverServiceError.alreadyActive)
+                    return
+                }
+                self.state = .running
+                self.listener = listener
                 self.startContinuation = continuation
                 listener.stateUpdateHandler = { [weak self, weak listener] state in
                     guard let listener else { return }
@@ -141,10 +157,25 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     public func stopAndWait() async {
+        await stopAndWait {}
+    }
+
+    func stopAndWait(onRequest: @escaping @Sendable () -> Void) async {
         await withCheckedContinuation { continuation in
             queue.async {
-                self.stopWaiters.append(continuation)
-                self.beginStop()
+                switch self.state {
+                case .idle:
+                    self.state = .stopped
+                    onRequest()
+                    continuation.resume()
+                case .stopped:
+                    onRequest()
+                    continuation.resume()
+                case .running, .stopping:
+                    self.stopWaiters.append(continuation)
+                    self.beginStop()
+                    onRequest()
+                }
             }
         }
     }
@@ -184,7 +215,7 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard !stopping else {
+        guard state == .running else {
             connection.cancel()
             return
         }
@@ -221,21 +252,28 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     private func beginStop() {
-        if !stopping {
-            stopping = true
+        switch state {
+        case .idle:
+            state = .stopped
+            return
+        case .running:
+            state = .stopping
             startContinuation?.resume(throwing: CancellationError())
             startContinuation = nil
             listener?.cancel()
             listener = nil
             Array(sessions.values).forEach { $0.requestStop() }
+        case .stopping:
+            break
+        case .stopped:
+            return
         }
         finishStopIfPossible()
     }
 
     private func finishStopIfPossible() {
-        guard stopping, sessions.isEmpty, !stoppedEmitted else { return }
-        stoppedEmitted = true
-        stopping = false
+        guard state == .stopping, sessions.isEmpty else { return }
+        state = .stopped
         eventHandler(.stopped)
         let waiters = stopWaiters
         stopWaiters.removeAll()

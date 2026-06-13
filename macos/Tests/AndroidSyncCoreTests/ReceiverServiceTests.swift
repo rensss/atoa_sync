@@ -300,6 +300,127 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertEqual(manifest.map(\.filename), ["CommitRace.jpg"])
     }
 
+    func testStopAndWaitIsIdempotentAndServiceCanRestart() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let eventRecorder = ReceiverEventRecorder()
+        let service = ReceiverService(
+            repository: LibraryRepository(rootURL: root),
+            port: 0,
+            eventHandler: eventRecorder.append
+        )
+
+        _ = try await service.start()
+        await service.stopAndWait()
+        XCTAssertEqual(eventRecorder.stoppedCount, 1)
+
+        let repeatedStopCompleted = expectation(description: "repeated stop completed")
+        Task {
+            await service.stopAndWait()
+            repeatedStopCompleted.fulfill()
+        }
+        await fulfillment(of: [repeatedStopCompleted], timeout: 0.5)
+        XCTAssertEqual(eventRecorder.stoppedCount, 1)
+
+        _ = try await service.start()
+        await service.stopAndWait()
+        XCTAssertEqual(eventRecorder.stoppedCount, 2)
+    }
+
+    func testConcurrentStopAndWaitCallsCompleteWithOneStoppedEvent() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let commitEntered = expectation(description: "repository commit entered")
+        let commitGate = AsyncTestGate()
+        let eventRecorder = ReceiverEventRecorder()
+        let service = ReceiverService(
+            repository: LibraryRepository(
+                rootURL: root,
+                hooks: LibraryRepositoryHooks(
+                    afterFileMove: {
+                        commitEntered.fulfill()
+                        await commitGate.wait()
+                    }
+                )
+            ),
+            port: 0,
+            eventHandler: eventRecorder.append
+        )
+        let port = try await service.start()
+
+        var request = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/uploads/ConcurrentStop.jpg"))
+        )
+        request.httpMethod = "PUT"
+        request.httpBody = Data("complete body".utf8)
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        let responseTask = Task {
+            try? await URLSession.shared.data(for: request)
+        }
+        await fulfillment(of: [commitEntered], timeout: 2)
+
+        let stopRequestsQueued = expectation(description: "stop requests queued")
+        stopRequestsQueued.expectedFulfillmentCount = 2
+        let stopsCompleted = expectation(description: "concurrent stops completed")
+        stopsCompleted.expectedFulfillmentCount = 2
+
+        for _ in 0..<2 {
+            Task {
+                await service.stopAndWait {
+                    stopRequestsQueued.fulfill()
+                }
+                stopsCompleted.fulfill()
+            }
+        }
+
+        await fulfillment(of: [stopRequestsQueued], timeout: 0.5)
+        XCTAssertFalse(eventRecorder.containsStopped)
+
+        await commitGate.open()
+        await fulfillment(of: [stopsCompleted], timeout: 2)
+        _ = await responseTask.value
+
+        XCTAssertEqual(eventRecorder.stoppedCount, 1)
+    }
+
+    func testStopAndWaitBeforeStartAndAfterStopDoesNotSuspend() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let eventRecorder = ReceiverEventRecorder()
+        let service = ReceiverService(
+            repository: LibraryRepository(rootURL: root),
+            port: 0,
+            eventHandler: eventRecorder.append
+        )
+        let idleStopCompleted = expectation(description: "idle stop completed")
+        Task {
+            await service.stopAndWait()
+            idleStopCompleted.fulfill()
+        }
+        await fulfillment(of: [idleStopCompleted], timeout: 0.5)
+        XCTAssertEqual(eventRecorder.stoppedCount, 0)
+
+        _ = try await service.start()
+        await service.stopAndWait()
+
+        let stoppedStopCompleted = expectation(description: "stopped stop completed")
+        Task {
+            await service.stopAndWait()
+            stoppedStopCompleted.fulfill()
+        }
+        await fulfillment(of: [stoppedStopCompleted], timeout: 0.5)
+        XCTAssertEqual(eventRecorder.stoppedCount, 1)
+    }
+
     func testCancelledConnectionLifecycleRejectsPendingReceiveCallbacks() {
         var lifecycle = ReceiverConnectionLifecycle()
 
@@ -383,6 +504,16 @@ private final class ReceiverEventRecorder: @unchecked Sendable {
                     return true
                 }
                 return false
+            }
+        }
+    }
+
+    var stoppedCount: Int {
+        lock.withLock {
+            events.reduce(into: 0) { count, event in
+                if case .stopped = event {
+                    count += 1
+                }
             }
         }
     }
