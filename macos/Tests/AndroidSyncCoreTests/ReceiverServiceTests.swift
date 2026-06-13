@@ -136,31 +136,18 @@ final class ReceiverServiceTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let receivedAt = try XCTUnwrap(
-            Calendar(identifier: .gregorian).date(
-                from: DateComponents(
-                    timeZone: TimeZone(secondsFromGMT: 0),
-                    year: 2025,
-                    month: 1,
-                    day: 15
-                )
-            )
-        )
-        let targetDirectory = root
-            .appendingPathComponent(UploadKind.photo.rawValue, isDirectory: true)
-            .appendingPathComponent("2025-01", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: targetDirectory.appendingPathComponent(
-                "Commit.jpg.metadata.json",
-                isDirectory: true
-            ),
-            withIntermediateDirectories: true
-        )
         defer { try? FileManager.default.removeItem(at: root) }
 
         let uploadFailed = expectation(description: "upload failed")
         let eventRecorder = ReceiverEventRecorder()
-        let repository = LibraryRepository(rootURL: root, now: { receivedAt })
+        let repository = LibraryRepository(
+            rootURL: root,
+            hooks: LibraryRepositoryHooks(
+                beforeLogReplace: {
+                    throw InjectedReceiverStorageFailure()
+                }
+            )
+        )
         let service = ReceiverService(repository: repository, port: 0) { event in
             eventRecorder.append(event)
             if case .uploadFailed = event {
@@ -185,11 +172,7 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertEqual(eventRecorder.uploadFailures.count, 1)
         XCTAssertEqual(eventRecorder.uploadFailures.first?.filename, "Commit.jpg")
         XCTAssertTrue(try incomingContents(at: root).isEmpty)
-        XCTAssertFalse(
-            FileManager.default.fileExists(
-                atPath: targetDirectory.appendingPathComponent("Commit.jpg").path
-            )
-        )
+        XCTAssertTrue(try storedFiles(at: root).isEmpty)
         let manifest = try await repository.manifest()
         XCTAssertTrue(manifest.isEmpty)
     }
@@ -254,6 +237,78 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertTrue(manifest.isEmpty)
     }
 
+    func testStopWaitsForCommitAndEmitsStoredBeforeStopped() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let commitEntered = expectation(description: "repository commit entered")
+        let stopRequested = expectation(description: "receiver stop requested")
+        let uploadStored = expectation(description: "upload stored")
+        let stopped = expectation(description: "receiver stopped")
+        let commitGate = AsyncTestGate()
+        let eventRecorder = ReceiverEventRecorder()
+        let repository = LibraryRepository(
+            rootURL: root,
+            hooks: LibraryRepositoryHooks(
+                afterFileMove: {
+                    commitEntered.fulfill()
+                    await commitGate.wait()
+                }
+            )
+        )
+        let service = ReceiverService(repository: repository, port: 0) { event in
+            eventRecorder.append(event)
+            if case .uploadStored = event {
+                uploadStored.fulfill()
+            }
+            if case .stopped = event {
+                stopped.fulfill()
+            }
+        }
+        let port = try await service.start()
+
+        var request = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/uploads/CommitRace.jpg"))
+        )
+        request.httpMethod = "PUT"
+        request.httpBody = Data("complete body".utf8)
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        let responseTask = Task {
+            try? await URLSession.shared.data(for: request)
+        }
+
+        await fulfillment(of: [commitEntered], timeout: 2)
+        service.stop {
+            stopRequested.fulfill()
+        }
+        await fulfillment(of: [stopRequested], timeout: 2)
+
+        XCTAssertTrue(eventRecorder.uploadStores.isEmpty)
+        XCTAssertFalse(eventRecorder.containsStopped)
+        XCTAssertEqual(try storedFiles(at: root).map(\.lastPathComponent), ["CommitRace.jpg"])
+
+        await commitGate.open()
+        await fulfillment(of: [uploadStored, stopped], timeout: 2)
+        _ = await responseTask.value
+
+        XCTAssertEqual(eventRecorder.terminalEventNames, ["stored", "stopped"])
+        XCTAssertTrue(try incomingContents(at: root).isEmpty)
+        XCTAssertEqual(try storedFiles(at: root).map(\.lastPathComponent), ["CommitRace.jpg"])
+        let manifest = try await repository.manifest()
+        XCTAssertEqual(manifest.map(\.filename), ["CommitRace.jpg"])
+    }
+
+    func testCancelledConnectionLifecycleRejectsPendingReceiveCallbacks() {
+        var lifecycle = ReceiverConnectionLifecycle()
+
+        XCTAssertTrue(lifecycle.acceptsNetworkCallbacks)
+        XCTAssertEqual(lifecycle.requestStop(), .closeNow)
+        XCTAssertFalse(lifecycle.acceptsNetworkCallbacks)
+        XCTAssertFalse(lifecycle.beginCommit())
+    }
+
     private func incomingContents(at root: URL) throws -> [URL] {
         let incomingURL = root.appendingPathComponent(".incoming", isDirectory: true)
         guard FileManager.default.fileExists(atPath: incomingURL.path) else {
@@ -273,6 +328,20 @@ final class ReceiverServiceTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("temporary upload file was not created")
+    }
+
+    private func storedFiles(at root: URL) throws -> [URL] {
+        let photosURL = root.appendingPathComponent("photos", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: photosURL.path) else {
+            return []
+        }
+        return try FileManager.default.subpathsOfDirectory(atPath: photosURL.path)
+            .map { photosURL.appendingPathComponent($0) }
+            .filter { url in
+                let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+                return values.isRegularFile == true
+                    && !url.lastPathComponent.hasSuffix(".metadata.json")
+            }
     }
 }
 
@@ -296,9 +365,69 @@ private final class ReceiverEventRecorder: @unchecked Sendable {
         }
     }
 
+    var uploadStores: [UploadRecord] {
+        lock.withLock {
+            events.compactMap { event in
+                guard case let .uploadStored(_, record) = event else {
+                    return nil
+                }
+                return record
+            }
+        }
+    }
+
+    var containsStopped: Bool {
+        lock.withLock {
+            events.contains { event in
+                if case .stopped = event {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    var terminalEventNames: [String] {
+        lock.withLock {
+            events.compactMap { event in
+                switch event {
+                case .uploadStored:
+                    return "stored"
+                case .uploadFailed:
+                    return "failed"
+                case .stopped:
+                    return "stopped"
+                default:
+                    return nil
+                }
+            }
+        }
+    }
+
     func append(_ event: ReceiverServiceEvent) {
         lock.withLock {
             events.append(event)
         }
     }
 }
+
+private actor AsyncTestGate {
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func open() {
+        isOpen = true
+        let pending = continuations
+        continuations.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+private struct InjectedReceiverStorageFailure: Error {}

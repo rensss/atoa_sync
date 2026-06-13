@@ -111,6 +111,35 @@ final class AppModelReceiverTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
+    func testOldReceiverEventsCannotOverwriteNewReceiverState() throws {
+        let model = try makeModel()
+        let oldGeneration = model.receiverGeneration
+        model.rebuildReceiverService()
+        let newGeneration = model.receiverGeneration
+        let uploadID = UUID()
+
+        XCTAssertNotEqual(oldGeneration, newGeneration)
+        model.status = .running
+        model.handle(
+            .uploadStarted(
+                id: uploadID,
+                filename: "new.jpg",
+                expectedSize: 100
+            ),
+            generation: newGeneration
+        )
+
+        model.handle(.stopped, generation: oldGeneration)
+        model.handle(
+            .receiverFailed(message: "old receiver failed"),
+            generation: oldGeneration
+        )
+
+        XCTAssertEqual(model.status, .running)
+        XCTAssertEqual(model.activeUploads[uploadID]?.filename, "new.jpg")
+        XCTAssertNil(model.lastError)
+    }
+
     private func makeModel() throws -> AppModel {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(

@@ -18,12 +18,18 @@ public enum UploadStorageError: Error, Equatable {
     case sizeMismatch(expected: Int64, actual: Int64)
 }
 
+struct LibraryRepositoryHooks: Sendable {
+    var afterFileMove: (@Sendable () async throws -> Void)?
+    var beforeLogReplace: (@Sendable () throws -> Void)?
+}
+
 public actor LibraryRepository {
     public typealias TrashHandler = @Sendable (URL) throws -> Void
 
     public let rootURL: URL
     private let fileManager: FileManager
     private let now: @Sendable () -> Date
+    private let hooks: LibraryRepositoryHooks
 
     public init(
         rootURL: URL,
@@ -33,13 +39,26 @@ public actor LibraryRepository {
         self.rootURL = rootURL
         self.fileManager = fileManager
         self.now = now
+        hooks = LibraryRepositoryHooks()
     }
 
-    public func store(data: Data, metadata: UploadMetadata) throws -> UploadRecord {
+    init(
+        rootURL: URL,
+        fileManager: FileManager = .default,
+        now: @escaping @Sendable () -> Date = Date.init,
+        hooks: LibraryRepositoryHooks
+    ) {
+        self.rootURL = rootURL
+        self.fileManager = fileManager
+        self.now = now
+        self.hooks = hooks
+    }
+
+    public func store(data: Data, metadata: UploadMetadata) async throws -> UploadRecord {
         let temporaryURL = try makeTemporaryUploadURL()
         do {
             try data.write(to: temporaryURL)
-            return try commitTemporaryUpload(
+            return try await commitTemporaryUpload(
                 at: temporaryURL,
                 expectedSize: Int64(data.count),
                 metadata: metadata
@@ -61,7 +80,7 @@ public actor LibraryRepository {
         at temporaryURL: URL,
         expectedSize: Int64,
         metadata: UploadMetadata
-    ) throws -> UploadRecord {
+    ) async throws -> UploadRecord {
         let values = try temporaryURL.resourceValues(forKeys: [.fileSizeKey])
         let actualSize = Int64(values.fileSize ?? 0)
         guard actualSize == expectedSize else {
@@ -80,10 +99,10 @@ public actor LibraryRepository {
 
         let targetURL = uniqueURL(for: targetDirectory.appendingPathComponent(filename))
         let targetSidecarURL = sidecarURL(for: targetURL)
-        let sidecarExistedBeforeCommit = fileManager.fileExists(atPath: targetSidecarURL.path)
         try fileManager.moveItem(at: temporaryURL, to: targetURL)
 
         do {
+            try await hooks.afterFileMove?()
             if let millis = metadata.dateModifiedMillis {
                 try fileManager.setAttributes(
                     [.modificationDate: Date(timeIntervalSince1970: TimeInterval(millis) / 1_000)],
@@ -110,9 +129,7 @@ public actor LibraryRepository {
             return record
         } catch {
             try? fileManager.removeItem(at: targetURL)
-            if !sidecarExistedBeforeCommit {
-                try? fileManager.removeItem(at: targetSidecarURL)
-            }
+            try? fileManager.removeItem(at: targetSidecarURL)
             throw error
         }
     }
@@ -243,7 +260,7 @@ public actor LibraryRepository {
     }
 
     private func uniqueURL(for requestedURL: URL) -> URL {
-        guard fileManager.fileExists(atPath: requestedURL.path) else {
+        guard destinationExists(at: requestedURL) else {
             return requestedURL
         }
         let directory = requestedURL.deletingLastPathComponent()
@@ -253,11 +270,16 @@ public actor LibraryRepository {
         while true {
             let suffix = fileExtension.isEmpty ? "" : ".\(fileExtension)"
             let candidate = directory.appendingPathComponent("\(stem)-\(index)\(suffix)")
-            if !fileManager.fileExists(atPath: candidate.path) {
+            if !destinationExists(at: candidate) {
                 return candidate
             }
             index += 1
         }
+    }
+
+    private func destinationExists(at url: URL) -> Bool {
+        fileManager.fileExists(atPath: url.path)
+            || fileManager.fileExists(atPath: sidecarURL(for: url).path)
     }
 
     private func writeSidecar(for record: UploadRecord) throws {
@@ -304,13 +326,31 @@ public actor LibraryRepository {
         line.append("\n")
 
         let logURL = rootURL.appendingPathComponent("uploads.jsonl")
-        if !fileManager.fileExists(atPath: logURL.path) {
-            try Data().write(to: logURL)
+        var contents = fileManager.fileExists(atPath: logURL.path)
+            ? try Data(contentsOf: logURL)
+            : Data()
+        contents.append(Data(line.utf8))
+
+        let temporaryLogURL = rootURL.appendingPathComponent(
+            ".uploads-log-\(UUID().uuidString).tmp"
+        )
+        do {
+            try contents.write(to: temporaryLogURL, options: .atomic)
+            try hooks.beforeLogReplace?()
+            if fileManager.fileExists(atPath: logURL.path) {
+                _ = try fileManager.replaceItemAt(
+                    logURL,
+                    withItemAt: temporaryLogURL,
+                    backupItemName: nil,
+                    options: []
+                )
+            } else {
+                try fileManager.moveItem(at: temporaryLogURL, to: logURL)
+            }
+        } catch {
+            try? fileManager.removeItem(at: temporaryLogURL)
+            throw error
         }
-        let handle = try FileHandle(forWritingTo: logURL)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data(line.utf8))
-        try handle.close()
     }
 
     private func sidecarURL(for fileURL: URL) -> URL {

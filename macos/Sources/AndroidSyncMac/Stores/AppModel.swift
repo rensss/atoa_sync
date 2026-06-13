@@ -111,9 +111,12 @@ final class AppModel {
     private let quickLookPreview: QuickLookPreview
     private var repository: LibraryRepository?
     private var receiverService: ReceiverService?
+    private var receiverEventTask: Task<Void, Never>?
+    private var receiverEventContinuation: AsyncStream<ReceiverServiceEvent>.Continuation?
     private var scopedDirectoryURL: URL?
     private var launched = false
     private var transientUploadMessageTask: Task<Void, Never>?
+    private(set) var receiverGeneration: UInt64 = 0
 
     var items: [MediaItemEntity] = []
     var category: LibraryCategory = .all
@@ -327,9 +330,15 @@ final class AppModel {
     }
 
     func restartReceiver() {
-        stopReceiver()
-        rebuildReceiverService()
-        Task { await startReceiver() }
+        let service = receiverService
+        let generation = receiverGeneration
+        Task {
+            await service?.stopAndWait()
+            guard generation == receiverGeneration else { return }
+            await reloadLibrary()
+            rebuildReceiverService()
+            await startReceiver()
+        }
     }
 
     func select(_ id: UUID, additive: Bool) {
@@ -418,18 +427,35 @@ final class AppModel {
         Task { await reloadLibrary() }
     }
 
-    private func rebuildReceiverService() {
+    func rebuildReceiverService() {
+        receiverGeneration &+= 1
+        let generation = receiverGeneration
+        receiverEventContinuation?.finish()
+        receiverEventContinuation = nil
+        receiverEventTask?.cancel()
+        receiverEventTask = nil
+        activeUploads.removeAll()
+        clearTransientUploadFailure()
+
         guard let repository else {
             receiverService = nil
             return
         }
+        let (stream, continuation) = AsyncStream<ReceiverServiceEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(64)
+        )
+        receiverEventContinuation = continuation
+        receiverEventTask = Task { @MainActor [weak self] in
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                self?.handle(event, generation: generation)
+            }
+        }
         receiverService = ReceiverService(
             repository: repository,
             port: port
-        ) { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.handle(event)
-            }
+        ) { event in
+            continuation.yield(event)
         }
     }
 
@@ -439,14 +465,17 @@ final class AppModel {
             return
         }
         guard let receiverService else { return }
+        let generation = receiverGeneration
         status = .starting
         do {
             let actualPort = try await receiverService.start()
+            guard generation == receiverGeneration else { return }
             uploadURL = "http://\(SystemNetworkInfo.localIPv4Address()):\(actualPort)/uploads/"
             status = .running
             lastError = nil
             logger.info("Receiver started on port \(actualPort, privacy: .public)")
         } catch {
+            guard generation == receiverGeneration else { return }
             status = .failed(error.localizedDescription)
             lastError = error.localizedDescription
             logger.error("Receiver failed: \(error.localizedDescription, privacy: .public)")
@@ -455,11 +484,15 @@ final class AppModel {
 
     private func stopReceiver() {
         receiverService?.stop()
-        status = receiveDirectory == nil ? .needsDirectory : .stopped
         logger.info("Receiver stopped")
     }
 
     func handle(_ event: ReceiverServiceEvent) {
+        handle(event, generation: receiverGeneration)
+    }
+
+    func handle(_ event: ReceiverServiceEvent, generation: UInt64) {
+        guard generation == receiverGeneration else { return }
         switch event {
         case let .started(port):
             uploadURL = "http://\(SystemNetworkInfo.localIPv4Address()):\(port)/uploads/"

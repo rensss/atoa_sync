@@ -19,6 +19,67 @@ public enum ReceiverServiceError: LocalizedError {
     }
 }
 
+struct ReceiverConnectionLifecycle {
+    enum StopDisposition: Equatable {
+        case closeNow
+        case waitForCommit
+        case alreadyClosed
+    }
+
+    private enum Phase {
+        case receiving
+        case committing
+        case terminal
+        case closed
+    }
+
+    private var phase = Phase.receiving
+    private var stopRequested = false
+
+    var acceptsNetworkCallbacks: Bool {
+        phase == .receiving
+    }
+
+    var isClosed: Bool {
+        phase == .closed
+    }
+
+    mutating func beginCommit() -> Bool {
+        guard phase == .receiving else { return false }
+        phase = .committing
+        return true
+    }
+
+    mutating func beginTerminal() -> Bool {
+        guard phase == .receiving else { return false }
+        phase = .terminal
+        return true
+    }
+
+    mutating func requestStop() -> StopDisposition {
+        switch phase {
+        case .receiving, .terminal:
+            phase = .terminal
+            return .closeNow
+        case .committing:
+            stopRequested = true
+            return .waitForCommit
+        case .closed:
+            return .alreadyClosed
+        }
+    }
+
+    mutating func completeCommit() -> Bool {
+        guard phase == .committing else { return stopRequested }
+        phase = .terminal
+        return stopRequested
+    }
+
+    mutating func close() {
+        phase = .closed
+    }
+}
+
 public final class ReceiverService: @unchecked Sendable {
     public typealias EventHandler = @Sendable (ReceiverServiceEvent) -> Void
 
@@ -30,6 +91,9 @@ public final class ReceiverService: @unchecked Sendable {
     private var startContinuation: CheckedContinuation<UInt16, Error>?
     private var activeConnections = 0
     private var sessions: [UUID: ReceiverConnection] = [:]
+    private var stopping = false
+    private var stoppedEmitted = false
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
         repository: LibraryRepository,
@@ -50,9 +114,12 @@ public final class ReceiverService: @unchecked Sendable {
 
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
+                self.stopping = false
+                self.stoppedEmitted = false
                 self.startContinuation = continuation
-                listener.stateUpdateHandler = { [weak self] state in
-                    self?.handle(listenerState: state)
+                listener.stateUpdateHandler = { [weak self, weak listener] state in
+                    guard let listener else { return }
+                    self?.handle(listenerState: state, listener: listener)
                 }
                 listener.newConnectionHandler = { [weak self] connection in
                     self?.accept(connection)
@@ -63,11 +130,22 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     public func stop() {
+        stop {}
+    }
+
+    func stop(onRequest: @escaping @Sendable () -> Void) {
         queue.async {
-            self.listener?.cancel()
-            self.listener = nil
-            Array(self.sessions.values).forEach { $0.cancel() }
-            self.eventHandler(.stopped)
+            self.beginStop()
+            onRequest()
+        }
+    }
+
+    public func stopAndWait() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.stopWaiters.append(continuation)
+                self.beginStop()
+            }
         }
     }
 
@@ -76,14 +154,15 @@ public final class ReceiverService: @unchecked Sendable {
         return "http://\(SystemNetworkInfo.localIPv4Address()):\(port)/uploads/"
     }
 
-    private func handle(listenerState state: NWListener.State) {
+    private func handle(listenerState state: NWListener.State, listener: NWListener) {
+        guard self.listener === listener else { return }
         switch state {
         case .ready:
-            guard let port = listener?.port?.rawValue else {
+            guard let port = listener.port?.rawValue else {
                 let error = ReceiverServiceError.unavailablePort
                 startContinuation?.resume(throwing: error)
                 startContinuation = nil
-                Array(sessions.values).forEach { $0.cancel() }
+                Array(sessions.values).forEach { $0.requestStop() }
                 eventHandler(.receiverFailed(message: error.localizedDescription))
                 return
             }
@@ -93,8 +172,8 @@ public final class ReceiverService: @unchecked Sendable {
         case let .failed(error):
             startContinuation?.resume(throwing: error)
             startContinuation = nil
-            listener = nil
-            Array(sessions.values).forEach { $0.cancel() }
+            self.listener = nil
+            Array(sessions.values).forEach { $0.requestStop() }
             eventHandler(.receiverFailed(message: error.localizedDescription))
         case .cancelled:
             startContinuation?.resume(throwing: CancellationError())
@@ -105,6 +184,10 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     private func accept(_ connection: NWConnection) {
+        guard !stopping else {
+            connection.cancel()
+            return
+        }
         guard activeConnections < 4 else {
             let response = try? HTTPResponse.json(
                 status: 503,
@@ -130,10 +213,33 @@ public final class ReceiverService: @unchecked Sendable {
                 guard let self else { return }
                 self.activeConnections = max(0, self.activeConnections - 1)
                 self.sessions.removeValue(forKey: sessionID)
+                self.finishStopIfPossible()
             }
         )
         sessions[sessionID] = session
         session.start()
+    }
+
+    private func beginStop() {
+        if !stopping {
+            stopping = true
+            startContinuation?.resume(throwing: CancellationError())
+            startContinuation = nil
+            listener?.cancel()
+            listener = nil
+            Array(sessions.values).forEach { $0.requestStop() }
+        }
+        finishStopIfPossible()
+    }
+
+    private func finishStopIfPossible() {
+        guard stopping, sessions.isEmpty, !stoppedEmitted else { return }
+        stoppedEmitted = true
+        stopping = false
+        eventHandler(.stopped)
+        let waiters = stopWaiters
+        stopWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 }
 
@@ -152,8 +258,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     private var uploadMetadata: UploadMetadata?
     private var temporaryURL: URL?
     private var fileHandle: FileHandle?
-    private var closed = false
-    private var terminal = false
+    private var lifecycle = ReceiverConnectionLifecycle()
 
     init(
         connection: NWConnection,
@@ -181,17 +286,21 @@ private final class ReceiverConnection: @unchecked Sendable {
         receiveHeaders()
     }
 
-    func cancel() {
-        guard !closed else { return }
-        terminal = true
-        cleanupTemporaryFile()
-        close()
+    func requestStop() {
+        switch lifecycle.requestStop() {
+        case .closeNow:
+            cleanupTemporaryFile()
+            close()
+        case .waitForCommit, .alreadyClosed:
+            break
+        }
     }
 
     private func receiveHeaders() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1_024) {
             [weak self] data, _, isComplete, error in
             guard let self else { return }
+            guard self.lifecycle.acceptsNetworkCallbacks else { return }
             if let data {
                 self.buffer.append(data)
             }
@@ -283,7 +392,7 @@ private final class ReceiverConnection: @unchecked Sendable {
                 _ = FileManager.default.createFile(atPath: url.path, contents: nil)
                 let handle = try FileHandle(forWritingTo: url)
                 queue.async {
-                    guard !self.closed, !self.terminal else {
+                    guard self.lifecycle.acceptsNetworkCallbacks else {
                         try? handle.close()
                         try? FileManager.default.removeItem(at: url)
                         return
@@ -305,6 +414,7 @@ private final class ReceiverConnection: @unchecked Sendable {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1_024) {
             [weak self] data, _, isComplete, error in
             guard let self else { return }
+            guard self.lifecycle.acceptsNetworkCallbacks else { return }
             if let error {
                 self.fail(status: 500, reason: "Upload Failed", message: error.localizedDescription)
                 return
@@ -314,6 +424,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func consumeBody(_ data: Data, connectionComplete: Bool) {
+        guard lifecycle.acceptsNetworkCallbacks else { return }
         guard remainingBytes > 0 else {
             finishUpload()
             return
@@ -338,18 +449,23 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func finishUpload() {
-        guard !closed, !terminal else { return }
+        guard lifecycle.beginCommit() else { return }
         guard
             let temporaryURL,
             let metadata = uploadMetadata
         else {
-            fail(status: 500, reason: "Internal Server Error", message: "upload state is incomplete")
+            _ = lifecycle.completeCommit()
+            completeUploadFailure(
+                status: 500,
+                reason: "Internal Server Error",
+                message: "upload state is incomplete"
+            )
             return
         }
-        terminal = true
         do {
             try fileHandle?.close()
         } catch {
+            _ = lifecycle.completeCommit()
             completeUploadFailure(
                 status: 500,
                 reason: "Upload Failed",
@@ -367,28 +483,35 @@ private final class ReceiverConnection: @unchecked Sendable {
                     metadata: metadata
                 )
                 queue.async {
-                    guard !self.closed else { return }
+                    guard !self.lifecycle.isClosed else { return }
+                    let shouldClose = self.lifecycle.completeCommit()
                     self.temporaryURL = nil
                     self.eventHandler(.uploadStored(id: self.uploadID, record: record))
-                    self.sendJSON(
-                        status: 201,
-                        reason: "Created",
-                        object: [
-                            "status": "stored",
-                            "filename": record.filename,
-                            "kind": record.kind.rawValue,
-                            "size_bytes": record.sizeBytes,
-                            "path": record.fileURL.path,
-                            "metadata_path": record.fileURL.appendingPathExtension("metadata.json").path
-                        ]
-                    )
+                    if shouldClose {
+                        self.close()
+                    } else {
+                        self.sendJSON(
+                            status: 201,
+                            reason: "Created",
+                            object: [
+                                "status": "stored",
+                                "filename": record.filename,
+                                "kind": record.kind.rawValue,
+                                "size_bytes": record.sizeBytes,
+                                "path": record.fileURL.path,
+                                "metadata_path": record.fileURL.appendingPathExtension("metadata.json").path
+                            ]
+                        )
+                    }
                 }
             } catch {
                 queue.async {
+                    let shouldClose = self.lifecycle.completeCommit()
                     self.completeUploadFailure(
                         status: 500,
                         reason: "Upload Failed",
-                        message: error.localizedDescription
+                        message: error.localizedDescription,
+                        closeWithoutResponse: shouldClose
                     )
                 }
             }
@@ -417,13 +540,17 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func fail(status: Int, reason: String, message: String) {
-        guard !closed, !terminal else { return }
-        terminal = true
+        guard lifecycle.beginTerminal() else { return }
         completeUploadFailure(status: status, reason: reason, message: message)
     }
 
-    private func completeUploadFailure(status: Int, reason: String, message: String) {
-        guard !closed else { return }
+    private func completeUploadFailure(
+        status: Int,
+        reason: String,
+        message: String,
+        closeWithoutResponse: Bool = false
+    ) {
+        guard !lifecycle.isClosed else { return }
         cleanupTemporaryFile()
         if let uploadMetadata {
             eventHandler(
@@ -434,7 +561,11 @@ private final class ReceiverConnection: @unchecked Sendable {
                 )
             )
         }
-        sendJSON(status: status, reason: reason, object: ["error": message])
+        if closeWithoutResponse {
+            close()
+        } else {
+            sendJSON(status: status, reason: reason, object: ["error": message])
+        }
     }
 
     private func send(_ response: HTTPResponse) {
@@ -453,8 +584,8 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func close() {
-        guard !closed else { return }
-        closed = true
+        guard !lifecycle.isClosed else { return }
+        lifecycle.close()
         cleanupTemporaryFile()
         connection.cancel()
         onClose()
