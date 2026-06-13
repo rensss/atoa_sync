@@ -3,6 +3,8 @@ import SwiftUI
 
 struct LibraryView: View {
     @Bindable var model: AppModel
+    let quickLookBlocked: Bool
+    @FocusState private var libraryFocused: Bool
 
     var body: some View {
         Group {
@@ -25,6 +27,21 @@ struct LibraryView: View {
             } else {
                 list
             }
+        }
+        .focusable()
+        .focused($libraryFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.space, phases: .down) { press in
+            guard libraryFocused,
+                  !quickLookBlocked,
+                  press.modifiers.isEmpty,
+                  !textInputIsFirstResponder,
+                  model.selectedItem != nil
+            else {
+                return .ignored
+            }
+            model.toggleSelectedPreview()
+            return .handled
         }
     }
 
@@ -52,6 +69,7 @@ struct LibraryView: View {
                                 item.id,
                                 additive: NSEvent.modifierFlags.contains(.command)
                             )
+                            libraryFocused = true
                         },
                         onPreview: { model.preview(item) },
                         onReveal: { model.reveal(item) }
@@ -82,6 +100,7 @@ struct LibraryView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 model.select(item.id, additive: NSEvent.modifierFlags.contains(.command))
+                libraryFocused = true
             }
             .onTapGesture(count: 2) { model.preview(item) }
             .contextMenu { itemMenu(item) }
@@ -101,6 +120,13 @@ struct LibraryView: View {
             Task { await model.deleteSelected() }
         }
         .disabled(item.deleted)
+    }
+
+    private var textInputIsFirstResponder: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else {
+            return false
+        }
+        return responder is NSTextView || responder is NSTextField
     }
 }
 

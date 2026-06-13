@@ -102,6 +102,7 @@ final class AppModel {
     )
     private let modelContext: ModelContext
     private let userDefaults: UserDefaults
+    private let quickLookPreview: QuickLookPreview
     private var repository: LibraryRepository?
     private var receiverService: ReceiverService?
     private var scopedDirectoryURL: URL?
@@ -133,10 +134,12 @@ final class AppModel {
 
     init(
         modelContainer: ModelContainer,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        quickLookPreview: QuickLookPreview = .shared
     ) {
         modelContext = ModelContext(modelContainer)
         self.userDefaults = userDefaults
+        self.quickLookPreview = quickLookPreview
         language = AppLanguage.load(from: userDefaults)
         let storedPort = userDefaults.integer(forKey: "receiverPort")
         port = storedPort == 0 ? 8765 : UInt16(clamping: storedPort)
@@ -334,7 +337,12 @@ final class AppModel {
 
     func preview(_ item: MediaItemEntity) {
         guard !item.deleted else { return }
-        QuickLookPreview.shared.show(item.fileURL)
+        quickLookPreview.show(item.fileURL)
+    }
+
+    func toggleSelectedPreview() {
+        guard let item = selectedItem, !item.deleted else { return }
+        quickLookPreview.toggle(item.fileURL)
     }
 
     func reveal(_ item: MediaItemEntity) {

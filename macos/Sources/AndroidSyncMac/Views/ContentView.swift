@@ -16,7 +16,10 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         ReceiverStatusView(model: model)
                         Divider()
-                        LibraryView(model: model)
+                        LibraryView(
+                            model: model,
+                            quickLookBlocked: renamePresented
+                        )
                     }
                     .searchable(
                         text: $model.searchText,
