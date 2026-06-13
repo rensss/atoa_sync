@@ -86,7 +86,58 @@ struct ReceiverConnectionLifecycle {
     }
 }
 
-private enum ReceiverServiceState {
+struct ReceiverServiceLifecycle {
+    enum StopReason {
+        case user
+        case listenerFailure
+    }
+
+    enum FinishDisposition: Equatable {
+        case notReady
+        case finished(emitStopped: Bool)
+    }
+
+    private(set) var state = ReceiverServiceState.idle
+    private var stopReason: StopReason?
+    private var receiverFailureEmitted = false
+
+    mutating func beginStart() -> Bool {
+        guard state == .idle || state == .stopped else { return false }
+        state = .running
+        stopReason = nil
+        receiverFailureEmitted = false
+        return true
+    }
+
+    mutating func beginUserStop() {
+        switch state {
+        case .idle:
+            state = .stopped
+        case .running:
+            state = .stopping
+            stopReason = .user
+        case .stopping, .stopped:
+            break
+        }
+    }
+
+    mutating func beginListenerFailure() -> Bool {
+        guard state == .running else { return false }
+        state = .stopping
+        stopReason = .listenerFailure
+        guard !receiverFailureEmitted else { return false }
+        receiverFailureEmitted = true
+        return true
+    }
+
+    mutating func finishStop(sessionsAreEmpty: Bool) -> FinishDisposition {
+        guard state == .stopping, sessionsAreEmpty else { return .notReady }
+        state = .stopped
+        return .finished(emitStopped: stopReason == .user)
+    }
+}
+
+enum ReceiverServiceState {
     case idle
     case running
     case stopping
@@ -104,7 +155,7 @@ public final class ReceiverService: @unchecked Sendable {
     private var startContinuation: CheckedContinuation<UInt16, Error>?
     private var activeConnections = 0
     private var sessions: [UUID: ReceiverConnection] = [:]
-    private var state = ReceiverServiceState.idle
+    private var lifecycle = ReceiverServiceLifecycle()
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
@@ -125,12 +176,11 @@ public final class ReceiverService: @unchecked Sendable {
 
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                guard self.state == .idle || self.state == .stopped else {
+                guard self.lifecycle.beginStart() else {
                     listener.cancel()
                     continuation.resume(throwing: ReceiverServiceError.alreadyActive)
                     return
                 }
-                self.state = .running
                 self.listener = listener
                 self.startContinuation = continuation
                 listener.stateUpdateHandler = { [weak self, weak listener] state in
@@ -163,9 +213,9 @@ public final class ReceiverService: @unchecked Sendable {
     func stopAndWait(onRequest: @escaping @Sendable () -> Void) async {
         await withCheckedContinuation { continuation in
             queue.async {
-                switch self.state {
+                switch self.lifecycle.state {
                 case .idle:
-                    self.state = .stopped
+                    self.lifecycle.beginUserStop()
                     onRequest()
                     continuation.resume()
                 case .stopped:
@@ -191,21 +241,14 @@ public final class ReceiverService: @unchecked Sendable {
         case .ready:
             guard let port = listener.port?.rawValue else {
                 let error = ReceiverServiceError.unavailablePort
-                startContinuation?.resume(throwing: error)
-                startContinuation = nil
-                Array(sessions.values).forEach { $0.requestStop() }
-                eventHandler(.receiverFailed(message: error.localizedDescription))
+                handleListenerFailure(error, listener: listener)
                 return
             }
             startContinuation?.resume(returning: port)
             startContinuation = nil
             eventHandler(.started(port: port))
         case let .failed(error):
-            startContinuation?.resume(throwing: error)
-            startContinuation = nil
-            self.listener = nil
-            Array(sessions.values).forEach { $0.requestStop() }
-            eventHandler(.receiverFailed(message: error.localizedDescription))
+            handleListenerFailure(error, listener: listener)
         case .cancelled:
             startContinuation?.resume(throwing: CancellationError())
             startContinuation = nil
@@ -214,8 +257,19 @@ public final class ReceiverService: @unchecked Sendable {
         }
     }
 
+    private func handleListenerFailure(_ error: Error, listener: NWListener) {
+        guard lifecycle.beginListenerFailure() else { return }
+        startContinuation?.resume(throwing: error)
+        startContinuation = nil
+        self.listener = nil
+        listener.cancel()
+        Array(sessions.values).forEach { $0.requestStop() }
+        eventHandler(.receiverFailed(message: error.localizedDescription))
+        finishStopIfPossible()
+    }
+
     private func accept(_ connection: NWConnection) {
-        guard state == .running else {
+        guard lifecycle.state == .running else {
             connection.cancel()
             return
         }
@@ -252,12 +306,12 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     private func beginStop() {
-        switch state {
+        switch lifecycle.state {
         case .idle:
-            state = .stopped
+            lifecycle.beginUserStop()
             return
         case .running:
-            state = .stopping
+            lifecycle.beginUserStop()
             startContinuation?.resume(throwing: CancellationError())
             startContinuation = nil
             listener?.cancel()
@@ -272,9 +326,14 @@ public final class ReceiverService: @unchecked Sendable {
     }
 
     private func finishStopIfPossible() {
-        guard state == .stopping, sessions.isEmpty else { return }
-        state = .stopped
-        eventHandler(.stopped)
+        guard case let .finished(emitStopped) = lifecycle.finishStop(
+            sessionsAreEmpty: sessions.isEmpty
+        ) else {
+            return
+        }
+        if emitStopped {
+            eventHandler(.stopped)
+        }
         let waiters = stopWaiters
         stopWaiters.removeAll()
         waiters.forEach { $0.resume() }

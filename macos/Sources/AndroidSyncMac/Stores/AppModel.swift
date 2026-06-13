@@ -99,9 +99,23 @@ struct ActiveUpload: Equatable, Identifiable {
     let expectedSize: Int64
 }
 
+protocol ReceiverServiceControlling: Sendable {
+    func start() async throws -> UInt16
+    func stop()
+    func stopAndWait() async
+}
+
+extension ReceiverService: ReceiverServiceControlling {}
+
 @MainActor
 @Observable
 final class AppModel {
+    typealias ReceiverServiceFactory = @MainActor (
+        LibraryRepository,
+        UInt16,
+        @escaping ReceiverService.EventHandler
+    ) -> any ReceiverServiceControlling
+
     private let logger = Logger(
         subsystem: "com.androidsync.mac",
         category: "AppModel"
@@ -109,14 +123,16 @@ final class AppModel {
     private let modelContext: ModelContext
     private let userDefaults: UserDefaults
     private let quickLookPreview: QuickLookPreview
+    private let receiverServiceFactory: ReceiverServiceFactory
     private var repository: LibraryRepository?
-    private var receiverService: ReceiverService?
+    private var receiverService: (any ReceiverServiceControlling)?
     private var receiverEventTask: Task<Void, Never>?
     private var receiverEventContinuation: AsyncStream<ReceiverServiceEvent>.Continuation?
     private var scopedDirectoryURL: URL?
     private var launched = false
     private var transientUploadMessageTask: Task<Void, Never>?
     private(set) var receiverGeneration: UInt64 = 0
+    private(set) var directoryConfigurationGeneration: UInt64 = 0
 
     var items: [MediaItemEntity] = []
     var category: LibraryCategory = .all
@@ -147,11 +163,22 @@ final class AppModel {
     init(
         modelContainer: ModelContainer,
         userDefaults: UserDefaults = .standard,
-        quickLookPreview: QuickLookPreview = .shared
+        quickLookPreview: QuickLookPreview = .shared,
+        receiverServiceFactory: @escaping ReceiverServiceFactory = {
+            repository,
+            port,
+            eventHandler in
+            ReceiverService(
+                repository: repository,
+                port: port,
+                eventHandler: eventHandler
+            )
+        }
     ) {
         modelContext = ModelContext(modelContainer)
         self.userDefaults = userDefaults
         self.quickLookPreview = quickLookPreview
+        self.receiverServiceFactory = receiverServiceFactory
         language = AppLanguage.load(from: userDefaults)
         let storedPort = userDefaults.integer(forKey: "receiverPort")
         port = storedPort == 0 ? 8765 : UInt16(clamping: storedPort)
@@ -290,8 +317,10 @@ final class AppModel {
         launched = true
         do {
             if let url = try DirectoryBookmarkStore.resolve() {
-                configure(directory: url)
-                await startReceiver()
+                let generation = beginDirectoryConfiguration()
+                if await configure(directory: url, generation: generation) {
+                    await startReceiver()
+                }
             } else {
                 status = .needsDirectory
             }
@@ -313,8 +342,7 @@ final class AppModel {
 
         do {
             try DirectoryBookmarkStore.save(url)
-            configure(directory: url)
-            Task { await startReceiver() }
+            configureDirectory(url)
         } catch {
             status = .failed(error.localizedDescription)
             lastError = error.localizedDescription
@@ -412,8 +440,34 @@ final class AppModel {
         NSWorkspace.shared.open(receiveDirectory)
     }
 
-    private func configure(directory: URL) {
-        receiverService?.stop()
+    @discardableResult
+    func configureDirectory(
+        _ directory: URL,
+        startReceiverAfterConfiguration: Bool = true
+    ) -> Task<Void, Never> {
+        let generation = beginDirectoryConfiguration()
+        return Task { [weak self] in
+            guard let self else { return }
+            let configured = await self.configure(
+                directory: directory,
+                generation: generation
+            )
+            guard configured, startReceiverAfterConfiguration else { return }
+            await self.startReceiver()
+        }
+    }
+
+    private func beginDirectoryConfiguration() -> UInt64 {
+        directoryConfigurationGeneration &+= 1
+        return directoryConfigurationGeneration
+    }
+
+    private func configure(directory: URL, generation: UInt64) async -> Bool {
+        guard generation == directoryConfigurationGeneration else { return false }
+        let previousService = receiverService
+        await previousService?.stopAndWait()
+        guard generation == directoryConfigurationGeneration else { return false }
+
         if let scopedDirectoryURL {
             scopedDirectoryURL.stopAccessingSecurityScopedResource()
         }
@@ -424,7 +478,11 @@ final class AppModel {
         self.repository = repository
         rebuildReceiverService()
         status = .stopped
-        Task { await reloadLibrary() }
+        await reloadLibrary(
+            from: repository,
+            directoryGeneration: generation
+        )
+        return generation == directoryConfigurationGeneration
     }
 
     func rebuildReceiverService() {
@@ -451,10 +509,7 @@ final class AppModel {
                 self?.handle(event, generation: generation)
             }
         }
-        receiverService = ReceiverService(
-            repository: repository,
-            port: port
-        ) { event in
+        receiverService = receiverServiceFactory(repository, port) { event in
             continuation.yield(event)
         }
     }
@@ -541,10 +596,27 @@ final class AppModel {
 
     private func reloadLibrary() async {
         guard let repository else { return }
+        await reloadLibrary(from: repository)
+    }
+
+    private func reloadLibrary(
+        from repository: LibraryRepository,
+        directoryGeneration: UInt64? = nil
+    ) async {
         do {
             let records = try await repository.libraryRecords()
+            if let directoryGeneration {
+                guard directoryGeneration == self.directoryConfigurationGeneration else {
+                    return
+                }
+            }
             syncDatabase(with: records)
         } catch {
+            if let directoryGeneration {
+                guard directoryGeneration == self.directoryConfigurationGeneration else {
+                    return
+                }
+            }
             lastError = error.localizedDescription
         }
     }

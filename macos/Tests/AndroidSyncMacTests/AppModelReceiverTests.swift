@@ -140,12 +140,69 @@ final class AppModelReceiverTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
-    private func makeModel() throws -> AppModel {
+    func testDirectoryTransitionWaitsForOldReceiverAndLatestSelectionWins() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let model = try makeModel(receiverFactory: receiverFactory.make)
+        let oldDirectory = temporaryDirectory(named: "old")
+        let firstDirectory = temporaryDirectory(named: "first")
+        let latestDirectory = temporaryDirectory(named: "latest")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: firstDirectory)
+            try? FileManager.default.removeItem(at: latestDirectory)
+        }
+
+        await model.configureDirectory(
+            oldDirectory,
+            startReceiverAfterConfiguration: false
+        ).value
+        let oldReceiverGeneration = model.receiverGeneration
+        let oldDirectoryGeneration = model.directoryConfigurationGeneration
+        let oldService = try XCTUnwrap(receiverFactory.services.first)
+        oldService.blockStop()
+
+        let firstTransition = model.configureDirectory(
+            firstDirectory,
+            startReceiverAfterConfiguration: false
+        )
+        await oldService.waitUntilStopRequested()
+        let latestTransition = model.configureDirectory(
+            latestDirectory,
+            startReceiverAfterConfiguration: false
+        )
+
+        await Task.yield()
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.receiverGeneration, oldReceiverGeneration)
+        XCTAssertEqual(
+            model.directoryConfigurationGeneration,
+            oldDirectoryGeneration + 2
+        )
+
+        oldService.allowStop()
+        await firstTransition.value
+        await latestTransition.value
+
+        XCTAssertEqual(model.receiveDirectory, latestDirectory)
+        XCTAssertEqual(model.receiverGeneration, oldReceiverGeneration + 1)
+        XCTAssertEqual(receiverFactory.services.count, 2)
+    }
+
+    private func makeModel(
+        receiverFactory: AppModel.ReceiverServiceFactory? = nil
+    ) throws -> AppModel {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: MediaItemEntity.self,
             configurations: configuration
         )
+        if let receiverFactory {
+            return AppModel(
+                modelContainer: container,
+                userDefaults: UserDefaults(suiteName: UUID().uuidString)!,
+                receiverServiceFactory: receiverFactory
+            )
+        }
         return AppModel(
             modelContainer: container,
             userDefaults: UserDefaults(suiteName: UUID().uuidString)!
@@ -167,5 +224,91 @@ final class AppModelReceiverTests: XCTestCase {
             receivedAt: Date(),
             fileURL: URL(fileURLWithPath: "/tmp/\(filename)")
         )
+    }
+
+    private func temporaryDirectory(named name: String) -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-\(name)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
+@MainActor
+private final class TestReceiverFactory {
+    private(set) var services: [TestReceiverService] = []
+
+    func make(
+        repository: LibraryRepository,
+        port: UInt16,
+        eventHandler: @escaping ReceiverService.EventHandler
+    ) -> any ReceiverServiceControlling {
+        let service = TestReceiverService()
+        services.append(service)
+        return service
+    }
+}
+
+private final class TestReceiverService: ReceiverServiceControlling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopGates: [CheckedContinuation<Void, Never>] = []
+    private var stopRequestedContinuation: CheckedContinuation<Void, Never>?
+    private var shouldBlockStop = false
+    private var didRequestStop = false
+
+    func start() async throws -> UInt16 {
+        8765
+    }
+
+    func stop() {}
+
+    func stopAndWait() async {
+        await withCheckedContinuation { continuation in
+            let result = lock.withLock {
+                didRequestStop = true
+                let requestWaiter = stopRequestedContinuation
+                stopRequestedContinuation = nil
+                if shouldBlockStop {
+                    stopGates.append(continuation)
+                    return (requestWaiter, false)
+                }
+                return (requestWaiter, true)
+            }
+            result.0?.resume()
+            if result.1 {
+                continuation.resume()
+            }
+        }
+    }
+
+    func blockStop() {
+        lock.withLock {
+            shouldBlockStop = true
+        }
+    }
+
+    func allowStop() {
+        let waiters = lock.withLock {
+            shouldBlockStop = false
+            let waiters = stopGates
+            stopGates.removeAll()
+            return waiters
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitUntilStopRequested() async {
+        if lock.withLock({ didRequestStop }) {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if didRequestStop {
+                    continuation.resume()
+                } else {
+                    stopRequestedContinuation = continuation
+                }
+            }
+        }
     }
 }

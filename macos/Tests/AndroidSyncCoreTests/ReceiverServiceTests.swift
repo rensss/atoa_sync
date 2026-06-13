@@ -430,6 +430,24 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertFalse(lifecycle.beginCommit())
     }
 
+    func testListenerFailureStopsSessionsOnceAndAllowsRestartAfterCleanup() {
+        var lifecycle = ReceiverServiceLifecycle()
+
+        XCTAssertTrue(lifecycle.beginStart())
+        XCTAssertTrue(lifecycle.beginListenerFailure())
+        XCTAssertFalse(lifecycle.beginListenerFailure())
+        XCTAssertEqual(
+            lifecycle.finishStop(sessionsAreEmpty: false),
+            .notReady
+        )
+        XCTAssertFalse(lifecycle.beginStart())
+        XCTAssertEqual(
+            lifecycle.finishStop(sessionsAreEmpty: true),
+            .finished(emitStopped: false)
+        )
+        XCTAssertTrue(lifecycle.beginStart())
+    }
+
     private func incomingContents(at root: URL) throws -> [URL] {
         let incomingURL = root.appendingPathComponent(".incoming", isDirectory: true)
         guard FileManager.default.fileExists(atPath: incomingURL.path) else {
