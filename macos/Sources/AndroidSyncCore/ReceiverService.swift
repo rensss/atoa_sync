@@ -5,9 +5,10 @@ import Network
 public enum ReceiverServiceEvent: Sendable {
     case started(port: UInt16)
     case stopped
-    case uploadStarted(filename: String, expectedSize: Int64)
-    case uploadStored(UploadRecord)
-    case failed(message: String)
+    case uploadStarted(id: UUID, filename: String, expectedSize: Int64)
+    case uploadStored(id: UUID, record: UploadRecord)
+    case uploadFailed(id: UUID, filename: String, message: String)
+    case receiverFailed(message: String)
 }
 
 public enum ReceiverServiceError: LocalizedError {
@@ -65,6 +66,7 @@ public final class ReceiverService: @unchecked Sendable {
         queue.async {
             self.listener?.cancel()
             self.listener = nil
+            Array(self.sessions.values).forEach { $0.cancel() }
             self.eventHandler(.stopped)
         }
     }
@@ -78,8 +80,11 @@ public final class ReceiverService: @unchecked Sendable {
         switch state {
         case .ready:
             guard let port = listener?.port?.rawValue else {
-                startContinuation?.resume(throwing: ReceiverServiceError.unavailablePort)
+                let error = ReceiverServiceError.unavailablePort
+                startContinuation?.resume(throwing: error)
                 startContinuation = nil
+                Array(sessions.values).forEach { $0.cancel() }
+                eventHandler(.receiverFailed(message: error.localizedDescription))
                 return
             }
             startContinuation?.resume(returning: port)
@@ -88,7 +93,9 @@ public final class ReceiverService: @unchecked Sendable {
         case let .failed(error):
             startContinuation?.resume(throwing: error)
             startContinuation = nil
-            eventHandler(.failed(message: error.localizedDescription))
+            listener = nil
+            Array(sessions.values).forEach { $0.cancel() }
+            eventHandler(.receiverFailed(message: error.localizedDescription))
         case .cancelled:
             startContinuation?.resume(throwing: CancellationError())
             startContinuation = nil
@@ -137,6 +144,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     private let uploadURL: @Sendable () -> String
     private let eventHandler: ReceiverService.EventHandler
     private let onClose: @Sendable () -> Void
+    private let uploadID = UUID()
 
     private var buffer = Data()
     private var remainingBytes: Int64 = 0
@@ -145,6 +153,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     private var temporaryURL: URL?
     private var fileHandle: FileHandle?
     private var closed = false
+    private var terminal = false
 
     init(
         connection: NWConnection,
@@ -170,6 +179,13 @@ private final class ReceiverConnection: @unchecked Sendable {
         }
         connection.start(queue: queue)
         receiveHeaders()
+    }
+
+    func cancel() {
+        guard !closed else { return }
+        terminal = true
+        cleanupTemporaryFile()
+        close()
     }
 
     private func receiveHeaders() {
@@ -247,7 +263,13 @@ private final class ReceiverConnection: @unchecked Sendable {
             self.expectedSize = expectedSize
             remainingBytes = expectedSize
             uploadMetadata = metadata
-            eventHandler(.uploadStarted(filename: metadata.filename, expectedSize: expectedSize))
+            eventHandler(
+                .uploadStarted(
+                    id: uploadID,
+                    filename: metadata.filename,
+                    expectedSize: expectedSize
+                )
+            )
             prepareUpload()
         case .notFound:
             fail(status: 404, reason: "Not Found", message: "not found")
@@ -261,6 +283,11 @@ private final class ReceiverConnection: @unchecked Sendable {
                 _ = FileManager.default.createFile(atPath: url.path, contents: nil)
                 let handle = try FileHandle(forWritingTo: url)
                 queue.async {
+                    guard !self.closed, !self.terminal else {
+                        try? handle.close()
+                        try? FileManager.default.removeItem(at: url)
+                        return
+                    }
                     self.temporaryURL = url
                     self.fileHandle = handle
                     self.consumeBody(self.buffer, connectionComplete: false)
@@ -311,6 +338,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func finishUpload() {
+        guard !closed, !terminal else { return }
         guard
             let temporaryURL,
             let metadata = uploadMetadata
@@ -318,10 +346,15 @@ private final class ReceiverConnection: @unchecked Sendable {
             fail(status: 500, reason: "Internal Server Error", message: "upload state is incomplete")
             return
         }
+        terminal = true
         do {
             try fileHandle?.close()
         } catch {
-            fail(status: 500, reason: "Upload Failed", message: error.localizedDescription)
+            completeUploadFailure(
+                status: 500,
+                reason: "Upload Failed",
+                message: error.localizedDescription
+            )
             return
         }
         fileHandle = nil
@@ -334,7 +367,9 @@ private final class ReceiverConnection: @unchecked Sendable {
                     metadata: metadata
                 )
                 queue.async {
-                    self.eventHandler(.uploadStored(record))
+                    guard !self.closed else { return }
+                    self.temporaryURL = nil
+                    self.eventHandler(.uploadStored(id: self.uploadID, record: record))
                     self.sendJSON(
                         status: 201,
                         reason: "Created",
@@ -350,7 +385,11 @@ private final class ReceiverConnection: @unchecked Sendable {
                 }
             } catch {
                 queue.async {
-                    self.fail(status: 500, reason: "Upload Failed", message: error.localizedDescription)
+                    self.completeUploadFailure(
+                        status: 500,
+                        reason: "Upload Failed",
+                        message: error.localizedDescription
+                    )
                 }
             }
         }
@@ -378,8 +417,23 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func fail(status: Int, reason: String, message: String) {
-        eventHandler(.failed(message: message))
+        guard !closed, !terminal else { return }
+        terminal = true
+        completeUploadFailure(status: status, reason: reason, message: message)
+    }
+
+    private func completeUploadFailure(status: Int, reason: String, message: String) {
+        guard !closed else { return }
         cleanupTemporaryFile()
+        if let uploadMetadata {
+            eventHandler(
+                .uploadFailed(
+                    id: uploadID,
+                    filename: uploadMetadata.filename,
+                    message: message
+                )
+            )
+        }
         sendJSON(status: status, reason: reason, object: ["error": message])
     }
 
@@ -401,6 +455,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     private func close() {
         guard !closed else { return }
         closed = true
+        cleanupTemporaryFile()
         connection.cancel()
         onClose()
     }

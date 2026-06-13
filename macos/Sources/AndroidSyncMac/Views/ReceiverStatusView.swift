@@ -12,13 +12,13 @@ struct ReceiverStatusView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
                     .font(.headline)
-                Text(
-                    model.uploadURL.isEmpty
-                        ? model.format(.portFormat, Int(model.port))
-                        : model.uploadURL
-                )
+                Text(statusDetail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(
+                        model.transientUploadMessage == nil
+                            ? AnyShapeStyle(.secondary)
+                            : AnyShapeStyle(.orange)
+                    )
                     .textSelection(.enabled)
             }
             Spacer()
@@ -48,13 +48,25 @@ struct ReceiverStatusView: View {
     }
 
     private var statusTitle: String {
-        switch model.status {
+        if model.isRunning, !model.activeUploads.isEmpty {
+            return model.format(.receivingFilesFormat, model.activeUploads.count)
+        }
+        return switch model.status {
         case .needsDirectory: model.text(.receiveFolderRequired)
         case .stopped: model.text(.receiverPaused)
         case .starting: model.text(.startingReceiver)
         case .running: model.text(.readyToReceive)
         case .failed: model.text(.receiverUnavailable)
         }
+    }
+
+    private var statusDetail: String {
+        if let transientUploadMessage = model.transientUploadMessage {
+            return transientUploadMessage
+        }
+        return model.uploadURL.isEmpty
+            ? model.format(.portFormat, Int(model.port))
+            : model.uploadURL
     }
 
     private var statusIcon: String {

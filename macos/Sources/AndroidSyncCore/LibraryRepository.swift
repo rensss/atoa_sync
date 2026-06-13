@@ -79,32 +79,42 @@ public actor LibraryRepository {
         try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
         let targetURL = uniqueURL(for: targetDirectory.appendingPathComponent(filename))
+        let targetSidecarURL = sidecarURL(for: targetURL)
+        let sidecarExistedBeforeCommit = fileManager.fileExists(atPath: targetSidecarURL.path)
         try fileManager.moveItem(at: temporaryURL, to: targetURL)
 
-        if let millis = metadata.dateModifiedMillis {
-            try fileManager.setAttributes(
-                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(millis) / 1_000)],
-                ofItemAtPath: targetURL.path
-            )
-        }
+        do {
+            if let millis = metadata.dateModifiedMillis {
+                try fileManager.setAttributes(
+                    [.modificationDate: Date(timeIntervalSince1970: TimeInterval(millis) / 1_000)],
+                    ofItemAtPath: targetURL.path
+                )
+            }
 
-        let record = UploadRecord(
-            filename: targetURL.lastPathComponent,
-            originalFilename: filename,
-            kind: kind,
-            sizeBytes: actualSize,
-            contentType: metadata.contentType,
-            stableID: metadata.stableID,
-            dateModifiedMillis: metadata.dateModifiedMillis,
-            dateTakenMillis: metadata.dateTakenMillis,
-            dateAddedMillis: metadata.dateAddedMillis,
-            sourceIP: metadata.sourceIP,
-            receivedAt: receivedAt,
-            fileURL: targetURL
-        )
-        try writeSidecar(for: record)
-        try appendLog(for: record, status: "stored")
-        return record
+            let record = UploadRecord(
+                filename: targetURL.lastPathComponent,
+                originalFilename: filename,
+                kind: kind,
+                sizeBytes: actualSize,
+                contentType: metadata.contentType,
+                stableID: metadata.stableID,
+                dateModifiedMillis: metadata.dateModifiedMillis,
+                dateTakenMillis: metadata.dateTakenMillis,
+                dateAddedMillis: metadata.dateAddedMillis,
+                sourceIP: metadata.sourceIP,
+                receivedAt: receivedAt,
+                fileURL: targetURL
+            )
+            try writeSidecar(for: record)
+            try appendLog(for: record, status: "stored")
+            return record
+        } catch {
+            try? fileManager.removeItem(at: targetURL)
+            if !sidecarExistedBeforeCommit {
+                try? fileManager.removeItem(at: targetSidecarURL)
+            }
+            throw error
+        }
     }
 
     public func rename(_ record: UploadRecord, to rawFilename: String) throws -> UploadRecord {

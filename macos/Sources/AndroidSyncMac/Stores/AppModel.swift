@@ -93,6 +93,12 @@ enum ReceiverStatus: Equatable {
     case failed(String)
 }
 
+struct ActiveUpload: Equatable, Identifiable {
+    let id: UUID
+    let filename: String
+    let expectedSize: Int64
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -107,6 +113,7 @@ final class AppModel {
     private var receiverService: ReceiverService?
     private var scopedDirectoryURL: URL?
     private var launched = false
+    private var transientUploadMessageTask: Task<Void, Never>?
 
     var items: [MediaItemEntity] = []
     var category: LibraryCategory = .all
@@ -131,6 +138,8 @@ final class AppModel {
     }
     var launchAtLogin: Bool
     var lastError: String?
+    var activeUploads: [UUID: ActiveUpload] = [:]
+    var transientUploadMessage: String?
 
     init(
         modelContainer: ModelContainer,
@@ -450,22 +459,51 @@ final class AppModel {
         logger.info("Receiver stopped")
     }
 
-    private func handle(_ event: ReceiverServiceEvent) {
+    func handle(_ event: ReceiverServiceEvent) {
         switch event {
         case let .started(port):
             uploadURL = "http://\(SystemNetworkInfo.localIPv4Address()):\(port)/uploads/"
             status = .running
         case .stopped:
+            activeUploads.removeAll()
+            clearTransientUploadFailure()
             if receiveDirectory != nil {
                 status = .stopped
             }
-        case .uploadStarted:
-            break
-        case .uploadStored:
+        case let .uploadStarted(id, filename, expectedSize):
+            activeUploads[id] = ActiveUpload(
+                id: id,
+                filename: filename,
+                expectedSize: expectedSize
+            )
+        case let .uploadStored(id, _):
+            activeUploads.removeValue(forKey: id)
             Task { await reloadLibrary() }
-        case let .failed(message):
+        case let .uploadFailed(id, filename, message):
+            activeUploads.removeValue(forKey: id)
+            showTransientUploadFailure(filename: filename, message: message)
+        case let .receiverFailed(message):
+            activeUploads.removeAll()
+            clearTransientUploadFailure()
+            status = .failed(message)
             lastError = message
         }
+    }
+
+    private func showTransientUploadFailure(filename: String, message: String) {
+        transientUploadMessageTask?.cancel()
+        transientUploadMessage = format(.uploadFailedFormat, filename, message)
+        transientUploadMessageTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.transientUploadMessage = nil
+        }
+    }
+
+    private func clearTransientUploadFailure() {
+        transientUploadMessageTask?.cancel()
+        transientUploadMessageTask = nil
+        transientUploadMessage = nil
     }
 
     private func reloadLibrary() async {

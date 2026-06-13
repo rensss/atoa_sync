@@ -106,6 +106,8 @@ enum AppStringKey: String, CaseIterable {
     case chooseReceiveFolderEllipsis
     case receivePanelTitle
     case receiving
+    case receivingFilesFormat
+    case uploadFailedFormat
     case folder
     case notSelected
     case chooseEllipsis
@@ -194,6 +196,8 @@ enum AppStrings {
             .chooseReceiveFolderEllipsis: "选择接收文件夹…",
             .receivePanelTitle: "选择 Android Sync 保存接收文件的位置",
             .receiving: "接收",
+            .receivingFilesFormat: "正在接收 %d 个文件",
+            .uploadFailedFormat: "%@ 接收失败：%@",
             .folder: "文件夹",
             .notSelected: "未选择",
             .chooseEllipsis: "选择…",
@@ -279,6 +283,8 @@ enum AppStrings {
             .chooseReceiveFolderEllipsis: "Choose Receive Folder…",
             .receivePanelTitle: "Choose where Android Sync stores received files",
             .receiving: "Receiving",
+            .receivingFilesFormat: "Receiving %d file(s)",
+            .uploadFailedFormat: "Failed to receive %@: %@",
             .folder: "Folder",
             .notSelected: "Not selected",
             .chooseEllipsis: "Choose…",
