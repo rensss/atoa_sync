@@ -111,10 +111,24 @@ final class AppModelReceiverTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
-    func testOldReceiverEventsCannotOverwriteNewReceiverState() throws {
+    func testOldReceiverEventsCannotOverwriteNewReceiverState() async throws {
         let model = try makeModel()
+        let firstDirectory = temporaryDirectory(named: "first")
+        let secondDirectory = temporaryDirectory(named: "second")
+        defer {
+            try? FileManager.default.removeItem(at: firstDirectory)
+            try? FileManager.default.removeItem(at: secondDirectory)
+        }
+
+        await model.configureDirectory(
+            firstDirectory,
+            startReceiverAfterConfiguration: false
+        ).value
         let oldGeneration = model.receiverGeneration
-        model.rebuildReceiverService()
+        await model.configureDirectory(
+            secondDirectory,
+            startReceiverAfterConfiguration: false
+        ).value
         let newGeneration = model.receiverGeneration
         let uploadID = UUID()
 
@@ -140,56 +154,456 @@ final class AppModelReceiverTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
-    func testDirectoryTransitionWaitsForOldReceiverAndLatestSelectionWins() async throws {
+    func testPendingStartDoesNotBlockDirectoryConfiguration() async throws {
         let receiverFactory = TestReceiverFactory()
+        receiverFactory.blockNextStart()
         let model = try makeModel(receiverFactory: receiverFactory.make)
         let oldDirectory = temporaryDirectory(named: "old")
-        let firstDirectory = temporaryDirectory(named: "first")
-        let latestDirectory = temporaryDirectory(named: "latest")
+        let newDirectory = temporaryDirectory(named: "new")
         defer {
             try? FileManager.default.removeItem(at: oldDirectory)
-            try? FileManager.default.removeItem(at: firstDirectory)
-            try? FileManager.default.removeItem(at: latestDirectory)
+            try? FileManager.default.removeItem(at: newDirectory)
         }
+
+        let initial = model.configureDirectory(oldDirectory)
+        let pendingService = await receiverFactory.waitForService(at: 0)
+        await pendingService.waitUntilStartRequested()
+
+        let configuration = model.configureDirectory(
+            newDirectory,
+            startReceiverAfterConfiguration: false
+        )
+        await configuration.value
+        await initial.value
+
+        XCTAssertEqual(model.receiveDirectory, newDirectory)
+        XCTAssertEqual(model.status, .stopped)
+        XCTAssertEqual(receiverFactory.services.count, 1)
+    }
+
+    func testPendingStartDoesNotBlockRestart() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let model = try makeModel(receiverFactory: receiverFactory.make)
+        let directory = temporaryDirectory(named: "receiver")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        await model.configureDirectory(
+            directory,
+            startReceiverAfterConfiguration: false
+        ).value
+        receiverFactory.blockNextStart()
+        let start = model.toggleReceiver()
+        let pendingService = await receiverFactory.waitForService(at: 0)
+        await pendingService.waitUntilStartRequested()
+
+        let restart = model.restartReceiver()
+        await restart.value
+        await start.value
+
+        XCTAssertEqual(receiverFactory.services.count, 2)
+        XCTAssertEqual(model.status, .running)
+    }
+
+    func testStoredUploadReloadFromOldDirectoryCannotOverwriteNewDirectory() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let libraryLoader = TestLibraryLoader()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            libraryRecordsLoader: libraryLoader.load
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let newDirectory = temporaryDirectory(named: "new")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: newDirectory)
+        }
+        await libraryLoader.setRecords([], for: oldDirectory)
+        await libraryLoader.setRecords(
+            [makeRecord(filename: "new.jpg", root: newDirectory)],
+            for: newDirectory
+        )
 
         await model.configureDirectory(
             oldDirectory,
             startReceiverAfterConfiguration: false
         ).value
-        let oldReceiverGeneration = model.receiverGeneration
-        let oldDirectoryGeneration = model.directoryConfigurationGeneration
-        let oldService = try XCTUnwrap(receiverFactory.services.first)
-        oldService.blockStop()
+        let generation = model.receiverGeneration
+        await libraryLoader.blockNextLoad(
+            for: oldDirectory,
+            records: [makeRecord(filename: "old.jpg", root: oldDirectory)]
+        )
 
-        let firstTransition = model.configureDirectory(
-            firstDirectory,
+        model.handle(
+            .uploadStored(
+                id: UUID(),
+                record: makeRecord(filename: "old.jpg", root: oldDirectory)
+            ),
+            generation: generation
+        )
+        await libraryLoader.waitUntilBlockedLoadStarts()
+
+        await model.configureDirectory(
+            newDirectory,
+            startReceiverAfterConfiguration: false
+        ).value
+        XCTAssertEqual(model.items.map(\.filename), ["new.jpg"])
+
+        await libraryLoader.releaseBlockedLoad()
+        await libraryLoader.waitUntilBlockedLoadFinishes()
+        await Task.yield()
+
+        XCTAssertEqual(model.receiveDirectory, newDirectory)
+        XCTAssertEqual(model.items.map(\.filename), ["new.jpg"])
+    }
+
+    func testSameDirectoryConfigurationReloadsAfterReceiverStops() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let libraryLoader = TestLibraryLoader()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            libraryRecordsLoader: libraryLoader.load
+        )
+        let directory = temporaryDirectory(named: "same")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await libraryLoader.setRecords([], for: directory)
+
+        await model.configureDirectory(directory).value
+        let runningService = try XCTUnwrap(receiverFactory.services.first)
+        runningService.blockStop()
+
+        let configuration = model.configureDirectory(
+            directory,
             startReceiverAfterConfiguration: false
         )
-        await oldService.waitUntilStopRequested()
-        let latestTransition = model.configureDirectory(
+        await runningService.waitUntilStopRequested()
+        await libraryLoader.setRecords(
+            [makeRecord(filename: "committed.jpg", root: directory)],
+            for: directory
+        )
+        runningService.allowStop()
+        await configuration.value
+
+        XCTAssertEqual(model.receiveDirectory, directory)
+        XCTAssertEqual(model.items.map(\.filename), ["committed.jpg"])
+        XCTAssertEqual(model.status, .stopped)
+    }
+
+    func testSingleStartAfterListenerFailureWaitsForShutdownAndRecovers() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let model = try makeModel(receiverFactory: receiverFactory.make)
+        let directory = temporaryDirectory(named: "receiver")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        await model.configureDirectory(directory).value
+        let failedService = try XCTUnwrap(receiverFactory.services.first)
+        failedService.blockStop()
+        model.handle(
+            .receiverFailed(message: "listener failed"),
+            generation: model.receiverGeneration
+        )
+
+        let start = model.toggleReceiver()
+        await failedService.waitUntilStopRequested()
+        XCTAssertEqual(receiverFactory.services.count, 1)
+
+        failedService.allowStop()
+        await start.value
+
+        XCTAssertEqual(receiverFactory.services.count, 2)
+        XCTAssertEqual(receiverFactory.services.last?.startCount, 1)
+        XCTAssertEqual(model.status, .running)
+    }
+
+    func testCancelledConfigurationKeepsRunningReceiverAndCleansCandidateScope() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let bookmarkStore = TestBookmarkStore()
+        let directoryAccess = TestDirectoryAccess()
+        let libraryLoader = TestLibraryLoader()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            bookmarkClient: bookmarkStore.client,
+            directoryAccessClient: directoryAccess.client,
+            libraryRecordsLoader: libraryLoader.load
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let cancelledDirectory = temporaryDirectory(named: "cancelled")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: cancelledDirectory)
+        }
+        await libraryLoader.setRecords([], for: oldDirectory)
+
+        await model.configureDirectory(oldDirectory).value
+        let runningService = try XCTUnwrap(receiverFactory.services.first)
+        bookmarkStore.reset()
+        directoryAccess.reset()
+        await libraryLoader.blockNextLoad(for: cancelledDirectory, records: [])
+
+        let configuration = model.configureDirectory(
+            cancelledDirectory,
+            startReceiverAfterConfiguration: false
+        )
+        await libraryLoader.waitUntilBlockedLoadStarts()
+        configuration.cancel()
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.status, .running)
+        XCTAssertTrue(receiverFactory.services.first === runningService)
+
+        await libraryLoader.releaseBlockedLoad()
+        await configuration.value
+
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.status, .running)
+        XCTAssertEqual(receiverFactory.services.count, 1)
+        XCTAssertEqual(runningService.stopCount, 0)
+        XCTAssertTrue(bookmarkStore.savedURLs.isEmpty)
+        XCTAssertEqual(directoryAccess.startedURLs, [cancelledDirectory])
+        XCTAssertEqual(directoryAccess.stoppedURLs, [cancelledDirectory])
+    }
+
+    func testBookmarkSaveFailureKeepsCurrentDirectoryAndReceiver() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let bookmarkStore = TestBookmarkStore()
+        let directoryAccess = TestDirectoryAccess()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            bookmarkClient: bookmarkStore.client,
+            directoryAccessClient: directoryAccess.client
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let rejectedDirectory = temporaryDirectory(named: "rejected")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: rejectedDirectory)
+        }
+
+        await model.configureDirectory(oldDirectory).value
+        let runningService = try XCTUnwrap(receiverFactory.services.first)
+        bookmarkStore.reset()
+        directoryAccess.reset()
+        bookmarkStore.failNextSave()
+
+        await model.configureDirectory(
+            rejectedDirectory,
+            startReceiverAfterConfiguration: false
+        ).value
+
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.status, .running)
+        XCTAssertTrue(receiverFactory.services.first === runningService)
+        XCTAssertEqual(receiverFactory.services.count, 1)
+        XCTAssertEqual(runningService.stopCount, 0)
+        XCTAssertEqual(bookmarkStore.currentURL, oldDirectory)
+        XCTAssertTrue(bookmarkStore.savedURLs.isEmpty)
+        XCTAssertEqual(directoryAccess.startedURLs, [rejectedDirectory])
+        XCTAssertEqual(directoryAccess.stoppedURLs, [rejectedDirectory])
+    }
+
+    func testBlockedOldCandidateDoesNotBlockLatestConfiguration() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let bookmarkStore = TestBookmarkStore()
+        let directoryAccess = TestDirectoryAccess()
+        let libraryLoader = TestLibraryLoader()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            bookmarkClient: bookmarkStore.client,
+            directoryAccessClient: directoryAccess.client,
+            libraryRecordsLoader: libraryLoader.load
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let blockedDirectory = temporaryDirectory(named: "blocked")
+        let latestDirectory = temporaryDirectory(named: "latest")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: blockedDirectory)
+            try? FileManager.default.removeItem(at: latestDirectory)
+        }
+        await libraryLoader.setRecords([], for: oldDirectory)
+        await libraryLoader.setRecords(
+            [makeRecord(filename: "latest.jpg", root: latestDirectory)],
+            for: latestDirectory
+        )
+
+        await model.configureDirectory(oldDirectory).value
+        bookmarkStore.reset()
+        directoryAccess.reset()
+        await libraryLoader.blockNextLoad(for: blockedDirectory, records: [])
+
+        let blocked = model.configureDirectory(
+            blockedDirectory,
+            startReceiverAfterConfiguration: false
+        )
+        await libraryLoader.waitUntilBlockedLoadStarts()
+        let latest = model.configureDirectory(
             latestDirectory,
             startReceiverAfterConfiguration: false
         )
-
-        await Task.yield()
-        XCTAssertEqual(model.receiveDirectory, oldDirectory)
-        XCTAssertEqual(model.receiverGeneration, oldReceiverGeneration)
-        XCTAssertEqual(
-            model.directoryConfigurationGeneration,
-            oldDirectoryGeneration + 2
-        )
-
-        oldService.allowStop()
-        await firstTransition.value
-        await latestTransition.value
+        await latest.value
 
         XCTAssertEqual(model.receiveDirectory, latestDirectory)
-        XCTAssertEqual(model.receiverGeneration, oldReceiverGeneration + 1)
+        XCTAssertEqual(model.items.map(\.filename), ["latest.jpg"])
+
+        await libraryLoader.releaseBlockedLoad()
+        await blocked.value
+
+        XCTAssertEqual(model.receiveDirectory, latestDirectory)
+        XCTAssertEqual(bookmarkStore.savedURLs, [latestDirectory])
+        XCTAssertEqual(
+            directoryAccess.startedURLs,
+            [blockedDirectory, latestDirectory]
+        )
+        XCTAssertTrue(directoryAccess.stoppedURLs.contains(oldDirectory))
+        XCTAssertTrue(directoryAccess.stoppedURLs.contains(blockedDirectory))
+    }
+
+    func testBlockedCandidateDoesNotBlockRestart() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let libraryLoader = TestLibraryLoader()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            libraryRecordsLoader: libraryLoader.load
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let blockedDirectory = temporaryDirectory(named: "blocked")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: blockedDirectory)
+        }
+        await libraryLoader.setRecords([], for: oldDirectory)
+        await model.configureDirectory(oldDirectory).value
+        await libraryLoader.blockNextLoad(for: blockedDirectory, records: [])
+
+        let blocked = model.configureDirectory(blockedDirectory)
+        await libraryLoader.waitUntilBlockedLoadStarts()
+        let restart = model.restartReceiver()
+        await restart.value
+
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.status, .running)
         XCTAssertEqual(receiverFactory.services.count, 2)
+
+        await libraryLoader.releaseBlockedLoad()
+        await blocked.value
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+    }
+
+    func testSupersededSavedBookmarkRollsBackToCurrentDirectory() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let bookmarkStore = TestBookmarkStore()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            bookmarkClient: bookmarkStore.client
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let candidateDirectory = temporaryDirectory(named: "candidate")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: candidateDirectory)
+        }
+
+        await model.configureDirectory(oldDirectory).value
+        bookmarkStore.reset()
+        let oldService = try XCTUnwrap(receiverFactory.services.first)
+        oldService.blockStop()
+
+        let configuration = model.configureDirectory(
+            candidateDirectory,
+            startReceiverAfterConfiguration: false
+        )
+        await oldService.waitUntilStopRequested()
+        let restart = model.restartReceiver()
+        oldService.allowStop()
+        await configuration.value
+        await restart.value
+
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.status, .running)
+        XCTAssertEqual(bookmarkStore.currentURL, oldDirectory)
+        XCTAssertEqual(
+            bookmarkStore.savedURLs,
+            [candidateDirectory, oldDirectory]
+        )
+    }
+
+    func testCancellationAfterBookmarkSaveRestoresRunningReceiver() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let bookmarkStore = TestBookmarkStore()
+        let directoryAccess = TestDirectoryAccess()
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            bookmarkClient: bookmarkStore.client,
+            directoryAccessClient: directoryAccess.client
+        )
+        let oldDirectory = temporaryDirectory(named: "old")
+        let candidateDirectory = temporaryDirectory(named: "candidate")
+        defer {
+            try? FileManager.default.removeItem(at: oldDirectory)
+            try? FileManager.default.removeItem(at: candidateDirectory)
+        }
+
+        await model.configureDirectory(oldDirectory).value
+        bookmarkStore.reset()
+        directoryAccess.reset()
+        let oldService = try XCTUnwrap(receiverFactory.services.first)
+        oldService.blockStop()
+
+        let configuration = model.configureDirectory(
+            candidateDirectory,
+            startReceiverAfterConfiguration: false
+        )
+        await oldService.waitUntilStopRequested()
+        configuration.cancel()
+        oldService.allowStop()
+        await configuration.value
+
+        XCTAssertEqual(model.receiveDirectory, oldDirectory)
+        XCTAssertEqual(model.status, .running)
+        XCTAssertEqual(receiverFactory.services.count, 2)
+        XCTAssertEqual(bookmarkStore.currentURL, oldDirectory)
+        XCTAssertEqual(
+            bookmarkStore.savedURLs,
+            [candidateDirectory, oldDirectory]
+        )
+        XCTAssertEqual(directoryAccess.startedURLs, [candidateDirectory])
+        XCTAssertEqual(directoryAccess.stoppedURLs, [candidateDirectory])
+    }
+
+    func testLaunchFromBookmarkDoesNotPersistBookmarkAgain() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let bookmarkStore = TestBookmarkStore()
+        let directoryAccess = TestDirectoryAccess()
+        let directory = temporaryDirectory(named: "launch")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        bookmarkStore.resolvedURL = directory
+        let model = try makeModel(
+            receiverFactory: receiverFactory.make,
+            bookmarkClient: bookmarkStore.client,
+            directoryAccessClient: directoryAccess.client
+        )
+
+        await model.launchIfNeeded()
+
+        XCTAssertEqual(model.receiveDirectory, directory)
+        XCTAssertTrue(bookmarkStore.savedURLs.isEmpty)
+        XCTAssertEqual(receiverFactory.services.count, 1)
+        XCTAssertEqual(receiverFactory.services.first?.startCount, 1)
+        XCTAssertEqual(model.status, .running)
     }
 
     private func makeModel(
-        receiverFactory: AppModel.ReceiverServiceFactory? = nil
+        receiverFactory: AppModel.ReceiverServiceFactory? = nil,
+        bookmarkClient: DirectoryBookmarkClient = .init(
+            resolve: { nil },
+            save: { _ in },
+            clear: {}
+        ),
+        directoryAccessClient: DirectoryAccessClient = .init(
+            start: { _ in true },
+            stop: { _ in }
+        ),
+        libraryRecordsLoader: @escaping AppModel.LibraryRecordsLoader = {
+            try $0.libraryRecords()
+        }
     ) throws -> AppModel {
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
@@ -200,16 +614,25 @@ final class AppModelReceiverTests: XCTestCase {
             return AppModel(
                 modelContainer: container,
                 userDefaults: UserDefaults(suiteName: UUID().uuidString)!,
-                receiverServiceFactory: receiverFactory
+                receiverServiceFactory: receiverFactory,
+                bookmarkClient: bookmarkClient,
+                directoryAccessClient: directoryAccessClient,
+                libraryRecordsLoader: libraryRecordsLoader
             )
         }
         return AppModel(
             modelContainer: container,
-            userDefaults: UserDefaults(suiteName: UUID().uuidString)!
+            userDefaults: UserDefaults(suiteName: UUID().uuidString)!,
+            bookmarkClient: bookmarkClient,
+            directoryAccessClient: directoryAccessClient,
+            libraryRecordsLoader: libraryRecordsLoader
         )
     }
 
-    private func makeRecord(filename: String) -> UploadRecord {
+    private func makeRecord(
+        filename: String,
+        root: URL = URL(fileURLWithPath: "/tmp")
+    ) -> UploadRecord {
         UploadRecord(
             filename: filename,
             originalFilename: filename,
@@ -222,7 +645,7 @@ final class AppModelReceiverTests: XCTestCase {
             dateAddedMillis: nil,
             sourceIP: nil,
             receivedAt: Date(),
-            fileURL: URL(fileURLWithPath: "/tmp/\(filename)")
+            fileURL: root.appendingPathComponent(filename)
         )
     }
 
@@ -237,6 +660,7 @@ final class AppModelReceiverTests: XCTestCase {
 @MainActor
 private final class TestReceiverFactory {
     private(set) var services: [TestReceiverService] = []
+    private var shouldBlockNextStart = false
 
     func make(
         repository: LibraryRepository,
@@ -244,8 +668,23 @@ private final class TestReceiverFactory {
         eventHandler: @escaping ReceiverService.EventHandler
     ) -> any ReceiverServiceControlling {
         let service = TestReceiverService()
+        if shouldBlockNextStart {
+            shouldBlockNextStart = false
+            service.blockStart()
+        }
         services.append(service)
         return service
+    }
+
+    func blockNextStart() {
+        shouldBlockNextStart = true
+    }
+
+    func waitForService(at index: Int) async -> TestReceiverService {
+        while services.indices.contains(index) == false {
+            await Task.yield()
+        }
+        return services[index]
     }
 }
 
@@ -253,14 +692,59 @@ private final class TestReceiverService: ReceiverServiceControlling, @unchecked 
     private let lock = NSLock()
     private var stopGates: [CheckedContinuation<Void, Never>] = []
     private var stopRequestedContinuation: CheckedContinuation<Void, Never>?
+    private var startGate: CheckedContinuation<UInt16, any Error>?
+    private var startRequestedContinuation: CheckedContinuation<Void, Never>?
+    private var shouldBlockStart = false
+    private var didRequestStart = false
     private var shouldBlockStop = false
     private var didRequestStop = false
+    private var storedStartCount = 0
+    private var storedStopCount = 0
 
-    func start() async throws -> UInt16 {
-        8765
+    var startCount: Int {
+        lock.withLock { storedStartCount }
     }
 
-    func stop() {}
+    var stopCount: Int {
+        lock.withLock { storedStopCount }
+    }
+
+    func start() async throws -> UInt16 {
+        let shouldBlock = lock.withLock {
+            storedStartCount += 1
+            didRequestStart = true
+            let waiter = startRequestedContinuation
+            startRequestedContinuation = nil
+            waiter?.resume()
+            return shouldBlockStart
+        }
+        guard shouldBlock else {
+            return 8765
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            let resumeImmediately = lock.withLock {
+                if shouldBlockStart {
+                    startGate = continuation
+                    return false
+                }
+                return true
+            }
+            if resumeImmediately {
+                continuation.resume(returning: 8765)
+            }
+        }
+    }
+
+    func stop() {
+        let continuation = lock.withLock {
+            storedStopCount += 1
+            shouldBlockStart = false
+            let continuation = startGate
+            startGate = nil
+            return continuation
+        }
+        continuation?.resume(returning: 8765)
+    }
 
     func stopAndWait() async {
         await withCheckedContinuation { continuation in
@@ -287,6 +771,12 @@ private final class TestReceiverService: ReceiverServiceControlling, @unchecked 
         }
     }
 
+    func blockStart() {
+        lock.withLock {
+            shouldBlockStart = true
+        }
+    }
+
     func allowStop() {
         let waiters = lock.withLock {
             shouldBlockStop = false
@@ -309,6 +799,142 @@ private final class TestReceiverService: ReceiverServiceControlling, @unchecked 
                     stopRequestedContinuation = continuation
                 }
             }
+        }
+    }
+
+    func waitUntilStartRequested() async {
+        if lock.withLock({ didRequestStart }) {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if didRequestStart {
+                    continuation.resume()
+                } else {
+                    startRequestedContinuation = continuation
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class TestBookmarkStore {
+    enum Failure: Error {
+        case saveFailed
+    }
+
+    var resolvedURL: URL?
+    private(set) var currentURL: URL?
+    private(set) var savedURLs: [URL] = []
+    private(set) var clearCount = 0
+    private var shouldFailNextSave = false
+
+    var client: DirectoryBookmarkClient {
+        DirectoryBookmarkClient(
+            resolve: { [weak self] in self?.resolvedURL },
+            save: { [weak self] url in
+                guard let self else { return }
+                if self.shouldFailNextSave {
+                    self.shouldFailNextSave = false
+                    throw Failure.saveFailed
+                }
+                self.currentURL = url
+                self.savedURLs.append(url)
+            },
+            clear: { [weak self] in
+                self?.currentURL = nil
+                self?.clearCount += 1
+            }
+        )
+    }
+
+    func reset() {
+        savedURLs.removeAll()
+        clearCount = 0
+    }
+
+    func failNextSave() {
+        shouldFailNextSave = true
+    }
+}
+
+@MainActor
+private final class TestDirectoryAccess {
+    private(set) var startedURLs: [URL] = []
+    private(set) var stoppedURLs: [URL] = []
+
+    var client: DirectoryAccessClient {
+        DirectoryAccessClient(
+            start: { [weak self] url in
+                self?.startedURLs.append(url)
+                return true
+            },
+            stop: { [weak self] url in self?.stoppedURLs.append(url) }
+        )
+    }
+
+    func reset() {
+        startedURLs.removeAll()
+        stoppedURLs.removeAll()
+    }
+}
+
+private actor TestLibraryLoader {
+    private var recordsByPath: [String: [UploadRecord]] = [:]
+    private var blockedPath: String?
+    private var blockedRecords: [UploadRecord] = []
+    private var blockedLoadStarted = false
+    private var blockedLoadFinished = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func setRecords(_ records: [UploadRecord], for directory: URL) {
+        recordsByPath[directory.path] = records
+    }
+
+    func blockNextLoad(for directory: URL, records: [UploadRecord]) {
+        blockedPath = directory.path
+        blockedRecords = records
+        blockedLoadStarted = false
+        blockedLoadFinished = false
+    }
+
+    func load(_ repository: LibraryRepository) async throws -> [UploadRecord] {
+        let path = await repository.rootURL.path
+        if path == blockedPath {
+            blockedPath = nil
+            blockedLoadStarted = true
+            startWaiters.forEach { $0.resume() }
+            startWaiters.removeAll()
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+            }
+            blockedLoadFinished = true
+            finishWaiters.forEach { $0.resume() }
+            finishWaiters.removeAll()
+            return blockedRecords
+        }
+        return recordsByPath[path] ?? []
+    }
+
+    func waitUntilBlockedLoadStarts() async {
+        guard !blockedLoadStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseBlockedLoad() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func waitUntilBlockedLoadFinishes() async {
+        guard !blockedLoadFinished else { return }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
         }
     }
 }
