@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Reduced Android thumbnail memory use, coalesced duplicate requests, and guarded asynchronous thumbnail updates against stale activity generations.
+- Updated Android queue and sync status rows in place to avoid flashing, while rebuilding failed-task sections only when membership changes.
+- Made Android home thumbnails rounded squares with consistent aspect-fill sizing and corrected queue display ordering.
+- Added macOS Chinese localization as the default language, with localized settings, receiver status, search, sorting, date filters, and error messages.
+- Moved macOS search, settings, and inspector controls into the native toolbar so they no longer cover the detail pane.
+- Stabilized macOS thumbnail grids with fixed cells and aspect-fit previews, and added Space-key Quick Look toggling.
+- Removed the extra macOS date-filter action before selection and aligned sort direction with the visible ordering.
+- Made macOS receiver lifecycle transitions serial and idempotent, and automatically removed failed receives from temporary storage and the library UI.
+- Added macOS settings version information sourced from the repository `VERSION` file and Git commit count.
+
 ## 0.1.2 - 2026-06-08
 
 - Fixed queue ANR by avoiding full queue copies and filtering on the UI thread.
