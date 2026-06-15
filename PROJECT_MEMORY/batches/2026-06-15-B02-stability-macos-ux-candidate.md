@@ -38,7 +38,7 @@ the approved Android stability and macOS UX plan.
 
 Run from
 `/Users/ios_k/Desktop/PProject/Android_sync/.worktrees/stability-macos-ux`
-at candidate commit `2370006`:
+at candidate commit `cbf31db`:
 
 ```bash
 ./android/run_tests.sh
@@ -52,9 +52,13 @@ codesign --verify --deep --strict "dist/Android Sync.app"
 git diff --check
 ```
 
-All commands exited successfully. The macOS suite ran 71 tests. The app bundle
-reported version `0.1.2`, build `33`, and passed strict deep code-signature
+All commands exited successfully. The macOS suite ran 75 tests. The app bundle
+reported version `0.1.2`, build `35`, and passed strict deep code-signature
 verification. The Android APK was produced successfully.
+
+An independent final code review found and drove fixes for Quick Look keyboard
+event routing, preview observer lifecycle, and Android home-grid status refresh.
+The final review approved `cbf31db` with no blocking issues.
 
 `adb devices -l` reported no connected devices. macOS display capture was also
 unavailable in the automation session, so device stress and final visual QA are
@@ -68,7 +72,7 @@ cleanup behavior should be retained if individual macOS commits are ported.
 
 ## Result
 
-- Commit: candidate `2370006`; governance evidence pending this document commit.
+- Commit: candidate `cbf31db`; governance evidence pending this document commit.
 - Outcome: implementation and automated verification complete; acceptance is
   blocked only on device/GUI evidence and final integration review.
 - Follow-up: run the missing manual checks, integrate onto current `main`, and

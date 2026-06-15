@@ -9,7 +9,7 @@ Last reviewed: 2026-06-15
 - Remote: `origin` at `git@github.com:rensss/atoa_sync.git`
 - Code baseline before this governance update: `93c5b54`
 - Governance work branch: `codex/agent-governance`
-- Candidate implementation branch: `codex/stability-macos-ux` at `2370006`
+- Candidate implementation branch: `codex/stability-macos-ux` at `cbf31db`
 - Latest released tag: `v0.1.2`
 - Repository layout: Android code under `android/`, macOS code under `macos/`
 - Supported receiver: native macOS `ReceiverService`
@@ -29,9 +29,10 @@ Last reviewed: 2026-06-15
   macOS work includes default Chinese localization, native toolbar controls,
   stable thumbnail sizing, Space-key Quick Look, failed-upload cleanup,
   serialized receiver lifecycle handling, settings, and version information.
-- The candidate branch passes Android tests/build and 71 macOS tests, builds the
+- The candidate branch passes Android tests/build and 75 macOS tests, builds the
   macOS release target, and produces a signed app bundle with version `0.1.2`
-  and build `33`. It has not been merged into `main`.
+  and build `35`. Independent final code review found no blocking issues. It
+  has not been merged into `main`.
 - No Android device was connected for the required stress run. The current
   automation session also could not capture the macOS display for final visual
   QA, so neither platform milestone should be treated as fully accepted.
@@ -49,7 +50,7 @@ Last reviewed: 2026-06-15
 
 ## Current Validation Record
 
-Candidate commit `2370006` was validated on 2026-06-15 with:
+Candidate commit `cbf31db` was validated on 2026-06-15 with:
 
 ```bash
 ./android/run_tests.sh
@@ -62,8 +63,8 @@ plutil -lint "dist/Android Sync.app/Contents/Info.plist"
 codesign --verify --deep --strict "dist/Android Sync.app"
 ```
 
-All commands passed. The macOS suite ran 71 tests. The generated plist reported
-`CFBundleShortVersionString=0.1.2` and `CFBundleVersion=33`. ADB reported no
+All commands passed. The macOS suite ran 75 tests. The generated plist reported
+`CFBundleShortVersionString=0.1.2` and `CFBundleVersion=35`. ADB reported no
 connected devices, and display capture was unavailable in the automation
 session.
 

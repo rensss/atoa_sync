@@ -7,10 +7,11 @@ Last updated: 2026-06-15
 The primary branch is `main` at `93c5b54`. Governance documents are on
 `codex/agent-governance` at `c83955c`. Product version is `0.1.2`.
 
-The candidate implementation branch `codex/stability-macos-ux` is at `2370006`.
+The candidate implementation branch `codex/stability-macos-ux` is at `cbf31db`.
 It now contains the complete approved Android stability and macOS UX work plus
-automated regression coverage. It is not merged and still needs physical-device
-Android stress testing and final macOS visual/interaction QA.
+automated regression coverage. Independent final code review approved the
+candidate with no blocking issues. It is not merged and still needs
+physical-device Android stress testing and final macOS visual/interaction QA.
 
 ## Immediate Procedure
 
