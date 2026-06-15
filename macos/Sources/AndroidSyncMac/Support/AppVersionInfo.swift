@@ -1,23 +1,29 @@
 import Foundation
 
 struct AppVersionInfo: Equatable {
-    let shortVersion: String
-    let buildVersion: String
+    static let current = AppVersionInfo()
+
+    let version: String
+    let build: String
 
     init(infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
-        shortVersion = Self.versionValue(
+        version = Self.versionValue(
             infoDictionary["CFBundleShortVersionString"],
             fallback: "0.0.0"
         )
-        buildVersion = Self.versionValue(
+        build = Self.versionValue(
             infoDictionary["CFBundleVersion"],
             fallback: "0"
         )
     }
 
-    var displayVersion: String {
-        "\(shortVersion) (\(buildVersion))"
+    var display: String {
+        "\(version) (\(build))"
     }
+
+    var shortVersion: String { version }
+    var buildVersion: String { build }
+    var displayVersion: String { display }
 
     private static func versionValue(_ value: Any?, fallback: String) -> String {
         guard let value = value as? String else {

@@ -3,28 +3,35 @@ import XCTest
 
 final class AppVersionInfoTests: XCTestCase {
     func testParsesBundleDictionaryAndBuildsDisplayVersion() {
-        let version = AppVersionInfo(
+        let info = AppVersionInfo(
             infoDictionary: [
                 "CFBundleShortVersionString": "1.2.3",
                 "CFBundleVersion": "42",
             ]
         )
 
-        XCTAssertEqual(version.shortVersion, "1.2.3")
-        XCTAssertEqual(version.buildVersion, "42")
-        XCTAssertEqual(version.displayVersion, "1.2.3 (42)")
+        XCTAssertEqual(info.version, "1.2.3")
+        XCTAssertEqual(info.build, "42")
+        XCTAssertEqual(info.display, "1.2.3 (42)")
+        XCTAssertEqual(info.shortVersion, info.version)
+        XCTAssertEqual(info.buildVersion, info.build)
+        XCTAssertEqual(info.displayVersion, info.display)
+    }
+
+    func testCurrentReadsTheMainBundle() {
+        XCTAssertEqual(AppVersionInfo.current, AppVersionInfo())
     }
 
     func testTrimsVersionValues() {
-        let version = AppVersionInfo(
+        let info = AppVersionInfo(
             infoDictionary: [
                 "CFBundleShortVersionString": " 1.2.3 ",
                 "CFBundleVersion": "\n42\t",
             ]
         )
 
-        XCTAssertEqual(version.shortVersion, "1.2.3")
-        XCTAssertEqual(version.buildVersion, "42")
+        XCTAssertEqual(info.version, "1.2.3")
+        XCTAssertEqual(info.build, "42")
     }
 
     func testFallsBackForMissingInvalidAndBlankVersionValues() {
@@ -42,10 +49,10 @@ final class AppVersionInfoTests: XCTestCase {
             ]
         )
 
-        for version in [missing, invalid, blank] {
-            XCTAssertEqual(version.shortVersion, "0.0.0")
-            XCTAssertEqual(version.buildVersion, "0")
-            XCTAssertEqual(version.displayVersion, "0.0.0 (0)")
+        for info in [missing, invalid, blank] {
+            XCTAssertEqual(info.version, "0.0.0")
+            XCTAssertEqual(info.build, "0")
+            XCTAssertEqual(info.display, "0.0.0 (0)")
         }
     }
 }

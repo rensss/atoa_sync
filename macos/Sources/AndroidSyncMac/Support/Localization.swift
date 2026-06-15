@@ -118,6 +118,9 @@ enum AppStringKey: String, CaseIterable {
     case launchAtLogin
     case security
     case securityDescription
+    case about
+    case version
+    case build
     case date
     case sort
     case inspector
@@ -208,6 +211,9 @@ enum AppStrings {
             .launchAtLogin: "登录时启动 Android Sync",
             .security: "安全",
             .securityDescription: "仅接受来自本机和局域网私有地址的上传。当前未使用身份验证令牌。",
+            .about: "关于",
+            .version: "版本",
+            .build: "构建号",
             .date: "日期",
             .sort: "排序",
             .inspector: "检查器",
@@ -295,6 +301,9 @@ enum AppStrings {
             .launchAtLogin: "Launch Android Sync at login",
             .security: "Security",
             .securityDescription: "Uploads are accepted only from loopback and private local-network addresses. No authentication token is used.",
+            .about: "About",
+            .version: "Version",
+            .build: "Build",
             .date: "Date",
             .sort: "Sort",
             .inspector: "Inspector",

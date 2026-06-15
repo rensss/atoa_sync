@@ -48,9 +48,19 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            Section(model.text(.about)) {
+                LabeledContent(
+                    model.text(.version),
+                    value: AppVersionInfo.current.version
+                )
+                LabeledContent(
+                    model.text(.build),
+                    value: AppVersionInfo.current.build
+                )
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 540, height: 400)
+        .frame(width: 540, height: 480)
         .onAppear { portText = String(model.port) }
     }
 

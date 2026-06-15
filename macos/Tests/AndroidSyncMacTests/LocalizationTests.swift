@@ -70,6 +70,24 @@ final class LocalizationTests: XCTestCase {
         )
     }
 
+    func testAboutVersionAndBuildLabelsMapToChineseAndEnglish() {
+        XCTAssertEqual(
+            AppStrings.text(.about, language: .simplifiedChinese),
+            "关于"
+        )
+        XCTAssertEqual(
+            AppStrings.text(.version, language: .simplifiedChinese),
+            "版本"
+        )
+        XCTAssertEqual(
+            AppStrings.text(.build, language: .simplifiedChinese),
+            "构建号"
+        )
+        XCTAssertEqual(AppStrings.text(.about, language: .english), "About")
+        XCTAssertEqual(AppStrings.text(.version, language: .english), "Version")
+        XCTAssertEqual(AppStrings.text(.build, language: .english), "Build")
+    }
+
     func testLibraryTitlesFollowSelectedLanguage() {
         XCTAssertEqual(
             LibraryCategory.photos.title(using: .simplifiedChinese),

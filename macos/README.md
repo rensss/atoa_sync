@@ -2,6 +2,10 @@
 
 Native macOS 14+ receiver and media library for the Android Sync app.
 
+The interface defaults to Simplified Chinese. Open Settings from the gear
+button in the main window toolbar to switch between Simplified Chinese and
+English.
+
 ## Run
 
 ```bash
@@ -65,5 +69,17 @@ should only be used on a trusted LAN.
 
 The main window provides category filters, search, grid/list layouts, Quick
 Look, Finder reveal, metadata inspection, rename, multiple selection, and Move
-to Trash. Deleted items retain a manifest tombstone so the Android app does not
-upload the same media again.
+to Trash. Select one file and press Space to open Quick Look; press Space again
+to close it. Deleted items retain a manifest tombstone so the Android app does
+not upload the same media again.
+
+## Version information
+
+Settings includes an About section with the app version and build number:
+
+- The release version comes from the repository root `VERSION` file and is
+  packaged as `CFBundleShortVersionString`.
+- The build number is the current Git commit count and is packaged as
+  `CFBundleVersion`.
+- When the source is built outside a Git worktree, the packaging script uses a
+  positive UTC timestamp as the build number.
