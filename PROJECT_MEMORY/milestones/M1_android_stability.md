@@ -10,24 +10,26 @@ Status: In progress
 
 ## Exit Criteria
 
-- [ ] Grid thumbnail requests are bounded to display-scale dimensions.
-- [ ] Preview requests have a documented upper bound.
-- [ ] Thumbnail cache has a strict memory/entry bound.
-- [ ] Duplicate decode requests are coalesced.
-- [ ] Stale async thumbnail results cannot update reused or detached views.
-- [ ] Queue status and pagination updates do not rebuild the full screen.
-- [ ] Stale synchronization generations cannot mutate the active run.
-- [ ] `./android/run_tests.sh` passes on the target commit.
-- [ ] `./android/build.sh` passes and verifies the APK signature.
+- [x] Grid thumbnail requests are bounded to display-scale dimensions.
+- [x] Preview requests have a documented upper bound.
+- [x] Thumbnail cache has a strict memory/entry bound.
+- [x] Duplicate decode requests are coalesced.
+- [x] Stale async thumbnail results cannot update reused or detached views.
+- [x] Queue status and pagination updates do not rebuild the full screen.
+- [x] Stale synchronization generations cannot mutate the active run.
+- [x] `./android/run_tests.sh` passes on the target commit.
+- [x] `./android/build.sh` passes and verifies the APK signature.
 - [ ] Physical-device stress test covers large media libraries, rapid
   navigation, background/foreground transitions, and repeated sync starts.
 - [ ] No OOM, ANR, queue-state regression, or stale-thumbnail defect is observed.
 
 ## Candidate Evidence
 
-Branch `codex/stability-macos-ux` contains candidate commits for these controls.
-They are not accepted milestone evidence until reviewed and validated against
-the final integration commit.
+Branch `codex/stability-macos-ux` at `2370006` contains the candidate controls.
+On 2026-06-15, `./android/run_tests.sh` and `./android/build.sh` passed. No
+Android device was connected, so the physical-device criteria and final
+no-regression observation remain open. These controls are not accepted on
+`main` until final integration and device evidence are recorded.
 
 ## Rollback
 

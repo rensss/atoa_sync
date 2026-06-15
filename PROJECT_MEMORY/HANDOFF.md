@@ -1,15 +1,16 @@
 # Handoff
 
-Last updated: 2026-06-11
+Last updated: 2026-06-15
 
 ## Start Here
 
-The primary branch is `main` at code baseline `93c5b54` before the current
-governance-document working changes. Product version is `0.1.2`.
+The primary branch is `main` at `93c5b54`. Governance documents are on
+`codex/agent-governance` at `c83955c`. Product version is `0.1.2`.
 
-The next implementation task is to review and validate
-`codex/stability-macos-ux`, which is ahead of `main` with Android stability work
-only. Do not assume it is merge-ready because it contains multiple commits.
+The candidate implementation branch `codex/stability-macos-ux` is at `2370006`.
+It now contains the complete approved Android stability and macOS UX work plus
+automated regression coverage. It is not merged and still needs physical-device
+Android stress testing and final macOS visual/interaction QA.
 
 ## Immediate Procedure
 
@@ -19,11 +20,14 @@ git log --oneline main..codex/stability-macos-ux
 git diff --stat main..codex/stability-macos-ux
 ./android/run_tests.sh
 ./android/build.sh
+swift test --package-path macos
+./macos/build_and_run.sh verify
 ```
 
-Then inspect the branch against risks R-001 and R-002 and the exit criteria in
-`milestones/M1_android_stability.md`. A physical-device stress run is still
-required before closing the milestone.
+Then perform the missing device and GUI checks recorded in
+`batches/2026-06-15-B02-stability-macos-ux-candidate.md`. Review the branch
+against risks R-001, R-002, R-004, and R-005 before integration. Preserve the
+governance files when bringing the older feature branch onto current `main`.
 
 ## Important Constraints
 
@@ -31,9 +35,11 @@ required before closing the milestone.
 - Do not expose the receiver outside a trusted LAN.
 - Preserve `.part` upload staging and size validation.
 - Keep Android queue locks free of I/O and bitmap decoding.
-- Do not start macOS UX work in the same batch as Android stability integration.
+- Keep final Android integration evidence distinct from macOS acceptance even
+  though both implementations currently share the candidate branch.
 
 ## Documentation on Completion
 
-Update `00_PROJECT_STATUS.md`, this file, the relevant risk rows, the applicable
-milestone, and a batch record with exact commands and results.
+After device/GUI QA and integration, update `00_PROJECT_STATUS.md`, this file,
+the relevant risk rows, the applicable milestone, and the batch record with the
+final integration commit.
