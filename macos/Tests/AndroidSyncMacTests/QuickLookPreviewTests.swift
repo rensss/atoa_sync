@@ -10,7 +10,8 @@ final class QuickLookPreviewTests: XCTestCase {
     func testToggleHidesVisiblePanelAndClearsPreviewURL() {
         let panel = FakeQuickLookPanel()
         let provider = FakeQuickLookPanelProvider(panel: panel)
-        let preview = QuickLookPreview(panelProvider: provider)
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(panelProvider: provider, spaceKeyMonitor: monitor)
         let url = URL(fileURLWithPath: "/tmp/visible.jpg")
 
         preview.show(url)
@@ -23,12 +24,14 @@ final class QuickLookPreviewTests: XCTestCase {
         XCTAssertEqual(panel.dismissCount, 1)
         XCTAssertNil(preview.url)
         XCTAssertEqual(provider.sharedPanelCallCount, 1)
+        XCTAssertEqual(monitor.stopCount, 1)
     }
 
     func testToggleShowsPreviewWhenExistingPanelIsHidden() {
         let panel = FakeQuickLookPanel()
         let provider = FakeQuickLookPanelProvider(panel: panel)
-        let preview = QuickLookPreview(panelProvider: provider)
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(panelProvider: provider, spaceKeyMonitor: monitor)
         let url = URL(fileURLWithPath: "/tmp/hidden.jpg")
 
         preview.toggle(url)
@@ -38,23 +41,97 @@ final class QuickLookPreviewTests: XCTestCase {
         XCTAssertEqual(preview.url, url)
         XCTAssertEqual(provider.existingPanelCallCount, 1)
         XCTAssertEqual(provider.sharedPanelCallCount, 1)
+        XCTAssertEqual(monitor.startCount, 1)
+    }
+
+    func testSpaceKeyMonitorClosesActivePanelWithoutLookingUpSharedPanelAgain() {
+        let panel = FakeQuickLookPanel()
+        let provider = FakeQuickLookPanelProvider(panel: panel)
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(panelProvider: provider, spaceKeyMonitor: monitor)
+        let url = URL(fileURLWithPath: "/tmp/active.jpg")
+
+        preview.show(url)
+        XCTAssertTrue(monitor.pressSpace())
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.dismissCount, 1)
+        XCTAssertEqual(provider.existingPanelCallCount, 0)
+        XCTAssertEqual(provider.sharedPanelCallCount, 1)
+        XCTAssertNil(preview.url)
+        XCTAssertEqual(monitor.stopCount, 1)
+    }
+
+    func testSpaceKeyIsIgnoredWhenPreviewPanelIsNotKey() {
+        let panel = FakeQuickLookPanel()
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(
+            panelProvider: FakeQuickLookPanelProvider(panel: panel),
+            spaceKeyMonitor: monitor
+        )
+
+        preview.show(URL(fileURLWithPath: "/tmp/not-key.jpg"))
+        panel.isKeyWindow = false
+
+        XCTAssertFalse(monitor.pressSpace())
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.dismissCount, 0)
+        XCTAssertNotNil(preview.url)
+    }
+
+    func testExternalPanelHideClearsPreviewStateAndStopsMonitor() {
+        let panel = FakeQuickLookPanel()
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(
+            panelProvider: FakeQuickLookPanelProvider(panel: panel),
+            spaceKeyMonitor: monitor
+        )
+
+        preview.show(URL(fileURLWithPath: "/tmp/external-close.jpg"))
+        panel.hideExternally()
+
+        XCTAssertNil(preview.url)
+        XCTAssertEqual(monitor.stopCount, 1)
+        XCTAssertFalse(monitor.pressSpace())
+    }
+
+    func testRepeatedShowReusesActivePanelWrapper() {
+        let panel = FakeQuickLookPanel()
+        let provider = FakeQuickLookPanelProvider(panel: panel)
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(panelProvider: provider, spaceKeyMonitor: monitor)
+        let firstURL = URL(fileURLWithPath: "/tmp/first.jpg")
+        let secondURL = URL(fileURLWithPath: "/tmp/second.jpg")
+
+        preview.show(firstURL)
+        preview.show(secondURL)
+
+        XCTAssertEqual(provider.sharedPanelCallCount, 1)
+        XCTAssertEqual(panel.presentCount, 2)
+        XCTAssertEqual(monitor.startCount, 1)
+        XCTAssertEqual(preview.url, secondURL)
     }
 
     func testCloseDoesNotCreatePanelWhenNoneExists() {
         let provider = FakeQuickLookPanelProvider(panel: nil)
-        let preview = QuickLookPreview(panelProvider: provider)
+        let monitor = FakeQuickLookSpaceKeyMonitor()
+        let preview = QuickLookPreview(panelProvider: provider, spaceKeyMonitor: monitor)
 
         preview.close()
 
         XCTAssertEqual(provider.existingPanelCallCount, 1)
         XCTAssertEqual(provider.sharedPanelCallCount, 0)
         XCTAssertNil(preview.url)
+        XCTAssertEqual(monitor.stopCount, 1)
     }
 
     func testAppModelTogglesOnlyOneActiveSelection() throws {
         let panel = FakeQuickLookPanel()
         let provider = FakeQuickLookPanelProvider(panel: panel)
-        let preview = QuickLookPreview(panelProvider: provider)
+        let preview = QuickLookPreview(
+            panelProvider: provider,
+            spaceKeyMonitor: FakeQuickLookSpaceKeyMonitor()
+        )
         let model = try makeModel(quickLookPreview: preview)
         let active = makeItem(filename: "active.jpg")
         let other = makeItem(filename: "other.jpg")
@@ -116,19 +193,58 @@ final class QuickLookPreviewTests: XCTestCase {
 }
 
 @MainActor
+private final class FakeQuickLookSpaceKeyMonitor: QuickLookSpaceKeyMonitoring {
+    private var handler: (@MainActor () -> Bool)?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+
+    func start(handler: @escaping @MainActor () -> Bool) {
+        guard self.handler == nil else { return }
+        startCount += 1
+        self.handler = handler
+    }
+
+    func stop() {
+        stopCount += 1
+        handler = nil
+    }
+
+    func pressSpace() -> Bool {
+        handler?() ?? false
+    }
+}
+
+@MainActor
 private final class FakeQuickLookPanel: QuickLookPanel {
     var isVisible = false
+    var isKeyWindow = false
     private(set) var presentCount = 0
     private(set) var dismissCount = 0
+    private var onVisibilityLost: (@MainActor () -> Void)?
 
-    func present(dataSource: any QLPreviewPanelDataSource) {
+    func present(
+        dataSource: any QLPreviewPanelDataSource,
+        onVisibilityLost: @escaping @MainActor () -> Void
+    ) {
         presentCount += 1
         isVisible = true
+        isKeyWindow = true
+        self.onVisibilityLost = onVisibilityLost
     }
 
     func dismiss() {
         dismissCount += 1
         isVisible = false
+        isKeyWindow = false
+        onVisibilityLost = nil
+    }
+
+    func hideExternally() {
+        isVisible = false
+        isKeyWindow = false
+        let handler = onVisibilityLost
+        onVisibilityLost = nil
+        handler?()
     }
 }
 

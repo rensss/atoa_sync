@@ -100,6 +100,7 @@ public final class MainActivity extends Activity {
     private final Object previewRequestsLock = new Object();
     private final Map<String, PreviewTarget> previewInFlight = new HashMap<>();
     private final Map<String, QueueRowViews> queueRows = new HashMap<>();
+    private final Map<String, RecentTaskTileViews> homeRecentTaskTiles = new HashMap<>();
 
     private LinearLayout root;
     private ProgressRing homeProgressRing;
@@ -331,6 +332,7 @@ public final class MainActivity extends Activity {
                     refreshQueueRow(taskId, previousStatus, currentStatus);
                 } else if ("home".equals(screen)) {
                     refreshHomeSyncState();
+                    refreshHomeRecentTaskTile(taskId);
                 } else if ("detail".equals(screen)) {
                     refreshDetailSyncState(taskId);
                 }
@@ -752,6 +754,7 @@ public final class MainActivity extends Activity {
     }
 
     private View recentGrid(List<SyncTask> tasks) {
+        homeRecentTaskTiles.clear();
         LinearLayout grid = card();
         grid.setPadding(dp(10), dp(10), dp(10), dp(10));
         if (tasks.isEmpty()) {
@@ -801,6 +804,7 @@ public final class MainActivity extends Activity {
         stripParams.gravity = Gravity.BOTTOM;
         strip.setVisibility(View.VISIBLE);
         tile.addView(strip, stripParams);
+        homeRecentTaskTiles.put(task.id(), new RecentTaskTileViews(tile, strip));
         return tile;
     }
 
@@ -874,6 +878,25 @@ public final class MainActivity extends Activity {
         homeUploadingView.setText(String.valueOf(summary.uploading()));
         homeFailedView.setText(String.valueOf(summary.failed()));
         homeSyncButton.setText(syncRuns.isActive() ? "暂停" : "开始同步");
+    }
+
+    private void refreshHomeRecentTaskTile(String taskId) {
+        if (!"home".equals(screen) || taskId == null) {
+            return;
+        }
+        RecentTaskTileViews views = homeRecentTaskTiles.get(taskId);
+        SyncTask task = queue.findById(taskId);
+        if (views == null || task == null) {
+            return;
+        }
+        int statusColor = statusBorderColor(task.status());
+        GradientDrawable border = new GradientDrawable();
+        border.setColor(color("#F7F5EF"));
+        border.setCornerRadius(dp(8));
+        border.setStroke(dp(2), statusColor);
+        views.root.setBackground(border);
+        views.strip.setBackgroundColor(statusColor);
+        views.strip.setText(task.status() == SyncStatus.UPLOADING ? "..." : "");
     }
 
     private void refreshDetailSyncState(String taskId) {
@@ -986,6 +1009,7 @@ public final class MainActivity extends Activity {
         homeUploadingView = null;
         homeFailedView = null;
         homeSyncButton = null;
+        homeRecentTaskTiles.clear();
         queueRows.clear();
         queueSummaryTotalView = null;
         queueSummaryDoneView = null;
@@ -1520,6 +1544,16 @@ public final class MainActivity extends Activity {
             this.error = error;
             this.progress = progress;
             this.retry = retry;
+        }
+    }
+
+    private static final class RecentTaskTileViews {
+        private final FrameLayout root;
+        private final TextView strip;
+
+        private RecentTaskTileViews(FrameLayout root, TextView strip) {
+            this.root = root;
+            this.strip = strip;
         }
     }
 
