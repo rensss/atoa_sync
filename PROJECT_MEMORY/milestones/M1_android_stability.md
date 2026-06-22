@@ -30,10 +30,11 @@ On 2026-06-15, `./android/run_tests.sh` and `./android/build.sh` passed. No
 Android device was connected, so the physical-device criteria and final
 no-regression observation remain open. These controls were merged into
 `codex/agent-governance` at `23b09d5` on 2026-06-22, but are not accepted on
-`main` until final integration and device evidence are recorded.
+`main` until device evidence is recorded.
 
 On 2026-06-22, the integrated commit passed `./android/run_tests.sh` and
-`./android/build.sh`. Physical-device stress testing remains open.
+`./android/build.sh`. It was merged into `main` at `8a09aa0`. Physical-device
+stress testing remains open.
 
 ## Rollback
 

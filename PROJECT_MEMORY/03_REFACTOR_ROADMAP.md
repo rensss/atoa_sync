@@ -18,8 +18,8 @@ Freeze record: `freezes/phase0_freeze.md`
 
 ## Phase 1: Android Runtime Stability
 
-Status: Implemented on `codex/stability-macos-ux` and merged to
-`codex/agent-governance` at `23b09d5`; not merged to `main`.
+Status: Implemented and merged to `main` at `8a09aa0`; physical-device stress
+testing remains open.
 
 - Bound grid and preview decode sizes.
 - Add bounded thumbnail caching and request coalescing.
@@ -32,7 +32,7 @@ Exit criteria are defined in `milestones/M1_android_stability.md`.
 
 ## Phase 2: macOS Receiver Correctness
 
-Status: Planned.
+Status: Implemented on `main` at `8a09aa0`; monitor during final QA.
 
 - Separate listener failures from individual upload failures.
 - Guarantee temporary-file cleanup on interruption and failure.
@@ -41,7 +41,8 @@ Status: Planned.
 
 ## Phase 3: macOS UX and Application Tests
 
-Status: Planned.
+Status: Implemented on `main` at `8a09aa0`; final visual/interaction QA
+remains open.
 
 - Adopt native toolbar structure and stable thumbnail layout.
 - Add runtime Chinese/English localization.

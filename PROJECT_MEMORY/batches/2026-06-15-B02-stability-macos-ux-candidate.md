@@ -73,9 +73,8 @@ cleanup behavior should be retained if individual macOS commits are ported.
 ## Result
 
 - Commit: candidate `cbf31db`; merged into `codex/agent-governance` at
-  `23b09d5` on 2026-06-22.
+  `23b09d5` and then into `main` at `8a09aa0` on 2026-06-22.
 - Outcome: implementation, candidate automated verification, and merged-commit
   automated validation are complete; acceptance is blocked on device/GUI
-  evidence and final integration into `main`.
-- Follow-up: run the missing manual checks, integrate onto current `main`, and
-  replace candidate references with the final `main` integration commit.
+  evidence.
+- Follow-up: run the missing manual checks and record final acceptance evidence.

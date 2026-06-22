@@ -7,8 +7,8 @@ Last reviewed: 2026-06-22
 - Product version: `0.1.2`
 - Primary branch: `main`
 - Remote: `origin` at `git@github.com:rensss/atoa_sync.git`
-- Code baseline before this governance update: `93c5b54`
-- Governance work branch: `codex/agent-governance`
+- Current main integration commit: `8a09aa0`
+- Governance work branch: `codex/agent-governance` at `a07593a`
 - Candidate implementation branch: `codex/stability-macos-ux` at `cbf31db`
 - Integration branch: `codex/agent-governance` at `23b09d5`
 - Latest released tag: `v0.1.2`
@@ -17,21 +17,21 @@ Last reviewed: 2026-06-22
 
 ## Verified Current State
 
-- `main` contains the released Android `0.1.2` implementation and native macOS
-  receiver/media library.
+- `main` contains the released Android `0.1.2` implementation, native macOS
+  receiver/media library, repository governance documents, and the approved
+  Android stability and macOS UX implementation.
 - Platform reorganization and removal of the obsolete Python receiver are
   complete.
 - The stability and macOS UX design and implementation plan are present under
   `docs/superpowers/`.
-- The full stability and macOS UX plan is not implemented on `main`.
 - Branch `codex/stability-macos-ux` implements the approved Android stability
   and macOS UX plan. It was merged into `codex/agent-governance` at `23b09d5`
-  on 2026-06-22, preserving the governance documents added after `main`.
-  Android work includes bounded/coalesced thumbnail requests, lifecycle guards,
-  in-place queue updates, and sync-generation isolation. macOS work includes
-  default Chinese localization, native toolbar controls, stable thumbnail
-  sizing, Space-key Quick Look, failed-upload cleanup, serialized receiver
-  lifecycle handling, settings, and version information.
+  and then into `main` at `8a09aa0` on 2026-06-22. Android work includes
+  bounded/coalesced thumbnail requests, lifecycle guards, in-place queue
+  updates, and sync-generation isolation. macOS work includes default Chinese
+  localization, native toolbar controls, stable thumbnail sizing, Space-key
+  Quick Look, failed-upload cleanup, serialized receiver lifecycle handling,
+  settings, and version information.
 - The candidate branch passes Android tests/build and 75 macOS tests, builds the
   macOS release target, and produces a signed app bundle with version `0.1.2`
   and build `35`. Independent final code review found no blocking issues. The
@@ -47,9 +47,7 @@ Last reviewed: 2026-06-22
    navigation, lifecycle transitions, and repeated sync starts.
 2. Perform final macOS visual and interaction QA for toolbar placement,
    localized menus, inspector/search layout, thumbnails, and Quick Look.
-3. Decide whether to merge the integrated branch `codex/agent-governance` at
-   `23b09d5` into `main`.
-4. Reassess LAN authentication and transport security before use outside a
+3. Reassess LAN authentication and transport security before use outside a
    trusted private network.
 
 ## Current Validation Record
@@ -86,6 +84,9 @@ swift test --package-path macos
 
 All commands passed. Swift ran 75 tests. Android physical-device stress testing
 and final macOS visual/interaction QA remain open.
+
+Main merge commit `8a09aa0` was created on 2026-06-22 by merging
+`codex/agent-governance` into `main`. The merge completed without conflicts.
 
 ## Status Maintenance
 
