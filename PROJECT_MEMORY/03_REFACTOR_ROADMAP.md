@@ -18,7 +18,8 @@ Freeze record: `freezes/phase0_freeze.md`
 
 ## Phase 1: Android Runtime Stability
 
-Status: In progress on `codex/stability-macos-ux`, not merged to `main`.
+Status: Implemented on `codex/stability-macos-ux` and merged to
+`codex/agent-governance` at `23b09d5`; not merged to `main`.
 
 - Bound grid and preview decode sizes.
 - Add bounded thumbnail caching and request coalescing.

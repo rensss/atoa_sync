@@ -28,8 +28,12 @@ Status: In progress
 Branch `codex/stability-macos-ux` at `cbf31db` contains the candidate controls.
 On 2026-06-15, `./android/run_tests.sh` and `./android/build.sh` passed. No
 Android device was connected, so the physical-device criteria and final
-no-regression observation remain open. These controls are not accepted on
+no-regression observation remain open. These controls were merged into
+`codex/agent-governance` at `23b09d5` on 2026-06-22, but are not accepted on
 `main` until final integration and device evidence are recorded.
+
+On 2026-06-22, the integrated commit passed `./android/run_tests.sh` and
+`./android/build.sh`. Physical-device stress testing remains open.
 
 ## Rollback
 
