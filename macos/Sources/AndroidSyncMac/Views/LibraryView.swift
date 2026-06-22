@@ -3,18 +3,24 @@ import SwiftUI
 
 struct LibraryView: View {
     @Bindable var model: AppModel
+    let quickLookBlocked: Bool
+    @FocusState private var libraryFocused: Bool
 
     var body: some View {
         Group {
             if model.filteredItems.isEmpty {
                 if model.searchText.isEmpty {
                     ContentUnavailableView(
-                        "No Received Files",
+                        model.text(.noReceivedFiles),
                         systemImage: "tray.and.arrow.down",
-                        description: Text("Files sent from Android will appear here.")
+                        description: Text(model.text(.receivedFilesDescription))
                     )
                 } else {
-                    ContentUnavailableView.search(text: model.searchText)
+                    ContentUnavailableView(
+                        model.text(.noSearchResults),
+                        systemImage: "magnifyingglass",
+                        description: Text(model.text(.noSearchResultsDescription))
+                    )
                 }
             } else if model.layout == .grid {
                 grid
@@ -22,16 +28,40 @@ struct LibraryView: View {
                 list
             }
         }
+        .focusable()
+        .focused($libraryFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.space, phases: .down) { press in
+            guard libraryFocused,
+                  !quickLookBlocked,
+                  press.modifiers.isEmpty,
+                  !textInputIsFirstResponder,
+                  model.selectedItem != nil
+            else {
+                return .ignored
+            }
+            model.toggleSelectedPreview()
+            return .handled
+        }
     }
 
     private var grid: some View {
         ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 150, maximum: 230), spacing: 14)],
+                columns: [
+                    GridItem(
+                        .adaptive(
+                            minimum: ThumbnailMetrics.gridCardWidth,
+                            maximum: ThumbnailMetrics.gridCardWidth
+                        ),
+                        spacing: 14
+                    )
+                ],
                 spacing: 16
             ) {
                 ForEach(model.filteredItems) { item in
                     MediaGridItem(
+                        model: model,
                         item: item,
                         selected: model.selectedIDs.contains(item.id),
                         onSelect: {
@@ -39,6 +69,7 @@ struct LibraryView: View {
                                 item.id,
                                 additive: NSEvent.modifierFlags.contains(.command)
                             )
+                            libraryFocused = true
                         },
                         onPreview: { model.preview(item) },
                         onReveal: { model.reveal(item) }
@@ -52,17 +83,16 @@ struct LibraryView: View {
     private var list: some View {
         List(model.filteredItems) { item in
             HStack(spacing: 12) {
-                ThumbnailView(item: item, size: CGSize(width: 56, height: 42))
-                    .frame(width: 56, height: 42)
+                ThumbnailView(item: item, size: ThumbnailMetrics.listSize)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.filename)
                         .lineLimit(1)
-                    Text(item.receivedAt, format: .dateTime.year().month().day().hour().minute())
+                    Text(model.formatDate(item.receivedAt))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+                Text(model.formatByteCount(item.sizeBytes))
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 3)
@@ -70,6 +100,7 @@ struct LibraryView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 model.select(item.id, additive: NSEvent.modifierFlags.contains(.command))
+                libraryFocused = true
             }
             .onTapGesture(count: 2) { model.preview(item) }
             .contextMenu { itemMenu(item) }
@@ -79,20 +110,28 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func itemMenu(_ item: MediaItemEntity) -> some View {
-        Button("Quick Look") { model.preview(item) }
+        Button(model.text(.quickLook)) { model.preview(item) }
             .disabled(item.deleted)
-        Button("Show in Finder") { model.reveal(item) }
+        Button(model.text(.showInFinder)) { model.reveal(item) }
             .disabled(item.deleted)
         Divider()
-        Button("Move to Trash", role: .destructive) {
+        Button(model.text(.moveToTrash), role: .destructive) {
             model.selectedIDs = [item.id]
             Task { await model.deleteSelected() }
         }
         .disabled(item.deleted)
     }
+
+    private var textInputIsFirstResponder: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else {
+            return false
+        }
+        return responder is NSTextView || responder is NSTextField
+    }
 }
 
 private struct MediaGridItem: View {
+    @Bindable var model: AppModel
     let item: MediaItemEntity
     let selected: Bool
     let onSelect: () -> Void
@@ -101,33 +140,34 @@ private struct MediaGridItem: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ThumbnailView(item: item, size: CGSize(width: 230, height: 150))
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1.45, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
+            ThumbnailView(item: item, size: ThumbnailMetrics.gridSize)
+                .clipShape(RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 9)
+                    RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius)
                         .stroke(selected ? Color.accentColor : .clear, lineWidth: 3)
                 }
                 .opacity(item.deleted ? 0.45 : 1)
             Text(item.filename)
                 .lineLimit(1)
                 .font(.callout.weight(.medium))
+                .frame(width: ThumbnailMetrics.gridCardWidth, alignment: .leading)
             HStack {
-                Text(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+                Text(model.formatByteCount(item.sizeBytes))
                 Spacer()
-                Text(item.receivedAt, style: .date)
+                Text(model.formatDateOnly(item.receivedAt))
             }
+            .frame(width: ThumbnailMetrics.gridCardWidth)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+        .frame(width: ThumbnailMetrics.gridCardWidth, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onTapGesture(count: 2, perform: onPreview)
         .contextMenu {
-            Button("Quick Look", action: onPreview)
+            Button(model.text(.quickLook), action: onPreview)
                 .disabled(item.deleted)
-            Button("Show in Finder", action: onReveal)
+            Button(model.text(.showInFinder), action: onReveal)
                 .disabled(item.deleted)
         }
     }

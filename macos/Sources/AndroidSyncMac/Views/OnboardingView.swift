@@ -5,11 +5,14 @@ struct OnboardingView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Choose a Receive Folder", systemImage: "externaldrive.badge.plus")
+            Label(
+                model.text(.chooseReceiveFolder),
+                systemImage: "externaldrive.badge.plus"
+            )
         } description: {
-            Text("Android Sync needs a folder for original photos, videos, metadata, and receive history.")
+            Text(model.text(.onboardingDescription))
         } actions: {
-            Button("Choose Folder…") {
+            Button(model.text(.chooseFolderEllipsis)) {
                 model.chooseDirectory()
             }
             .buttonStyle(.borderedProminent)

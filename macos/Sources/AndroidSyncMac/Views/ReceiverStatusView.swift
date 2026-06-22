@@ -12,9 +12,13 @@ struct ReceiverStatusView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
                     .font(.headline)
-                Text(model.uploadURL.isEmpty ? "Port \(model.port)" : model.uploadURL)
+                Text(statusDetail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(
+                        model.transientUploadMessage == nil
+                            ? AnyShapeStyle(.secondary)
+                            : AnyShapeStyle(.orange)
+                    )
                     .textSelection(.enabled)
             }
             Spacer()
@@ -23,16 +27,16 @@ struct ReceiverStatusView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(model.uploadURL, forType: .string)
                 } label: {
-                    Label("Copy Address", systemImage: "doc.on.doc")
+                    Label(model.text(.copyAddress), systemImage: "doc.on.doc")
                 }
             }
             if model.isRunning {
-                Button("Pause") {
+                Button(model.text(.pause)) {
                     model.toggleReceiver()
                 }
                 .buttonStyle(.bordered)
             } else {
-                Button("Start") {
+                Button(model.text(.start)) {
                     model.toggleReceiver()
                 }
                 .buttonStyle(.borderedProminent)
@@ -44,13 +48,25 @@ struct ReceiverStatusView: View {
     }
 
     private var statusTitle: String {
-        switch model.status {
-        case .needsDirectory: "Receive folder required"
-        case .stopped: "Receiver paused"
-        case .starting: "Starting receiver…"
-        case .running: "Ready to receive"
-        case .failed: "Receiver unavailable"
+        if model.isRunning, !model.activeUploads.isEmpty {
+            return model.format(.receivingFilesFormat, model.activeUploads.count)
         }
+        return switch model.status {
+        case .needsDirectory: model.text(.receiveFolderRequired)
+        case .stopped: model.text(.receiverPaused)
+        case .starting: model.text(.startingReceiver)
+        case .running: model.text(.readyToReceive)
+        case .failed: model.text(.receiverUnavailable)
+        }
+    }
+
+    private var statusDetail: String {
+        if let transientUploadMessage = model.transientUploadMessage {
+            return transientUploadMessage
+        }
+        return model.uploadURL.isEmpty
+            ? model.format(.portFormat, Int(model.port))
+            : model.uploadURL
     }
 
     private var statusIcon: String {

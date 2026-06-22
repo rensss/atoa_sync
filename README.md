@@ -31,3 +31,11 @@ swift test --package-path macos
 The packaging script writes the app bundle to `dist/Android Sync.app`.
 
 See `android/README.md` and `macos/README.md` for platform-specific details.
+
+## Development and agent context
+
+- Contributors and coding agents start with `AGENTS.md`.
+- Current technical state, architecture, risks, roadmap, decisions, and handoff
+  context are maintained under `PROJECT_MEMORY/`.
+- Contribution and validation expectations are documented in
+  `CONTRIBUTING.md`.

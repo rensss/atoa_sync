@@ -6,44 +6,61 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Receiving") {
-                LabeledContent("Folder") {
+            Section(model.text(.receiving)) {
+                LabeledContent(model.text(.folder)) {
                     HStack {
-                        Text(model.receiveDirectory?.path ?? "Not selected")
+                        Text(model.receiveDirectory?.path ?? model.text(.notSelected))
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
-                        Button("Choose…") { model.chooseDirectory() }
+                        Button(model.text(.chooseEllipsis)) { model.chooseDirectory() }
                     }
                 }
-                LabeledContent("Port") {
+                LabeledContent(model.text(.port)) {
                     TextField("8765", text: $portText)
                         .frame(width: 90)
                         .onSubmit(applyPort)
                 }
-                Text("Changing the port restarts the receiver.")
+                Text(model.text(.portRestartDescription))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("Startup") {
+            Section(model.text(.general)) {
+                Picker(model.text(.language), selection: $model.language) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+            }
+            Section(model.text(.startup)) {
                 Toggle(
-                    "Launch Android Sync at login",
+                    model.text(.launchAtLogin),
                     isOn: Binding(
                         get: { model.launchAtLogin },
                         set: { model.setLaunchAtLogin($0) }
                     )
                 )
             }
-            Section("Security") {
+            Section(model.text(.security)) {
                 Label(
-                    "Uploads are accepted only from loopback and private local-network addresses. No authentication token is used.",
+                    model.text(.securityDescription),
                     systemImage: "lock.shield"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            Section(model.text(.about)) {
+                LabeledContent(
+                    model.text(.version),
+                    value: AppVersionInfo.current.version
+                )
+                LabeledContent(
+                    model.text(.build),
+                    value: AppVersionInfo.current.build
+                )
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 540, height: 330)
+        .frame(width: 540, height: 480)
         .onAppear { portText = String(model.port) }
     }
 

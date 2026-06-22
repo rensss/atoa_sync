@@ -156,6 +156,74 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(manifest.isEmpty)
     }
 
+    func testStoreDoesNotOverwriteOrphanedSidecar() async throws {
+        let orphanedSidecar = temporaryDirectory
+            .appendingPathComponent("photos/2026-06/orphan.jpg.metadata.json")
+        try FileManager.default.createDirectory(
+            at: orphanedSidecar.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let originalSidecar = Data("existing sidecar".utf8)
+        try originalSidecar.write(to: orphanedSidecar)
+        let repository = LibraryRepository(
+            rootURL: temporaryDirectory,
+            now: { Date(timeIntervalSince1970: 1_780_488_600) }
+        )
+
+        let record = try await repository.store(
+            data: Data([1, 2, 3]),
+            metadata: UploadMetadata(filename: "orphan.jpg", contentType: "image/jpeg")
+        )
+
+        XCTAssertEqual(record.filename, "orphan-2.jpg")
+        XCTAssertEqual(try Data(contentsOf: orphanedSidecar), originalSidecar)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: record.fileURL.appendingPathExtension("metadata.json").path
+        ))
+    }
+
+    func testLogReplacementFailurePreservesPreviousLogAndRollsBackNewArtifacts() async throws {
+        let baselineRepository = LibraryRepository(rootURL: temporaryDirectory)
+        _ = try await baselineRepository.store(
+            data: Data([1]),
+            metadata: UploadMetadata(
+                filename: "baseline.jpg",
+                contentType: "image/jpeg",
+                stableID: "image:baseline"
+            )
+        )
+        let logURL = temporaryDirectory.appendingPathComponent("uploads.jsonl")
+        let originalLog = try Data(contentsOf: logURL)
+        let repository = LibraryRepository(
+            rootURL: temporaryDirectory,
+            hooks: LibraryRepositoryHooks(
+                beforeLogReplace: {
+                    throw InjectedStorageFailure()
+                }
+            )
+        )
+
+        do {
+            _ = try await repository.store(
+                data: Data([2]),
+                metadata: UploadMetadata(
+                    filename: "rollback.jpg",
+                    contentType: "image/jpeg",
+                    stableID: "image:rollback"
+                )
+            )
+            XCTFail("Expected injected log replacement failure")
+        } catch is InjectedStorageFailure {
+            // Expected.
+        }
+
+        XCTAssertEqual(try Data(contentsOf: logURL), originalLog)
+        XCTAssertFalse(try allPaths().contains { $0.contains("rollback.jpg") })
+        XCTAssertFalse(try allPaths().contains { $0.contains(".uploads-log-") })
+        let manifest = try await repository.manifest()
+        XCTAssertEqual(manifest.map(\.stableID), ["image:baseline"])
+    }
+
     func testLibraryRecordsRebuildsStoredAndDeletedItemsFromLog() async throws {
         let photoDirectory = temporaryDirectory
             .appendingPathComponent("photos/2026-06", isDirectory: true)
@@ -181,4 +249,10 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(records.first(where: { $0.stableID == "image:kept" })?.deleted, false)
         XCTAssertEqual(records.first(where: { $0.stableID == "image:gone" })?.deleted, true)
     }
+
+    private func allPaths() throws -> [String] {
+        try FileManager.default.subpathsOfDirectory(atPath: temporaryDirectory.path)
+    }
 }
+
+private struct InjectedStorageFailure: Error {}

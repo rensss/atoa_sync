@@ -18,6 +18,28 @@ APP_BINARY="$APP_MACOS/$PROCESS_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
 
+if [[ -z "$VERSION" ]]; then
+  echo "VERSION must not be empty" >&2
+  exit 1
+fi
+
+BUILD_NUMBER=""
+if command -v git >/dev/null 2>&1; then
+  GIT_BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || true)"
+  if [[ "$GIT_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+    BUILD_NUMBER="$GIT_BUILD_NUMBER"
+  fi
+fi
+
+if [[ -z "$BUILD_NUMBER" ]]; then
+  BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
+fi
+
+if [[ ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Unable to generate a positive integer build number" >&2
+  exit 1
+fi
+
 pkill -x "$PROCESS_NAME" >/dev/null 2>&1 || true
 
 cd "$PACKAGE_DIR"
@@ -50,7 +72,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleShortVersionString</key>
   <string>$VERSION</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSHighResolutionCapable</key>

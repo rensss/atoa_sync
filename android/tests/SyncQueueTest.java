@@ -1,8 +1,10 @@
 import com.androidsync.app.core.MediaItem;
+import com.androidsync.app.core.SyncRunGate;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
+import com.androidsync.app.core.ThumbnailPolicy;
 
 import java.util.List;
 import java.util.Set;
@@ -17,6 +19,10 @@ public final class SyncQueueTest {
         taskWindowLimitsRowsAndReportsMore();
         queueBuildsFilteredWindowWithoutFullList();
         findsTaskByIdForDetailScreens();
+        thumbnailPolicyCapsGridAndPreviewRequests();
+        recentWindowPreservesScannerNewestFirstOrder();
+        staleSyncRunCannotFinishNewRun();
+        cancelledSyncRunCannotContinue();
     }
 
     private static void enqueuesNewMediaOnlyOnce() {
@@ -146,8 +152,70 @@ public final class SyncQueueTest {
         assertEquals(null, queue.findById("missing"), "queue should return null for missing task ids");
     }
 
+    private static void thumbnailPolicyCapsGridAndPreviewRequests() {
+        assertEquals(1, ThumbnailPolicy.gridRequestPixels(0), "grid thumbnails should clamp zero-sized requests");
+        assertEquals(1, ThumbnailPolicy.gridRequestPixels(1), "grid thumbnails should preserve the minimum positive request");
+        assertEquals(96, ThumbnailPolicy.gridRequestPixels(320), "grid thumbnails should be capped");
+        assertEquals(96, ThumbnailPolicy.gridRequestPixels(96), "grid thumbnails should preserve max-sized requests");
+        assertEquals(1, ThumbnailPolicy.previewRequestPixels(-5), "preview thumbnails should clamp negative-sized requests");
+        assertEquals(1, ThumbnailPolicy.previewRequestPixels(1), "preview thumbnails should preserve the minimum positive request");
+        assertEquals(1024, ThumbnailPolicy.previewRequestPixels(1440), "preview thumbnails should be capped");
+        assertEquals(640, ThumbnailPolicy.previewRequestPixels(640), "preview thumbnails should preserve under-cap requests");
+    }
+
+    private static void recentWindowPreservesScannerNewestFirstOrder() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(List.of(
+                itemAt("20", "new.jpg", 3000L),
+                itemAt("21", "middle.jpg", 2000L),
+                itemAt("22", "old.jpg", 1000L)
+        ));
+
+        TaskWindow window = queue.recentWindow(2);
+
+        assertEquals(2, window.visibleTasks().size(), "recent window should cap visible rows");
+        assertEquals("new.jpg", window.visibleTasks().get(0).media().displayName(), "recent window should preserve scanner newest-first order");
+        assertEquals("middle.jpg", window.visibleTasks().get(1).media().displayName(), "recent window should preserve the complete limited order");
+    }
+
+    private static void staleSyncRunCannotFinishNewRun() {
+        SyncRunGate gate = new SyncRunGate();
+        long staleRun = gate.start();
+        gate.cancel();
+        long currentRun = gate.start();
+
+        assertEquals(false, gate.finish(staleRun), "stale run must not finish a newer run");
+        assertEquals(true, gate.isActive(currentRun), "newer run should remain active after stale completion");
+        assertEquals(true, gate.finish(currentRun), "current run should be allowed to finish itself");
+        assertEquals(false, gate.isActive(), "finishing the current run should clear the active state");
+    }
+
+    private static void cancelledSyncRunCannotContinue() {
+        SyncRunGate gate = new SyncRunGate();
+        long run = gate.start();
+
+        gate.cancel();
+
+        assertEquals(false, gate.isActive(run), "cancelled run should be invalid across worker threads");
+        assertEquals(false, gate.finish(run), "cancelled run should not finish twice");
+    }
+
     private static MediaItem item(String stableId, String uri, String displayName, long sizeBytes) {
         return new MediaItem(stableId, uri, displayName, sizeBytes, System.currentTimeMillis(), displayName.endsWith(".mp4"));
+    }
+
+    private static MediaItem itemAt(String stableId, String displayName, long dateModifiedMillis) {
+        return new MediaItem(
+                stableId,
+                "content://media/" + stableId,
+                displayName,
+                1024L,
+                dateModifiedMillis,
+                0L,
+                0L,
+                displayName.endsWith(".mp4"),
+                displayName.endsWith(".mp4") ? "video/mp4" : "image/jpeg"
+        );
     }
 
     private static void assertEquals(Object expected, Object actual, String message) {
