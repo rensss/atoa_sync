@@ -31,6 +31,24 @@ The automated checks above passed on 2026-06-22 for integration commit
 `batches/2026-06-15-B02-stability-macos-ux-candidate.md`. Review risks R-001
 and R-002 before accepting the Android stability milestone.
 
+## Latest Local Work
+
+B04 macOS idempotent delete handling is ready on `main`.
+`LibraryRepository.delete` no longer reports `missingFile` when an active
+record's file is already gone, and deletion of an already deleted record is a
+no-op. Regression tests were added in `LibraryRepositoryTests`.
+
+Validation for B04: `swift build --package-path macos` passed on 2026-06-22.
+The following command built successfully but hung while starting XCTest in this
+automation environment, including with escalated permissions:
+
+```bash
+swift test --package-path macos --filter LibraryRepositoryTests
+```
+
+Direct `xcrun xctest` was blocked by macOS system policy for the unsigned
+SwiftPM test bundle.
+
 ## Important Constraints
 
 - Do not merge design plans as proof of implementation.

@@ -116,6 +116,59 @@ final class LibraryRepositoryTests: XCTestCase {
         ))
     }
 
+    func testDeleteMissingFileRecordsTombstoneWithoutError() async throws {
+        let repository = LibraryRepository(rootURL: temporaryDirectory)
+        let original = try await repository.store(
+            data: Data([1, 2, 3]),
+            metadata: UploadMetadata(
+                filename: "missing.jpg",
+                contentType: "image/jpeg",
+                stableID: "image:missing"
+            )
+        )
+        try FileManager.default.removeItem(at: original.fileURL)
+        try FileManager.default.removeItem(at: original.fileURL.appendingPathExtension("metadata.json"))
+
+        let trashedURLs = LockedValue<[URL]>([])
+        try await repository.delete(original) { source in
+            trashedURLs.update { $0.append(source) }
+        }
+
+        let manifest = try await repository.manifest()
+        XCTAssertTrue(trashedURLs.value.isEmpty)
+        XCTAssertEqual(manifest.count, 1)
+        XCTAssertEqual(manifest[0].stableID, "image:missing")
+        XCTAssertTrue(manifest[0].deleted)
+    }
+
+    func testDeleteAlreadyDeletedRecordIsNoOp() async throws {
+        let repository = LibraryRepository(rootURL: temporaryDirectory)
+        let original = try await repository.store(
+            data: Data([1, 2, 3]),
+            metadata: UploadMetadata(
+                filename: "already-deleted.jpg",
+                contentType: "image/jpeg",
+                stableID: "image:already-deleted"
+            )
+        )
+        let deleted = original.replacing(
+            fileURL: original.fileURL,
+            filename: original.filename,
+            deleted: true
+        )
+
+        let trashCallCount = LockedValue(0)
+        try await repository.delete(deleted) { _ in
+            trashCallCount.update { $0 += 1 }
+        }
+
+        let manifest = try await repository.manifest()
+        XCTAssertEqual(trashCallCount.value, 0)
+        XCTAssertEqual(manifest.count, 1)
+        XCTAssertEqual(manifest[0].stableID, "image:already-deleted")
+        XCTAssertFalse(manifest[0].deleted)
+    }
+
     func testLoadsLegacyPythonJSONLRecords() async throws {
         let log = """
         {"time":"2026-06-03T10:30:00","client_ip":"192.168.1.9","filename":"legacy.jpg","kind":"photos","size_bytes":3,"status":"stored","stable_id":"image:legacy","path":"\(temporaryDirectory.path)/photos/2026-06/legacy.jpg"}
@@ -256,3 +309,22 @@ final class LibraryRepositoryTests: XCTestCase {
 }
 
 private struct InjectedStorageFailure: Error {}
+
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: Value
+
+    init(_ value: Value) {
+        storedValue = value
+    }
+
+    var value: Value {
+        lock.withLock { storedValue }
+    }
+
+    func update(_ body: (inout Value) -> Void) {
+        lock.withLock {
+            body(&storedValue)
+        }
+    }
+}

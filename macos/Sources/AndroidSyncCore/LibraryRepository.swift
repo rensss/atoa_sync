@@ -162,12 +162,14 @@ public actor LibraryRepository {
         _ record: UploadRecord,
         trash: TrashHandler
     ) throws {
-        guard fileManager.fileExists(atPath: record.fileURL.path) else {
-            throw LibraryRepositoryError.missingFile
+        guard !record.deleted else {
+            return
         }
 
         let sidecar = sidecarURL(for: record.fileURL)
-        try trash(record.fileURL)
+        if fileManager.fileExists(atPath: record.fileURL.path) {
+            try trash(record.fileURL)
+        }
         if fileManager.fileExists(atPath: sidecar.path) {
             try trash(sidecar)
         }

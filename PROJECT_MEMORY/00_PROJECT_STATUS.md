@@ -40,6 +40,11 @@ Last reviewed: 2026-06-22
 - No Android device was connected for the required stress run. The current
   automation session also could not capture the macOS display for final visual
   QA, so neither platform milestone should be treated as fully accepted.
+- B04 changes on `main` make macOS delete handling idempotent when a received
+  file is already gone or already marked deleted. Build verification passed;
+  XCTest execution is currently blocked by the local runner/system-policy issue
+  recorded in
+  `PROJECT_MEMORY/batches/2026-06-22-B04-macos-idempotent-delete.md`.
 
 ## Open Work
 
@@ -87,6 +92,23 @@ and final macOS visual/interaction QA remain open.
 
 Main merge commit `8a09aa0` was created on 2026-06-22 by merging
 `codex/agent-governance` into `main`. The merge completed without conflicts.
+
+B04 local macOS idempotent delete changes were validated on 2026-06-22 with:
+
+```bash
+swift build --package-path macos
+```
+
+The build passed. The following command built successfully but hung while
+starting XCTest in this automation environment, including with escalated
+permissions:
+
+```bash
+swift test --package-path macos --filter LibraryRepositoryTests
+```
+
+Direct `xcrun xctest` was rejected by macOS system policy for the unsigned
+SwiftPM test bundle.
 
 ## Status Maintenance
 
