@@ -4,9 +4,9 @@ Last updated: 2026-06-22
 
 ## Start Here
 
-The primary branch is `main` at `8a09aa0`. Product version is `0.1.2`.
-Governance documents and the approved stability/macOS UX implementation are now
-merged into `main`.
+The primary branch is `main` with B04 implementation commit `fee8063`. Product
+version is `0.1.2`. Governance documents and the approved stability/macOS UX
+implementation are now merged into `main`.
 
 The candidate implementation branch `codex/stability-macos-ux` is at `cbf31db`.
 It contains the complete approved Android stability and macOS UX work plus
@@ -33,7 +33,7 @@ and R-002 before accepting the Android stability milestone.
 
 ## Latest Local Work
 
-B04 macOS idempotent delete handling is ready on `main`.
+B04 macOS idempotent delete handling is implemented on `main` at `fee8063`.
 `LibraryRepository.delete` no longer reports `missingFile` when an active
 record's file is already gone, and deletion of an already deleted record is a
 no-op. Regression tests were added in `LibraryRepositoryTests`.

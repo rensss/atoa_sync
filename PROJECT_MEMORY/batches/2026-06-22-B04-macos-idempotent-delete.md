@@ -53,7 +53,7 @@ This restores the previous behavior where a missing file causes
 
 ## Result
 
-- Commit: pending.
+- Commit: `fee8063`
 - Outcome: implementation and regression tests are present; build verification
   passed. XCTest execution remains blocked by the local runner/system-policy
   issue described above.

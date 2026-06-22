@@ -8,6 +8,7 @@ Last reviewed: 2026-06-22
 - Primary branch: `main`
 - Remote: `origin` at `git@github.com:rensss/atoa_sync.git`
 - Current main integration commit: `8a09aa0`
+- Latest B04 implementation commit on `main`: `fee8063`
 - Governance work branch: `codex/agent-governance` at `a07593a`
 - Candidate implementation branch: `codex/stability-macos-ux` at `cbf31db`
 - Integration branch: `codex/agent-governance` at `23b09d5`
@@ -41,9 +42,9 @@ Last reviewed: 2026-06-22
   automation session also could not capture the macOS display for final visual
   QA, so neither platform milestone should be treated as fully accepted.
 - B04 changes on `main` make macOS delete handling idempotent when a received
-  file is already gone or already marked deleted. Build verification passed;
-  XCTest execution is currently blocked by the local runner/system-policy issue
-  recorded in
+  file is already gone or already marked deleted. The implementation commit is
+  `fee8063`. Build verification passed; XCTest execution is currently blocked
+  by the local runner/system-policy issue recorded in
   `PROJECT_MEMORY/batches/2026-06-22-B04-macos-idempotent-delete.md`.
 
 ## Open Work
