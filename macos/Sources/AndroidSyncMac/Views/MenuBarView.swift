@@ -12,37 +12,41 @@ struct MenuBarView: View {
                 .font(.caption)
         }
         Divider()
-        Button(model.isRunning ? "Pause Receiving" : "Start Receiving") {
+        Button(
+            model.text(model.isRunning ? .pauseReceiving : .startReceiving)
+        ) {
             model.toggleReceiver()
         }
         if !model.uploadURL.isEmpty {
-            Button("Copy Upload Address") {
+            Button(model.text(.copyUploadAddress)) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(model.uploadURL, forType: .string)
             }
         }
-        Button("Open Android Sync") {
+        Button(model.text(.openAndroidSync)) {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
-        Button("Open Receive Folder") {
+        Button(model.text(.openReceiveFolder)) {
             model.openReceiveDirectory()
         }
         .disabled(model.receiveDirectory == nil)
         Divider()
-        SettingsLink()
-        Button("Quit Android Sync") {
+        SettingsLink {
+            Text(model.text(.settings))
+        }
+        Button(model.text(.quitAndroidSync)) {
             NSApplication.shared.terminate(nil)
         }
     }
 
     private var statusTitle: String {
         switch model.status {
-        case .running: "Receiver Running"
-        case .starting: "Receiver Starting"
-        case .failed: "Receiver Error"
-        case .needsDirectory: "Folder Required"
-        case .stopped: "Receiver Paused"
+        case .running: model.text(.receiverRunning)
+        case .starting: model.text(.receiverStarting)
+        case .failed: model.text(.receiverError)
+        case .needsDirectory: model.text(.folderRequired)
+        case .stopped: model.text(.receiverPaused)
         }
     }
 }

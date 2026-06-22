@@ -15,15 +15,17 @@ enum LibraryCategory: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
         switch self {
-        case .all: "All Items"
-        case .photos: "Photos"
-        case .videos: "Videos"
-        case .files: "Other Files"
-        case .recent: "Recently Received"
-        case .deleted: "Deleted"
+        case .all: key = .categoryAll
+        case .photos: key = .categoryPhotos
+        case .videos: key = .categoryVideos
+        case .files: key = .categoryFiles
+        case .recent: key = .categoryRecent
+        case .deleted: key = .categoryDeleted
         }
+        return AppStrings.text(key, language: language)
     }
 
     var systemImage: String {
@@ -51,13 +53,15 @@ enum LibraryDateFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
         switch self {
-        case .all: "Any Date"
-        case .today: "Today"
-        case .sevenDays: "Last 7 Days"
-        case .thirtyDays: "Last 30 Days"
+        case .all: key = .dateAny
+        case .today: key = .dateToday
+        case .sevenDays: key = .dateSevenDays
+        case .thirtyDays: key = .dateThirtyDays
         }
+        return AppStrings.text(key, language: language)
     }
 }
 
@@ -69,13 +73,15 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    func title(using language: AppLanguage) -> String {
+        let key: AppStringKey
         switch self {
-        case .newest: "Newest First"
-        case .oldest: "Oldest First"
-        case .filename: "Filename"
-        case .size: "Largest First"
+        case .newest: key = .sortNewest
+        case .oldest: key = .sortOldest
+        case .filename: key = .sortFilename
+        case .size: key = .sortSize
         }
+        return AppStrings.text(key, language: language)
     }
 }
 
@@ -87,18 +93,88 @@ enum ReceiverStatus: Equatable {
     case failed(String)
 }
 
+struct ActiveUpload: Equatable, Identifiable {
+    let id: UUID
+    let filename: String
+    let expectedSize: Int64
+}
+
+protocol ReceiverServiceControlling: AnyObject, Sendable {
+    func start() async throws -> UInt16
+    func stop()
+    func stopAndWait() async
+}
+
+extension ReceiverService: ReceiverServiceControlling {}
+
 @MainActor
 @Observable
 final class AppModel {
+    typealias ReceiverServiceFactory = @MainActor (
+        LibraryRepository,
+        UInt16,
+        @escaping ReceiverService.EventHandler
+    ) -> any ReceiverServiceControlling
+    typealias LibraryRecordsLoader = @MainActor (
+        LibraryRepository
+    ) async throws -> [UploadRecord]
+
+    private enum ReceiverAction {
+        case start
+        case stop
+        case restart
+    }
+
+    private final class ConfigurationCancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        func cancel() {
+            lock.withLock {
+                cancelled = true
+            }
+        }
+
+        var isCancelled: Bool {
+            lock.withLock { cancelled }
+        }
+    }
+
+    private struct ReceiverTransition {
+        let generation: UInt64
+        let services: [any ReceiverServiceControlling]
+    }
+
+    private struct ReceiverSnapshot {
+        let repository: LibraryRepository?
+        let status: ReceiverStatus
+        let uploadURL: String
+    }
+
     private let logger = Logger(
         subsystem: "com.androidsync.mac",
         category: "AppModel"
     )
     private let modelContext: ModelContext
+    private let userDefaults: UserDefaults
+    private let quickLookPreview: QuickLookPreview
+    private let receiverServiceFactory: ReceiverServiceFactory
+    private let bookmarkClient: DirectoryBookmarkClient
+    private let directoryAccessClient: DirectoryAccessClient
+    private let libraryRecordsLoader: LibraryRecordsLoader
     private var repository: LibraryRepository?
-    private var receiverService: ReceiverService?
+    private var receiverService: (any ReceiverServiceControlling)?
+    private var receiverEventTask: Task<Void, Never>?
+    private var receiverEventContinuation: AsyncStream<ReceiverServiceEvent>.Continuation?
+    private var stoppingServices: [ObjectIdentifier: any ReceiverServiceControlling] = [:]
     private var scopedDirectoryURL: URL?
     private var launched = false
+    private var transientUploadMessageTask: Task<Void, Never>?
+    private var receiverActionGeneration: UInt64 = 0
+    private var configurationRequestGeneration: UInt64 = 0
+    private var bookmarkOwnerGeneration: UInt64?
+    private(set) var receiverGeneration: UInt64 = 0
+    private(set) var directoryConfigurationGeneration: UInt64 = 0
 
     var items: [MediaItemEntity] = []
     var category: LibraryCategory = .all
@@ -111,24 +187,109 @@ final class AppModel {
     var status: ReceiverStatus = .needsDirectory
     var receiveDirectory: URL?
     var uploadURL = ""
+    var language: AppLanguage {
+        didSet {
+            language.save(to: userDefaults)
+        }
+    }
     var port: UInt16 {
         didSet {
-            UserDefaults.standard.set(Int(port), forKey: "receiverPort")
+            userDefaults.set(Int(port), forKey: "receiverPort")
         }
     }
     var launchAtLogin: Bool
     var lastError: String?
+    var activeUploads: [UUID: ActiveUpload] = [:]
+    var transientUploadMessage: String?
 
-    init(modelContainer: ModelContainer) {
+    init(
+        modelContainer: ModelContainer,
+        userDefaults: UserDefaults = .standard,
+        quickLookPreview: QuickLookPreview = .shared,
+        receiverServiceFactory: @escaping ReceiverServiceFactory = {
+            repository,
+            port,
+            eventHandler in
+            ReceiverService(
+                repository: repository,
+                port: port,
+                eventHandler: eventHandler
+            )
+        },
+        bookmarkClient: DirectoryBookmarkClient = .live,
+        directoryAccessClient: DirectoryAccessClient = .live,
+        libraryRecordsLoader: @escaping LibraryRecordsLoader = {
+            try $0.libraryRecords()
+        }
+    ) {
         modelContext = ModelContext(modelContainer)
-        let storedPort = UserDefaults.standard.integer(forKey: "receiverPort")
+        self.userDefaults = userDefaults
+        self.quickLookPreview = quickLookPreview
+        self.receiverServiceFactory = receiverServiceFactory
+        self.bookmarkClient = bookmarkClient
+        self.directoryAccessClient = directoryAccessClient
+        self.libraryRecordsLoader = libraryRecordsLoader
+        language = AppLanguage.load(from: userDefaults)
+        let storedPort = userDefaults.integer(forKey: "receiverPort")
         port = storedPort == 0 ? 8765 : UInt16(clamping: storedPort)
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
+    func text(_ key: AppStringKey) -> String {
+        AppStrings.text(key, language: language)
+    }
+
+    func format(_ key: AppStringKey, _ arguments: CVarArg...) -> String {
+        String(
+            format: text(key),
+            arguments: arguments
+        )
+    }
+
+    func formatByteCount(_ byteCount: Int64) -> String {
+        AppFormatters.byteCount(byteCount, language: language)
+    }
+
+    func formatDate(_ date: Date) -> String {
+        AppFormatters.date(date, language: language)
+    }
+
+    func formatDateOnly(_ date: Date) -> String {
+        AppFormatters.dateOnly(date, language: language)
+    }
+
     var filteredItems: [MediaItemEntity] {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: Date())
+        Self.filterItems(
+            items,
+            category: category,
+            dateFilter: dateFilter,
+            sort: sort,
+            searchText: searchText,
+            now: Date(),
+            calendar: Calendar.current
+        )
+    }
+
+    static func filterItems(
+        _ items: [MediaItemEntity],
+        category: LibraryCategory,
+        dateFilter: LibraryDateFilter,
+        sort: LibrarySort,
+        searchText: String,
+        now: Date,
+        calendar: Calendar
+    ) -> [MediaItemEntity] {
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfSevenDays = calendar.date(
+            byAdding: .day,
+            value: -6,
+            to: startOfToday
+        ) ?? startOfToday
+        let startOfThirtyDays = calendar.date(
+            byAdding: .day,
+            value: -29,
+            to: startOfToday
+        ) ?? startOfToday
         let filtered = items.filter { item in
             let categoryMatches: Bool
             switch category {
@@ -141,7 +302,9 @@ final class AppModel {
             case .files:
                 categoryMatches = !item.deleted && item.kind == .file
             case .recent:
-                categoryMatches = !item.deleted && item.receivedAt >= startOfToday
+                categoryMatches = !item.deleted
+                    && item.receivedAt >= startOfToday
+                    && item.receivedAt <= now
             case .deleted:
                 categoryMatches = item.deleted
             }
@@ -151,18 +314,13 @@ final class AppModel {
                 dateMatches = true
             case .today:
                 dateMatches = item.receivedAt >= startOfToday
+                    && item.receivedAt <= now
             case .sevenDays:
-                dateMatches = item.receivedAt >= calendar.date(
-                    byAdding: .day,
-                    value: -7,
-                    to: Date()
-                )!
+                dateMatches = item.receivedAt >= startOfSevenDays
+                    && item.receivedAt <= now
             case .thirtyDays:
-                dateMatches = item.receivedAt >= calendar.date(
-                    byAdding: .day,
-                    value: -30,
-                    to: Date()
-                )!
+                dateMatches = item.receivedAt >= startOfThirtyDays
+                    && item.receivedAt <= now
             }
             return categoryMatches && dateMatches
                 && (searchText.isEmpty
@@ -208,9 +366,12 @@ final class AppModel {
         guard !launched else { return }
         launched = true
         do {
-            if let url = try DirectoryBookmarkStore.resolve() {
-                configure(directory: url)
-                await startReceiver()
+            if let url = try bookmarkClient.resolve() {
+                await configureDirectory(
+                    url,
+                    startReceiverAfterConfiguration: true,
+                    persistBookmark: false
+                ).value
             } else {
                 status = .needsDirectory
             }
@@ -222,36 +383,29 @@ final class AppModel {
 
     func chooseDirectory() {
         let panel = NSOpenPanel()
-        panel.title = "Choose where Android Sync stores received files"
-        panel.prompt = "Choose Folder"
+        panel.title = text(.receivePanelTitle)
+        panel.prompt = text(.chooseFolder)
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        do {
-            try DirectoryBookmarkStore.save(url)
-            configure(directory: url)
-            Task { await startReceiver() }
-        } catch {
-            status = .failed(error.localizedDescription)
-            lastError = error.localizedDescription
-        }
+        configureDirectory(url)
     }
 
-    func toggleReceiver() {
+    @discardableResult
+    func toggleReceiver() -> Task<Void, Never> {
         if isRunning {
-            stopReceiver()
+            scheduleReceiverAction(.stop)
         } else {
-            Task { await startReceiver() }
+            scheduleReceiverAction(.start)
         }
     }
 
-    func restartReceiver() {
-        stopReceiver()
-        rebuildReceiverService()
-        Task { await startReceiver() }
+    @discardableResult
+    func restartReceiver() -> Task<Void, Never> {
+        scheduleReceiverAction(.restart)
     }
 
     func select(_ id: UUID, additive: Bool) {
@@ -268,7 +422,12 @@ final class AppModel {
 
     func preview(_ item: MediaItemEntity) {
         guard !item.deleted else { return }
-        QuickLookPreview.shared.show(item.fileURL)
+        quickLookPreview.show(item.fileURL)
+    }
+
+    func toggleSelectedPreview() {
+        guard let item = selectedItem, !item.deleted else { return }
+        quickLookPreview.toggle(item.fileURL)
     }
 
     func reveal(_ item: MediaItemEntity) {
@@ -277,9 +436,13 @@ final class AppModel {
 
     func renameSelected(to filename: String) async {
         guard let item = selectedItem, let repository else { return }
+        let directoryGeneration = directoryConfigurationGeneration
         do {
             _ = try await repository.rename(item.uploadRecord, to: filename)
-            await reloadLibrary()
+            await reloadLibrary(
+                from: repository,
+                directoryGeneration: directoryGeneration
+            )
         } catch {
             lastError = error.localizedDescription
         }
@@ -287,6 +450,7 @@ final class AppModel {
 
     func deleteSelected() async {
         guard let repository else { return }
+        let directoryGeneration = directoryConfigurationGeneration
         let selected = items.filter { selectedIDs.contains($0.id) && !$0.deleted }
         do {
             for item in selected {
@@ -295,7 +459,10 @@ final class AppModel {
                 }
             }
             selectedIDs.removeAll()
-            await reloadLibrary()
+            await reloadLibrary(
+                from: repository,
+                directoryGeneration: directoryGeneration
+            )
         } catch {
             lastError = error.localizedDescription
         }
@@ -320,88 +487,447 @@ final class AppModel {
         NSWorkspace.shared.open(receiveDirectory)
     }
 
-    private func configure(directory: URL) {
-        receiverService?.stop()
-        if let scopedDirectoryURL {
-            scopedDirectoryURL.stopAccessingSecurityScopedResource()
+    @discardableResult
+    func configureDirectory(
+        _ directory: URL,
+        startReceiverAfterConfiguration: Bool = true,
+        persistBookmark: Bool = true
+    ) -> Task<Void, Never> {
+        configurationRequestGeneration &+= 1
+        let generation = configurationRequestGeneration
+        let cancellation = ConfigurationCancellation()
+        let worker = Task { @MainActor [weak self] in
+            await self?.prepareDirectoryConfiguration(
+                directory,
+                generation: generation,
+                cancellation: cancellation,
+                startReceiverAfterConfiguration: startReceiverAfterConfiguration,
+                persistBookmark: persistBookmark
+            )
         }
-        _ = directory.startAccessingSecurityScopedResource()
-        scopedDirectoryURL = directory
-        receiveDirectory = directory
-        let repository = LibraryRepository(rootURL: directory)
-        self.repository = repository
-        rebuildReceiverService()
-        status = .stopped
-        Task { await reloadLibrary() }
-    }
-
-    private func rebuildReceiverService() {
-        guard let repository else {
-            receiverService = nil
-            return
-        }
-        receiverService = ReceiverService(
-            repository: repository,
-            port: port
-        ) { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.handle(event)
+        return Task {
+            await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                cancellation.cancel()
+                Task { @MainActor [weak self] in
+                    self?.cancelDirectoryConfiguration(generation)
+                }
             }
         }
     }
 
-    private func startReceiver() async {
+    private func cancelDirectoryConfiguration(_ generation: UInt64) {
+        guard generation == configurationRequestGeneration else { return }
+        configurationRequestGeneration &+= 1
+    }
+
+    private func scheduleReceiverAction(_ action: ReceiverAction) -> Task<Void, Never> {
+        let transition = beginReceiverTransition(invalidateConfigurations: true)
+        return Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.stopServices(transition.services)
+            guard transition.generation == self.receiverActionGeneration else {
+                return
+            }
+            await self.performReceiverAction(
+                action,
+                generation: transition.generation
+            )
+        }
+    }
+
+    private func performReceiverAction(
+        _ action: ReceiverAction,
+        generation: UInt64
+    ) async {
+        switch action {
+        case .start:
+            await startReceiver(actionGeneration: generation)
+        case .stop:
+            uploadURL = ""
+            status = receiveDirectory == nil ? .needsDirectory : .stopped
+            logger.info("Receiver stopped")
+        case .restart:
+            if let repository {
+                await reloadLibrary(
+                    from: repository,
+                    directoryGeneration: directoryConfigurationGeneration
+                )
+            }
+            guard generation == receiverActionGeneration else { return }
+            await startReceiver(actionGeneration: generation)
+        }
+    }
+
+    private func prepareDirectoryConfiguration(
+        _ directory: URL,
+        generation: UInt64,
+        cancellation: ConfigurationCancellation,
+        startReceiverAfterConfiguration: Bool,
+        persistBookmark: Bool
+    ) async {
+        guard isCurrentConfiguration(generation, cancellation: cancellation) else {
+            return
+        }
+        let didStartAccess = directoryAccessClient.start(directory)
+        let candidateRepository = LibraryRepository(rootURL: directory)
+        let previousDirectory = receiveDirectory
+        let previousSnapshot = ReceiverSnapshot(
+            repository: repository,
+            status: status,
+            uploadURL: uploadURL
+        )
+        var records: [UploadRecord]
+        do {
+            records = try await libraryRecordsLoader(candidateRepository)
+        } catch {
+            releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+            guard isCurrentConfiguration(generation, cancellation: cancellation) else {
+                return
+            }
+            lastError = error.localizedDescription
+            return
+        }
+
+        guard isCurrentConfiguration(generation, cancellation: cancellation) else {
+            releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+            return
+        }
+
+        if persistBookmark {
+            do {
+                try bookmarkClient.save(directory)
+                bookmarkOwnerGeneration = generation
+            } catch {
+                releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+                lastError = error.localizedDescription
+                return
+            }
+        }
+
+        guard isCurrentConfiguration(generation, cancellation: cancellation) else {
+            rollbackBookmarkIfOwned(
+                by: generation,
+                previousDirectory: previousDirectory
+            )
+            releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+            return
+        }
+
+        let transition = beginReceiverTransition(invalidateConfigurations: false)
+        await stopServices(transition.services)
+
+        guard transition.generation == receiverActionGeneration,
+              isCurrentConfiguration(generation, cancellation: cancellation) else {
+            rollbackBookmarkIfOwned(
+                by: generation,
+                previousDirectory: previousDirectory
+            )
+            releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+            if transition.generation == receiverActionGeneration {
+                await restoreReceiver(
+                    previousSnapshot,
+                    actionGeneration: transition.generation
+                )
+            }
+            return
+        }
+
+        if previousDirectory == directory {
+            do {
+                records = try await libraryRecordsLoader(candidateRepository)
+            } catch {
+                rollbackBookmarkIfOwned(
+                    by: generation,
+                    previousDirectory: previousDirectory
+                )
+                releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+                lastError = error.localizedDescription
+                await restoreReceiver(
+                    previousSnapshot,
+                    actionGeneration: transition.generation
+                )
+                return
+            }
+            guard transition.generation == receiverActionGeneration,
+                  isCurrentConfiguration(generation, cancellation: cancellation) else {
+                rollbackBookmarkIfOwned(
+                    by: generation,
+                    previousDirectory: previousDirectory
+                )
+                releaseCandidateAccess(directory, didStartAccess: didStartAccess)
+                if transition.generation == receiverActionGeneration {
+                    await restoreReceiver(
+                        previousSnapshot,
+                        actionGeneration: transition.generation
+                    )
+                }
+                return
+            }
+        }
+
+        if let scopedDirectoryURL {
+            directoryAccessClient.stop(scopedDirectoryURL)
+        }
+        scopedDirectoryURL = didStartAccess ? directory : nil
+        receiveDirectory = directory
+        repository = candidateRepository
+        directoryConfigurationGeneration &+= 1
+        syncDatabase(with: records)
+        if bookmarkOwnerGeneration == generation {
+            bookmarkOwnerGeneration = nil
+        }
+        uploadURL = ""
+        status = .stopped
+
+        guard startReceiverAfterConfiguration else { return }
+        await startReceiver(actionGeneration: transition.generation)
+    }
+
+    private func isCurrentConfiguration(
+        _ generation: UInt64,
+        cancellation: ConfigurationCancellation
+    ) -> Bool {
+        !cancellation.isCancelled
+            && generation == configurationRequestGeneration
+    }
+
+    private func rollbackBookmarkIfOwned(
+        by generation: UInt64,
+        previousDirectory: URL?
+    ) {
+        guard bookmarkOwnerGeneration == generation else { return }
+        if let previousDirectory {
+            do {
+                try bookmarkClient.save(previousDirectory)
+            } catch {
+                bookmarkClient.clear()
+                lastError = error.localizedDescription
+            }
+        } else {
+            bookmarkClient.clear()
+        }
+        bookmarkOwnerGeneration = nil
+    }
+
+    private func releaseCandidateAccess(_ directory: URL, didStartAccess: Bool) {
+        if didStartAccess {
+            directoryAccessClient.stop(directory)
+        }
+    }
+
+    private func beginReceiverTransition(
+        invalidateConfigurations: Bool
+    ) -> ReceiverTransition {
+        if invalidateConfigurations {
+            configurationRequestGeneration &+= 1
+        }
+        receiverActionGeneration &+= 1
+        detachReceiverService()
+        uploadURL = ""
+        if receiveDirectory != nil {
+            status = .stopped
+        }
+        let services = Array(stoppingServices.values)
+        return ReceiverTransition(
+            generation: receiverActionGeneration,
+            services: services
+        )
+    }
+
+    private func stopServices(
+        _ services: [any ReceiverServiceControlling]
+    ) async {
+        for service in services {
+            await service.stopAndWait()
+            stoppingServices.removeValue(forKey: ObjectIdentifier(service))
+        }
+    }
+
+    private func detachReceiverService() {
+        receiverGeneration &+= 1
+        receiverEventContinuation?.finish()
+        receiverEventContinuation = nil
+        receiverEventTask?.cancel()
+        receiverEventTask = nil
+        activeUploads.removeAll()
+        clearTransientUploadFailure()
+        guard let service = receiverService else { return }
+        receiverService = nil
+        stoppingServices[ObjectIdentifier(service)] = service
+        service.stop()
+    }
+
+    private func attachReceiverService(to repository: LibraryRepository) {
+        let generation = receiverGeneration
+        let (stream, continuation) = AsyncStream<ReceiverServiceEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(64)
+        )
+        receiverEventContinuation = continuation
+        receiverEventTask = Task { @MainActor [weak self] in
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                self?.handle(event, generation: generation)
+            }
+        }
+        receiverService = receiverServiceFactory(repository, port) { event in
+            continuation.yield(event)
+        }
+    }
+
+    private func startReceiver(actionGeneration: UInt64) async {
         guard receiveDirectory != nil else {
             status = .needsDirectory
             return
         }
+        guard let repository else { return }
+        attachReceiverService(to: repository)
+        await startAttachedReceiver(actionGeneration: actionGeneration)
+    }
+
+    private func startAttachedReceiver(actionGeneration: UInt64) async {
         guard let receiverService else { return }
+        let generation = receiverGeneration
         status = .starting
         do {
             let actualPort = try await receiverService.start()
+            guard generation == receiverGeneration,
+                  actionGeneration == receiverActionGeneration else {
+                return
+            }
             uploadURL = "http://\(SystemNetworkInfo.localIPv4Address()):\(actualPort)/uploads/"
             status = .running
             lastError = nil
             logger.info("Receiver started on port \(actualPort, privacy: .public)")
         } catch {
+            guard generation == receiverGeneration,
+                  actionGeneration == receiverActionGeneration else {
+                return
+            }
             status = .failed(error.localizedDescription)
             lastError = error.localizedDescription
             logger.error("Receiver failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    private func stopReceiver() {
-        receiverService?.stop()
-        status = receiveDirectory == nil ? .needsDirectory : .stopped
-        logger.info("Receiver stopped")
+    private func restoreReceiver(
+        _ snapshot: ReceiverSnapshot,
+        actionGeneration: UInt64
+    ) async {
+        guard actionGeneration == receiverActionGeneration else { return }
+        uploadURL = snapshot.uploadURL
+        status = snapshot.status
+        guard snapshot.repository != nil else { return }
+        switch snapshot.status {
+        case .running, .starting:
+            await startReceiver(actionGeneration: actionGeneration)
+        case .needsDirectory, .stopped, .failed:
+            break
+        }
     }
 
-    private func handle(_ event: ReceiverServiceEvent) {
+    func handle(_ event: ReceiverServiceEvent) {
+        handle(event, generation: receiverGeneration)
+    }
+
+    func handle(_ event: ReceiverServiceEvent, generation: UInt64) {
+        guard generation == receiverGeneration else { return }
         switch event {
         case let .started(port):
             uploadURL = "http://\(SystemNetworkInfo.localIPv4Address()):\(port)/uploads/"
             status = .running
         case .stopped:
+            activeUploads.removeAll()
+            clearTransientUploadFailure()
             if receiveDirectory != nil {
                 status = .stopped
             }
-        case .uploadStarted:
-            break
-        case .uploadStored:
-            Task { await reloadLibrary() }
-        case let .failed(message):
+        case let .uploadStarted(id, filename, expectedSize):
+            activeUploads[id] = ActiveUpload(
+                id: id,
+                filename: filename,
+                expectedSize: expectedSize
+            )
+        case let .uploadStored(id, _):
+            activeUploads.removeValue(forKey: id)
+            guard let repository else { return }
+            let directoryGeneration = directoryConfigurationGeneration
+            Task {
+                await reloadLibrary(
+                    from: repository,
+                    directoryGeneration: directoryGeneration,
+                    receiverGeneration: generation
+                )
+            }
+        case let .uploadFailed(id, filename, message):
+            activeUploads.removeValue(forKey: id)
+            showTransientUploadFailure(filename: filename, message: message)
+        case let .receiverFailed(message):
+            activeUploads.removeAll()
+            clearTransientUploadFailure()
+            status = .failed(message)
             lastError = message
         }
     }
 
-    private func reloadLibrary() async {
-        guard let repository else { return }
+    private func showTransientUploadFailure(filename: String, message: String) {
+        transientUploadMessageTask?.cancel()
+        transientUploadMessage = format(.uploadFailedFormat, filename, message)
+        transientUploadMessageTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.transientUploadMessage = nil
+        }
+    }
+
+    private func clearTransientUploadFailure() {
+        transientUploadMessageTask?.cancel()
+        transientUploadMessageTask = nil
+        transientUploadMessage = nil
+    }
+
+    private func reloadLibrary(
+        from repository: LibraryRepository,
+        directoryGeneration: UInt64,
+        receiverGeneration: UInt64? = nil
+    ) async {
         do {
-            let records = try await repository.libraryRecords()
+            let records = try await libraryRecordsLoader(repository)
+            guard isCurrentRepository(
+                repository,
+                directoryGeneration: directoryGeneration,
+                receiverGeneration: receiverGeneration
+            ) else {
+                return
+            }
             syncDatabase(with: records)
         } catch {
+            guard isCurrentRepository(
+                repository,
+                directoryGeneration: directoryGeneration,
+                receiverGeneration: receiverGeneration
+            ) else {
+                return
+            }
             lastError = error.localizedDescription
         }
+    }
+
+    private func isCurrentRepository(
+        _ repository: LibraryRepository,
+        directoryGeneration: UInt64,
+        receiverGeneration: UInt64?
+    ) -> Bool {
+        guard let currentRepository = self.repository,
+              currentRepository === repository,
+              directoryGeneration == directoryConfigurationGeneration else {
+            return false
+        }
+        if let receiverGeneration {
+            return receiverGeneration == self.receiverGeneration
+        }
+        return true
     }
 
     private func syncDatabase(with records: [UploadRecord]) {

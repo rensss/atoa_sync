@@ -5,7 +5,10 @@ struct SidebarView: View {
 
     var body: some View {
         List(LibraryCategory.allCases, selection: $model.category) { category in
-            Label(category.title, systemImage: category.systemImage)
+            Label(
+                category.title(using: model.language),
+                systemImage: category.systemImage
+            )
                 .tag(category)
         }
         .listStyle(.sidebar)

@@ -26,6 +26,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.util.Log;
+import android.util.LruCache;
 import android.util.Size;
 import android.view.Gravity;
 import android.view.View;
@@ -47,17 +48,24 @@ import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.android.RemoteManifestClient;
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
+import com.androidsync.app.core.SyncRunGate;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
+import com.androidsync.app.core.ThumbnailPolicy;
 
+import java.lang.ref.WeakReference;
 import java.text.DateFormat;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "AndroidSync";
@@ -66,26 +74,66 @@ public final class MainActivity extends Activity {
     private static final int RECENT_GRID_LIMIT = 50;
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
+    private static final long MIN_THUMBNAIL_CACHE_BYTES = 4L * 1024L * 1024L;
+    private static final int FAILED_THUMBNAIL_CACHE_ENTRIES = 256;
+    private static final int FAILED_PREVIEW_CACHE_ENTRIES = 64;
 
     private final SyncQueue queue = new SyncQueue();
+    private final SyncRunGate syncRuns = new SyncRunGate();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final ExecutorService thumbnailExecutor = Executors.newFixedThreadPool(2);
     private final HttpFileUploader uploader = new HttpFileUploader();
     private final RemoteManifestClient manifestClient = new RemoteManifestClient();
+    private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(thumbnailCacheBytes()) {
+        @Override
+        protected int sizeOf(String key, Bitmap bitmap) {
+            return bitmap.getAllocationByteCount();
+        }
+    };
+    private final LruCache<String, Boolean> failedThumbnailCache =
+            new LruCache<>(FAILED_THUMBNAIL_CACHE_ENTRIES);
+    private final LruCache<String, Boolean> failedPreviewCache =
+            new LruCache<>(FAILED_PREVIEW_CACHE_ENTRIES);
+    private final Object thumbnailRequestsLock = new Object();
+    private final Map<String, List<ThumbnailTarget>> thumbnailRequests = new HashMap<>();
+    private final Object previewRequestsLock = new Object();
+    private final Map<String, PreviewTarget> previewInFlight = new HashMap<>();
+    private final Map<String, QueueRowViews> queueRows = new HashMap<>();
+    private final Map<String, RecentTaskTileViews> homeRecentTaskTiles = new HashMap<>();
 
     private LinearLayout root;
+    private ProgressRing homeProgressRing;
+    private TextView homePercentView;
+    private TextView homeSyncedView;
+    private TextView homeWaitingView;
+    private TextView homeUploadingView;
+    private TextView homeFailedView;
+    private Button homeSyncButton;
+    private TextView queueSummaryTotalView;
+    private TextView queueSummaryDoneView;
+    private TextView queueSummaryCapacityView;
+    private Button queueRetryFailedButton;
+    private LinearLayout queueTaskContainer;
+    private TextView queueLoadMoreHint;
+    private ScrollView queueScrollView;
+    private Button queueBackTopButton;
+    private TextView detailStatusView;
+    private TextView detailMetadataStatusView;
+    private TextView detailErrorView;
+    private View detailErrorRow;
     private MediaStoreScanner scanner;
     private String screen = "home";
     private String filter = "all";
     private String targetUrl;
     private String selectedTaskId;
-    private boolean syncing;
     private boolean scanning;
     private boolean queueAutoLoading;
     private String scanMessage = "等待扫描";
     private int queueVisibleLimit = QUEUE_PAGE_SIZE;
     private int queueScrollY;
+    private int renderGeneration;
+    private volatile boolean destroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -98,6 +146,18 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
+        syncRuns.cancel();
+        mainHandler.removeCallbacksAndMessages(null);
+        synchronized (thumbnailRequestsLock) {
+            for (List<ThumbnailTarget> targets : thumbnailRequests.values()) {
+                targets.clear();
+            }
+            thumbnailRequests.clear();
+        }
+        synchronized (previewRequestsLock) {
+            previewInFlight.clear();
+        }
         executor.shutdownNow();
         thumbnailExecutor.shutdownNow();
         super.onDestroy();
@@ -134,6 +194,9 @@ public final class MainActivity extends Activity {
     }
 
     private void scanMedia() {
+        if (destroyed) {
+            return;
+        }
         if (!hasMediaPermission()) {
             ensureMediaPermissionThenScan();
             return;
@@ -141,10 +204,16 @@ public final class MainActivity extends Activity {
         scanning = true;
         scanMessage = "正在扫描本机相册...";
         render();
-        executor.execute(new Runnable() {
+        boolean submitted = submitTask(new Runnable() {
             @Override
             public void run() {
+                if (destroyed) {
+                    return;
+                }
                 final List<MediaItem> media = scanner.scanAll();
+                if (destroyed) {
+                    return;
+                }
                 queue.enqueueAll(media);
                 int remoteMatches = 0;
                 String remoteMessage = "";
@@ -159,7 +228,7 @@ public final class MainActivity extends Activity {
                 final int scannedCount = media.size();
                 final int matchedCount = remoteMatches;
                 final String suffix = remoteMessage;
-                mainHandler.post(new Runnable() {
+                postTask(new Runnable() {
                     @Override
                     public void run() {
                         scanning = false;
@@ -170,47 +239,79 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+        if (!submitted && !destroyed) {
+            scanning = false;
+            render();
+        }
     }
 
     private void startSync() {
-        if (syncing) {
-            syncing = false;
-            render();
+        if (destroyed) {
             return;
         }
-        syncing = true;
-        render();
-        executor.execute(new Runnable() {
+        if (syncRuns.isActive()) {
+            syncRuns.cancel();
+            refreshCurrentScreenSyncState(null);
+            return;
+        }
+        final long syncRun = syncRuns.start();
+        refreshCurrentScreenSyncState(null);
+        boolean submitted = submitTask(new Runnable() {
             @Override
             public void run() {
+                if (destroyed || !syncRuns.isActive(syncRun)) {
+                    return;
+                }
                 List<SyncTask> snapshot = queue.tasks();
                 for (SyncTask task : snapshot) {
-                    if (!syncing) {
+                    if (destroyed || !syncRuns.isActive(syncRun)) {
                         break;
                     }
-                    if (task.status() != SyncStatus.WAITING && task.status() != SyncStatus.FAILED) {
+                    SyncTask currentTask = queue.findById(task.id());
+                    if (currentTask == null
+                            || (currentTask.status() != SyncStatus.WAITING
+                            && currentTask.status() != SyncStatus.FAILED)) {
                         continue;
                     }
-                    queue.markUploading(task.id());
-                    postRender();
+                    final SyncStatus previousStatus = currentTask.status();
+                    queue.markUploading(currentTask.id());
+                    postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
+                    Exception uploadError = null;
                     try {
-                        uploader.upload(getContentResolver(), task.media(), targetUrl);
-                        queue.markDone(task.id());
+                        uploader.upload(getContentResolver(), currentTask.media(), targetUrl);
                     } catch (Exception error) {
-                        queue.markFailed(task.id(), cleanError(error));
+                        uploadError = error;
                     }
-                    postRender();
+                    SyncTask liveTask = queue.findById(currentTask.id());
+                    if (liveTask == null) {
+                        continue;
+                    }
+                    SyncStatus previousTerminalStatus = liveTask.status();
+                    if (uploadError == null) {
+                        queue.markDone(currentTask.id());
+                    } else {
+                        queue.markFailed(currentTask.id(), cleanError(uploadError));
+                    }
+                    SyncTask finalTask = queue.findById(currentTask.id());
+                    if (finalTask == null) {
+                        continue;
+                    }
+                    postTaskUpdate(currentTask.id(), previousTerminalStatus, finalTask.status());
                 }
-                syncing = false;
-                postRender();
+                postSyncFinished(syncRun);
             }
         });
+        if (!submitted && !destroyed) {
+            syncRuns.finish(syncRun);
+            refreshCurrentScreenSyncState(null);
+        }
     }
 
     private void retryFailed() {
         for (SyncTask task : queue.tasks()) {
-            if (task.status() == SyncStatus.FAILED) {
-                queue.retry(task.id());
+            SyncTask currentTask = queue.findById(task.id());
+            if (currentTask != null && currentTask.status() == SyncStatus.FAILED) {
+                queue.retry(currentTask.id());
             }
         }
         screen = "queue";
@@ -218,16 +319,71 @@ public final class MainActivity extends Activity {
         render();
     }
 
-    private void postRender() {
+    private void postTaskUpdate(
+            final String taskId,
+            final SyncStatus previousStatus,
+            final SyncStatus currentStatus
+    ) {
+        postTask(new Runnable() {
+            @Override
+            public void run() {
+                if ("queue".equals(screen)) {
+                    refreshQueueSummary();
+                    refreshQueueRow(taskId, previousStatus, currentStatus);
+                } else if ("home".equals(screen)) {
+                    refreshHomeSyncState();
+                    refreshHomeRecentTaskTile(taskId);
+                } else if ("detail".equals(screen)) {
+                    refreshDetailSyncState(taskId);
+                }
+            }
+        });
+    }
+
+    private void postSyncFinished(final long syncRun) {
+        if (!syncRuns.finish(syncRun)) {
+            return;
+        }
+        postTask(new Runnable() {
+            @Override
+            public void run() {
+                refreshCurrentScreenSyncState(null);
+            }
+        });
+    }
+
+    private boolean submitTask(Runnable task) {
+        if (destroyed) {
+            return false;
+        }
+        try {
+            executor.execute(task);
+            return true;
+        } catch (RejectedExecutionException error) {
+            return false;
+        }
+    }
+
+    private void postTask(final Runnable task) {
+        if (destroyed) {
+            return;
+        }
         mainHandler.post(new Runnable() {
             @Override
             public void run() {
-                render();
+                if (!destroyed) {
+                    task.run();
+                }
             }
         });
     }
 
     private void render() {
+        if (destroyed) {
+            return;
+        }
+        clearScreenViewReferences();
+        renderGeneration++;
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(color("#F4F1EA"));
@@ -289,27 +445,38 @@ public final class MainActivity extends Activity {
         float progress = summary.total() == 0 ? 0f : (float) summary.done() / (float) summary.total();
         LinearLayout hero = card();
         hero.setGravity(Gravity.CENTER_HORIZONTAL);
-        ProgressRing ring = new ProgressRing(this);
-        ring.setProgress(progress);
+        homeProgressRing = new ProgressRing(this);
+        homeProgressRing.setProgress(progress);
         LinearLayout.LayoutParams ringParams = new LinearLayout.LayoutParams(dp(176), dp(176));
         ringParams.topMargin = dp(10);
-        hero.addView(ring, ringParams);
-        TextView center = label(percent(progress), 34, "#182B28");
-        center.setGravity(Gravity.CENTER);
-        hero.addView(center);
-        hero.addView(label("已同步 " + summary.done() + " / " + summary.total() + " 个文件", 14, "#6B6257"));
-        hero.addView(statRow("待传", String.valueOf(summary.waiting()), "上传中", String.valueOf(summary.uploading()), "失败", String.valueOf(summary.failed())));
+        hero.addView(homeProgressRing, ringParams);
+        homePercentView = label(percent(progress), 34, "#182B28");
+        homePercentView.setGravity(Gravity.CENTER);
+        hero.addView(homePercentView);
+        homeSyncedView = label("已同步 " + summary.done() + " / " + summary.total() + " 个文件", 14, "#6B6257");
+        hero.addView(homeSyncedView);
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+        stats.setPadding(0, dp(12), 0, 0);
+        homeWaitingView = label(String.valueOf(summary.waiting()), 18, "#182B28");
+        homeUploadingView = label(String.valueOf(summary.uploading()), 18, "#182B28");
+        homeFailedView = label(String.valueOf(summary.failed()), 18, "#182B28");
+        stats.addView(stat("待传", homeWaitingView), weightParams());
+        stats.addView(stat("上传中", homeUploadingView), weightParams());
+        stats.addView(stat("失败", homeFailedView), weightParams());
+        hero.addView(stats);
         page.addView(hero);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
-        actions.addView(actionButton(syncing ? "暂停" : "开始同步", new View.OnClickListener() {
+        homeSyncButton = actionButton(syncRuns.isActive() ? "暂停" : "开始同步", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 startSync();
             }
-        }), weightParams());
+        });
+        actions.addView(homeSyncButton, weightParams());
         actions.addView(actionButton("重新扫描", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -327,6 +494,7 @@ public final class MainActivity extends Activity {
     private View queueView() {
         final FrameLayout frame = new FrameLayout(this);
         final ScrollView scroll = new ScrollView(this);
+        queueScrollView = scroll;
         scroll.setVerticalScrollBarEnabled(true);
         scroll.setScrollbarFadingEnabled(false);
         LinearLayout page = pageLayout();
@@ -347,6 +515,7 @@ public final class MainActivity extends Activity {
         frame.addView(scroll);
 
         final Button backTop = smallButton("回顶部");
+        queueBackTopButton = backTop;
         backTop.setTextColor(Color.WHITE);
         backTop.setBackground(rounded("#182B28", "#182B28", 0, 22));
         backTop.setVisibility(queueScrollY > dp(240) ? View.VISIBLE : View.GONE);
@@ -366,18 +535,22 @@ public final class MainActivity extends Activity {
         scroll.setOnScrollChangeListener(new View.OnScrollChangeListener() {
             @Override
             public void onScrollChange(View view, int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
+                if (scroll != queueScrollView) {
+                    return;
+                }
                 queueScrollY = scrollY;
                 backTop.setVisibility(scrollY > dp(240) ? View.VISIBLE : View.GONE);
                 if (shouldLoadMore(scroll)) {
-                    queueAutoLoading = true;
-                    queueVisibleLimit += QUEUE_PAGE_SIZE;
-                    render();
+                    loadMoreQueueRows();
                 }
             }
         });
         scroll.post(new Runnable() {
             @Override
             public void run() {
+                if (destroyed || scroll != queueScrollView || !"queue".equals(screen)) {
+                    return;
+                }
                 scroll.scrollTo(0, queueScrollY);
                 queueAutoLoading = false;
             }
@@ -460,7 +633,8 @@ public final class MainActivity extends Activity {
             loadPreviewAsync(image, loading, media.uri());
         }
         previewCard.addView(label(media.displayName(), 18, "#182B28"), paddedTextParams());
-        previewCard.addView(label(statusText(task), 13, statusColor(task.status())), paddedTextParams());
+        detailStatusView = label(statusText(task), 13, statusColor(task.status()));
+        previewCard.addView(detailStatusView, paddedTextParams());
         page.addView(previewCard);
 
         LinearLayout meta = card();
@@ -468,13 +642,15 @@ public final class MainActivity extends Activity {
         meta.addView(metaRow("类型", media.isVideo() ? "视频" : "照片"));
         meta.addView(metaRow("MIME", media.mimeType()));
         meta.addView(metaRow("大小", formatBytes(media.sizeBytes())));
-        meta.addView(metaRow("同步状态", statusText(task)));
+        detailMetadataStatusView = label(statusText(task), 13, "#182B28");
+        meta.addView(metaRow("同步状态", detailMetadataStatusView));
         meta.addView(metaRow("拍摄时间", formatDate(media.dateTakenMillis())));
         meta.addView(metaRow("添加时间", formatDate(media.dateAddedMillis())));
         meta.addView(metaRow("修改时间", formatDate(media.dateModifiedMillis())));
-        if (task.errorMessage() != null) {
-            meta.addView(metaRow("错误", task.errorMessage()));
-        }
+        detailErrorView = label(task.errorMessage(), 13, "#182B28");
+        detailErrorRow = metaRow("错误", detailErrorView);
+        detailErrorRow.setVisibility(task.errorMessage() == null ? View.GONE : View.VISIBLE);
+        meta.addView(detailErrorRow);
         page.addView(meta);
 
         Button external = actionButton("用其他应用打开", new View.OnClickListener() {
@@ -578,6 +754,7 @@ public final class MainActivity extends Activity {
     }
 
     private View recentGrid(List<SyncTask> tasks) {
+        homeRecentTaskTiles.clear();
         LinearLayout grid = card();
         grid.setPadding(dp(10), dp(10), dp(10), dp(10));
         if (tasks.isEmpty()) {
@@ -613,6 +790,7 @@ public final class MainActivity extends Activity {
         border.setCornerRadius(dp(8));
         border.setStroke(dp(2), statusBorderColor(task.status()));
         tile.setBackground(border);
+        tile.setClipToOutline(true);
         tile.setPadding(dp(2), dp(2), dp(2), dp(2));
         tile.addView(thumbnail(task), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -624,12 +802,14 @@ public final class MainActivity extends Activity {
         strip.setTextSize(8);
         FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5));
         stripParams.gravity = Gravity.BOTTOM;
+        strip.setVisibility(View.VISIBLE);
         tile.addView(strip, stripParams);
+        homeRecentTaskTiles.put(task.id(), new RecentTaskTileViews(tile, strip));
         return tile;
     }
 
     private boolean shouldLoadMore(ScrollView scroll) {
-        if (queueAutoLoading || !"queue".equals(screen)) {
+        if (queueAutoLoading || !"queue".equals(screen) || scroll != queueScrollView) {
             return false;
         }
         TaskWindow window = queue.window(filter, queueVisibleLimit);
@@ -641,50 +821,329 @@ public final class MainActivity extends Activity {
         return distanceToBottom < dp(220);
     }
 
-    private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
-        image.setTag(mediaUri);
-        thumbnailExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                final Bitmap bitmap = loadPreviewBitmap(mediaUri);
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (!mediaUri.equals(image.getTag())) {
-                            return;
-                        }
-                        if (bitmap == null) {
-                            loading.setText("无法加载预览");
-                            return;
-                        }
-                        image.setImageBitmap(bitmap);
-                        loading.setVisibility(View.GONE);
-                    }
-                });
+    private void loadMoreQueueRows() {
+        if (queueAutoLoading || queueTaskContainer == null || queueLoadMoreHint == null) {
+            return;
+        }
+        queueAutoLoading = true;
+        try {
+            int oldLimit = queueVisibleLimit;
+            TaskWindow oldWindow = queue.window(filter, oldLimit);
+            int oldVisibleCount = oldWindow.visibleTasks().size();
+            int newLimit = oldLimit + QUEUE_PAGE_SIZE;
+            TaskWindow newWindow = queue.window(filter, newLimit);
+            queueVisibleLimit = newLimit;
+            List<SyncTask> visibleTasks = newWindow.visibleTasks();
+            for (int index = oldVisibleCount; index < visibleTasks.size(); index++) {
+                queueTaskContainer.addView(taskRow(visibleTasks.get(index)));
             }
-        });
+            updateQueueLoadMoreHint(newWindow);
+        } finally {
+            queueAutoLoading = false;
+        }
     }
 
-    private Bitmap loadPreviewBitmap(String mediaUri) {
+    private void refreshQueueSummary() {
+        if (!"queue".equals(screen)
+                || queueSummaryTotalView == null
+                || queueSummaryDoneView == null
+                || queueSummaryCapacityView == null
+                || queueRetryFailedButton == null) {
+            return;
+        }
+        SyncQueue.Summary summary = queue.summary();
+        queueSummaryTotalView.setText(String.valueOf(summary.total()));
+        queueSummaryDoneView.setText(String.valueOf(summary.done()));
+        queueSummaryCapacityView.setText(formatBytes(summary.totalBytes()));
+        queueRetryFailedButton.setVisibility(summary.failed() > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    private void refreshHomeSyncState() {
+        if (!"home".equals(screen)
+                || homeProgressRing == null
+                || homePercentView == null
+                || homeSyncedView == null
+                || homeWaitingView == null
+                || homeUploadingView == null
+                || homeFailedView == null
+                || homeSyncButton == null) {
+            return;
+        }
+        SyncQueue.Summary summary = queue.summary();
+        float progress = summary.total() == 0 ? 0f : (float) summary.done() / (float) summary.total();
+        homeProgressRing.setProgress(progress);
+        homePercentView.setText(percent(progress));
+        homeSyncedView.setText("已同步 " + summary.done() + " / " + summary.total() + " 个文件");
+        homeWaitingView.setText(String.valueOf(summary.waiting()));
+        homeUploadingView.setText(String.valueOf(summary.uploading()));
+        homeFailedView.setText(String.valueOf(summary.failed()));
+        homeSyncButton.setText(syncRuns.isActive() ? "暂停" : "开始同步");
+    }
+
+    private void refreshHomeRecentTaskTile(String taskId) {
+        if (!"home".equals(screen) || taskId == null) {
+            return;
+        }
+        RecentTaskTileViews views = homeRecentTaskTiles.get(taskId);
+        SyncTask task = queue.findById(taskId);
+        if (views == null || task == null) {
+            return;
+        }
+        int statusColor = statusBorderColor(task.status());
+        GradientDrawable border = new GradientDrawable();
+        border.setColor(color("#F7F5EF"));
+        border.setCornerRadius(dp(8));
+        border.setStroke(dp(2), statusColor);
+        views.root.setBackground(border);
+        views.strip.setBackgroundColor(statusColor);
+        views.strip.setText(task.status() == SyncStatus.UPLOADING ? "..." : "");
+    }
+
+    private void refreshDetailSyncState(String taskId) {
+        if (!"detail".equals(screen)
+                || selectedTaskId == null
+                || !selectedTaskId.equals(taskId)
+                || detailStatusView == null
+                || detailMetadataStatusView == null
+                || detailErrorView == null
+                || detailErrorRow == null) {
+            return;
+        }
+        SyncTask task = queue.findById(taskId);
+        if (task == null) {
+            return;
+        }
+        detailStatusView.setText(statusText(task));
+        detailStatusView.setTextColor(color(statusColor(task.status())));
+        detailMetadataStatusView.setText(statusText(task));
+        String errorMessage = task.errorMessage();
+        detailErrorView.setText(errorMessage == null ? "" : errorMessage);
+        detailErrorRow.setVisibility(errorMessage == null ? View.GONE : View.VISIBLE);
+    }
+
+    private void refreshCurrentScreenSyncState(String taskId) {
+        if ("home".equals(screen)) {
+            refreshHomeSyncState();
+        } else if ("queue".equals(screen)) {
+            refreshQueueSummary();
+        } else if ("detail".equals(screen)) {
+            refreshDetailSyncState(taskId == null ? selectedTaskId : taskId);
+        }
+    }
+
+    private void refreshQueueRow(String taskId, SyncStatus previousStatus, SyncStatus currentStatus) {
+        if (!"queue".equals(screen) || queueTaskContainer == null) {
+            return;
+        }
+        SyncTask task = queue.findById(taskId);
+        QueueRowViews views = queueRows.get(taskId);
+        if ("failed".equals(filter)) {
+            boolean previousFailed = previousStatus == SyncStatus.FAILED;
+            boolean currentFailed = currentStatus == SyncStatus.FAILED;
+            if (previousFailed != currentFailed) {
+                rebuildQueueTaskContainerPreservingScroll();
+            } else if (currentFailed && task != null && views != null) {
+                bindQueueRow(task, views);
+            }
+            return;
+        }
+        if (task != null && views != null) {
+            bindQueueRow(task, views);
+        }
+    }
+
+    private void rebuildQueueTaskContainerPreservingScroll() {
+        if (queueTaskContainer == null) {
+            return;
+        }
+        final ScrollView scroll = queueScrollView;
+        final int scrollY = scroll == null ? queueScrollY : scroll.getScrollY();
+        TaskWindow window = queue.window(filter, queueVisibleLimit);
+        queueRows.clear();
+        queueTaskContainer.removeAllViews();
+        populateQueueTaskContainer(window.visibleTasks());
+        updateQueueLoadMoreHint(window);
+        queueScrollY = scrollY;
+        if (scroll != null) {
+            scroll.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (!destroyed && scroll == queueScrollView && "queue".equals(screen)) {
+                        scroll.scrollTo(0, scrollY);
+                    }
+                }
+            });
+        }
+    }
+
+    private void populateQueueTaskContainer(List<SyncTask> tasks) {
+        if (tasks.isEmpty()) {
+            LinearLayout empty = card();
+            empty.addView(label("当前筛选没有任务", 15, "#6B6257"));
+            queueTaskContainer.addView(empty);
+            return;
+        }
+        for (SyncTask task : tasks) {
+            queueTaskContainer.addView(taskRow(task));
+        }
+    }
+
+    private void updateQueueLoadMoreHint(TaskWindow window) {
+        if (queueLoadMoreHint == null) {
+            return;
+        }
+        if (window.hasMore()) {
+            queueLoadMoreHint.setText("继续向下滑动加载后续 " + window.hiddenCount() + " 条");
+            queueLoadMoreHint.setVisibility(View.VISIBLE);
+        } else {
+            queueLoadMoreHint.setText("");
+            queueLoadMoreHint.setVisibility(View.GONE);
+        }
+    }
+
+    private void clearScreenViewReferences() {
+        homeProgressRing = null;
+        homePercentView = null;
+        homeSyncedView = null;
+        homeWaitingView = null;
+        homeUploadingView = null;
+        homeFailedView = null;
+        homeSyncButton = null;
+        homeRecentTaskTiles.clear();
+        queueRows.clear();
+        queueSummaryTotalView = null;
+        queueSummaryDoneView = null;
+        queueSummaryCapacityView = null;
+        queueRetryFailedButton = null;
+        queueTaskContainer = null;
+        queueLoadMoreHint = null;
+        queueScrollView = null;
+        queueBackTopButton = null;
+        queueAutoLoading = false;
+        detailStatusView = null;
+        detailMetadataStatusView = null;
+        detailErrorView = null;
+        detailErrorRow = null;
+    }
+
+    private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
+        if (destroyed) {
+            return;
+        }
+        image.setTag(mediaUri);
+        final int availableWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+        final int requestPixels = ThumbnailPolicy.previewRequestPixels(availableWidth);
+        final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
+        if (failedPreviewCache.get(cacheKey) != null) {
+            loading.setText("无法加载预览");
+            return;
+        }
+
+        final PreviewTarget target = new PreviewTarget(image, loading);
+        boolean shouldSubmit = false;
+        boolean failed = false;
+        synchronized (previewRequestsLock) {
+            if (destroyed) {
+                return;
+            }
+            if (failedPreviewCache.get(cacheKey) != null) {
+                failed = true;
+            } else if (previewInFlight.containsKey(cacheKey)) {
+                previewInFlight.put(cacheKey, target);
+            } else {
+                previewInFlight.put(cacheKey, target);
+                shouldSubmit = true;
+            }
+        }
+        if (failed) {
+            loading.setText("无法加载预览");
+            return;
+        }
+        if (!shouldSubmit) {
+            return;
+        }
+
+        try {
+            thumbnailExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Bitmap loadedBitmap = null;
+                    try {
+                        loadedBitmap = loadPreviewBitmap(mediaUri, requestPixels);
+                        if (loadedBitmap == null) {
+                            failedPreviewCache.put(cacheKey, Boolean.TRUE);
+                        }
+                    } finally {
+                        final PreviewTarget completedTarget;
+                        synchronized (previewRequestsLock) {
+                            completedTarget = previewInFlight.remove(cacheKey);
+                        }
+                        if (completedTarget != null && !destroyed) {
+                            final Bitmap bitmap = loadedBitmap;
+                            postTask(new Runnable() {
+                                @Override
+                                public void run() {
+                                    completePreviewRequest(mediaUri, bitmap, completedTarget);
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            synchronized (previewRequestsLock) {
+                previewInFlight.remove(cacheKey);
+            }
+        }
+    }
+
+    private void completePreviewRequest(String mediaUri, Bitmap bitmap, PreviewTarget target) {
+        if (destroyed) {
+            return;
+        }
+        ImageView image = target.image.get();
+        TextView loading = target.loading.get();
+        if (image == null || loading == null
+                || !mediaUri.equals(image.getTag())
+                || !image.isAttachedToWindow()
+                || !loading.isAttachedToWindow()) {
+            return;
+        }
+        if (bitmap == null) {
+            loading.setText("无法加载预览");
+            return;
+        }
+        image.setImageBitmap(bitmap);
+        loading.setVisibility(View.GONE);
+    }
+
+    private Bitmap loadPreviewBitmap(String mediaUri, int requestPixels) {
         if (Build.VERSION.SDK_INT < 29) {
             return null;
         }
         try {
-            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(dp(1200), dp(1200)), null);
-        } catch (Exception ignored) {
+            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
+        } catch (OutOfMemoryError error) {
+            Log.w(TAG, "Unable to load preview " + mediaUri, error);
+            return null;
+        } catch (Exception error) {
+            Log.w(TAG, "Unable to load preview " + mediaUri, error);
             return null;
         }
     }
 
     private View metaRow(String name, String value) {
+        return metaRow(name, label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28"));
+    }
+
+    private View metaRow(String name, TextView valueView) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(8), 0, 0);
         TextView key = label(name, 13, "#7C7367");
-        TextView val = label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28");
-        val.setGravity(Gravity.RIGHT);
+        valueView.setGravity(Gravity.RIGHT);
         row.addView(key, new LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT));
-        row.addView(val, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(valueView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return row;
     }
 
@@ -723,17 +1182,26 @@ public final class MainActivity extends Activity {
     private View queueSummary() {
         SyncQueue.Summary summary = queue.summary();
         LinearLayout card = card();
-        card.addView(statRow("总数", String.valueOf(summary.total()), "完成", String.valueOf(summary.done()), "容量", formatBytes(summary.totalBytes())));
-        if (summary.failed() > 0) {
-            Button retry = smallButton("重试失败项");
-            retry.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    retryFailed();
-                }
-            });
-            card.addView(retry);
-        }
+        LinearLayout stats = new LinearLayout(this);
+        stats.setOrientation(LinearLayout.HORIZONTAL);
+        stats.setPadding(0, dp(12), 0, 0);
+        queueSummaryTotalView = label(String.valueOf(summary.total()), 18, "#182B28");
+        queueSummaryDoneView = label(String.valueOf(summary.done()), 18, "#182B28");
+        queueSummaryCapacityView = label(formatBytes(summary.totalBytes()), 18, "#182B28");
+        stats.addView(stat("总数", queueSummaryTotalView), weightParams());
+        stats.addView(stat("完成", queueSummaryDoneView), weightParams());
+        stats.addView(stat("容量", queueSummaryCapacityView), weightParams());
+        card.addView(stats);
+
+        queueRetryFailedButton = smallButton("重试失败项");
+        queueRetryFailedButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                retryFailed();
+            }
+        });
+        queueRetryFailedButton.setVisibility(summary.failed() > 0 ? View.VISIBLE : View.GONE);
+        card.addView(queueRetryFailedButton);
         return card;
     }
 
@@ -768,13 +1236,16 @@ public final class MainActivity extends Activity {
     private View queueTaskList(TaskWindow window) {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.addView(taskList(window.visibleTasks(), true));
-        if (window.hasMore()) {
-            TextView hint = label("继续向下滑动加载后续 " + window.hiddenCount() + " 条", 12, "#7C7367");
-            hint.setGravity(Gravity.CENTER);
-            hint.setPadding(0, dp(10), 0, dp(18));
-            container.addView(hint);
-        }
+        queueTaskContainer = new LinearLayout(this);
+        queueTaskContainer.setOrientation(LinearLayout.VERTICAL);
+        populateQueueTaskContainer(window.visibleTasks());
+        container.addView(queueTaskContainer);
+
+        queueLoadMoreHint = label("", 12, "#7C7367");
+        queueLoadMoreHint.setGravity(Gravity.CENTER);
+        queueLoadMoreHint.setPadding(0, dp(10), 0, dp(18));
+        container.addView(queueLoadMoreHint);
+        updateQueueLoadMoreHint(window);
         return container;
     }
 
@@ -803,29 +1274,32 @@ public final class MainActivity extends Activity {
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
         copy.setPadding(dp(12), 0, 0, 0);
-        copy.addView(label(task.media().displayName(), 15, "#182B28"));
-        copy.addView(label(formatBytes(task.media().sizeBytes()) + " · " + statusText(task), 12, "#786F63"));
-        if (task.status() == SyncStatus.UPLOADING) {
-            ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-            bar.setIndeterminate(true);
-            copy.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
-        }
-        if (task.status() == SyncStatus.FAILED && task.errorMessage() != null) {
-            copy.addView(label(task.errorMessage(), 12, "#A54135"));
-        }
+        TextView fileName = label(task.media().displayName(), 15, "#182B28");
+        TextView statusCapacity = label("", 12, "#786F63");
+        ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setIndeterminate(true);
+        TextView error = label("", 12, "#A54135");
+        copy.addView(fileName);
+        copy.addView(statusCapacity);
+        copy.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
+        copy.addView(error);
         row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        if (task.status() == SyncStatus.FAILED) {
-            Button retry = smallButton("重试");
-            retry.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    queue.retry(task.id());
-                    render();
+        Button retry = smallButton("重试");
+        retry.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                SyncTask currentTask = queue.findById(task.id());
+                if (currentTask == null || currentTask.status() != SyncStatus.FAILED) {
+                    return;
                 }
-            });
-            row.addView(retry);
-        }
+                SyncStatus previousStatus = currentTask.status();
+                queue.retry(currentTask.id());
+                refreshQueueSummary();
+                refreshQueueRow(currentTask.id(), previousStatus, SyncStatus.WAITING);
+            }
+        });
+        row.addView(retry);
         row.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -834,7 +1308,26 @@ public final class MainActivity extends Activity {
                 render();
             }
         });
+
+        QueueRowViews views = new QueueRowViews(row, fileName, statusCapacity, error, progress, retry);
+        queueRows.put(task.id(), views);
+        bindQueueRow(task, views);
         return row;
+    }
+
+    private void bindQueueRow(SyncTask task, QueueRowViews views) {
+        views.fileName.setText(task.media().displayName());
+        views.statusCapacity.setText(formatBytes(task.media().sizeBytes()) + " · " + statusText(task));
+        views.statusCapacity.setTextColor(color(statusColor(task.status())));
+
+        boolean uploading = task.status() == SyncStatus.UPLOADING;
+        views.progress.setVisibility(uploading ? View.VISIBLE : View.GONE);
+
+        boolean failed = task.status() == SyncStatus.FAILED;
+        views.retry.setVisibility(failed ? View.VISIBLE : View.GONE);
+        String errorMessage = task.errorMessage();
+        views.error.setText(errorMessage == null ? "" : errorMessage);
+        views.error.setVisibility(failed && errorMessage != null ? View.VISIBLE : View.GONE);
     }
 
     private View thumbnail(SyncTask task) {
@@ -851,40 +1344,216 @@ public final class MainActivity extends Activity {
 
         final String mediaUri = task.media().uri();
         image.setTag(mediaUri);
-        loadThumbnailAsync(image, placeholder, mediaUri);
+        final int requestPixels = ThumbnailPolicy.gridRequestPixels(96);
+        loadThumbnailAsync(image, placeholder, mediaUri, requestPixels);
         return frame;
     }
 
-    private void loadThumbnailAsync(final ImageView image, final TextView placeholder, final String mediaUri) {
-        thumbnailExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                final Bitmap bitmap = loadThumbnailBitmap(mediaUri);
-                if (bitmap == null) {
-                    return;
-                }
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (!mediaUri.equals(image.getTag())) {
-                            return;
-                        }
-                        image.setImageBitmap(bitmap);
-                        placeholder.setVisibility(View.GONE);
-                    }
-                });
+    private void loadThumbnailAsync(
+        final ImageView image,
+        final TextView placeholder,
+        final String mediaUri,
+        final int requestPixels
+    ) {
+        if (destroyed) {
+            return;
+        }
+        final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
+        Bitmap cached = thumbnailCache.get(cacheKey);
+        if (cached != null) {
+            image.setImageBitmap(cached);
+            placeholder.setVisibility(View.GONE);
+            return;
+        }
+        if (failedThumbnailCache.get(cacheKey) != null) {
+            return;
+        }
+
+        final ThumbnailTarget target = new ThumbnailTarget(image, placeholder, renderGeneration);
+        boolean shouldSubmit = false;
+        synchronized (thumbnailRequestsLock) {
+            if (destroyed) {
+                return;
             }
-        });
+            cached = thumbnailCache.get(cacheKey);
+            if (cached == null && failedThumbnailCache.get(cacheKey) == null) {
+                List<ThumbnailTarget> targets = thumbnailRequests.get(cacheKey);
+                if (targets == null) {
+                    targets = new ArrayList<>();
+                    thumbnailRequests.put(cacheKey, targets);
+                    shouldSubmit = true;
+                }
+                pruneThumbnailTargets(targets, image);
+                targets.add(target);
+            }
+        }
+
+        if (cached != null) {
+            image.setImageBitmap(cached);
+            placeholder.setVisibility(View.GONE);
+            return;
+        }
+        if (!shouldSubmit) {
+            return;
+        }
+
+        try {
+            thumbnailExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    Bitmap loadedBitmap = null;
+                    try {
+                        loadedBitmap = loadThumbnailBitmap(mediaUri, requestPixels);
+                        if (loadedBitmap == null) {
+                            failedThumbnailCache.put(cacheKey, Boolean.TRUE);
+                        } else {
+                            thumbnailCache.put(cacheKey, loadedBitmap);
+                        }
+                    } finally {
+                        final List<ThumbnailTarget> targets;
+                        synchronized (thumbnailRequestsLock) {
+                            List<ThumbnailTarget> inFlightTargets = thumbnailRequests.remove(cacheKey);
+                            targets = inFlightTargets == null
+                                    ? null
+                                    : new ArrayList<>(inFlightTargets);
+                            if (inFlightTargets != null) {
+                                inFlightTargets.clear();
+                            }
+                        }
+                        if (targets != null && !destroyed) {
+                            final Bitmap bitmap = loadedBitmap;
+                            postTask(new Runnable() {
+                                @Override
+                                public void run() {
+                                    completeThumbnailRequest(mediaUri, bitmap, targets);
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+        } catch (RejectedExecutionException error) {
+            synchronized (thumbnailRequestsLock) {
+                List<ThumbnailTarget> targets = thumbnailRequests.remove(cacheKey);
+                if (targets != null) {
+                    targets.clear();
+                }
+            }
+        }
     }
 
-    private Bitmap loadThumbnailBitmap(String mediaUri) {
+    private void pruneThumbnailTargets(List<ThumbnailTarget> targets, ImageView currentImage) {
+        for (int index = targets.size() - 1; index >= 0; index--) {
+            ThumbnailTarget target = targets.get(index);
+            ImageView targetImage = target.image.get();
+            if (targetImage == null
+                    || targetImage == currentImage
+                    || (!targetImage.isAttachedToWindow()
+                    && target.renderGeneration != renderGeneration)) {
+                targets.remove(index);
+            }
+        }
+    }
+
+    private void completeThumbnailRequest(
+        String mediaUri,
+        Bitmap bitmap,
+        List<ThumbnailTarget> targets
+    ) {
+        if (destroyed || bitmap == null) {
+            return;
+        }
+        for (ThumbnailTarget target : targets) {
+            ImageView image = target.image.get();
+            if (image == null || !mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
+                continue;
+            }
+            image.setImageBitmap(bitmap);
+            TextView placeholder = target.placeholder.get();
+            if (placeholder != null && placeholder.isAttachedToWindow()) {
+                placeholder.setVisibility(View.GONE);
+            }
+        }
+    }
+
+    private Bitmap loadThumbnailBitmap(String mediaUri, int requestPixels) {
         if (Build.VERSION.SDK_INT < 29) {
             return null;
         }
         try {
-            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(dp(96), dp(96)), null);
-        } catch (Exception ignored) {
+            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
+        } catch (OutOfMemoryError error) {
+            Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
             return null;
+        } catch (Exception error) {
+            Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
+            return null;
+        }
+    }
+
+    private static int thumbnailCacheBytes() {
+        long requestedBytes = Math.max(MIN_THUMBNAIL_CACHE_BYTES, Runtime.getRuntime().maxMemory() / 16L);
+        return (int) Math.min((long) Integer.MAX_VALUE, requestedBytes);
+    }
+
+    private static String thumbnailCacheKey(String mediaUri, int requestPixels) {
+        return mediaUri + "#" + requestPixels + "x" + requestPixels;
+    }
+
+    private static final class ThumbnailTarget {
+        private final WeakReference<ImageView> image;
+        private final WeakReference<TextView> placeholder;
+        private final int renderGeneration;
+
+        private ThumbnailTarget(ImageView image, TextView placeholder, int renderGeneration) {
+            this.image = new WeakReference<>(image);
+            this.placeholder = new WeakReference<>(placeholder);
+            this.renderGeneration = renderGeneration;
+        }
+    }
+
+    private static final class PreviewTarget {
+        private final WeakReference<ImageView> image;
+        private final WeakReference<TextView> loading;
+
+        private PreviewTarget(ImageView image, TextView loading) {
+            this.image = new WeakReference<>(image);
+            this.loading = new WeakReference<>(loading);
+        }
+    }
+
+    private static final class QueueRowViews {
+        private final LinearLayout root;
+        private final TextView fileName;
+        private final TextView statusCapacity;
+        private final TextView error;
+        private final ProgressBar progress;
+        private final Button retry;
+
+        private QueueRowViews(
+            LinearLayout root,
+            TextView fileName,
+            TextView statusCapacity,
+            TextView error,
+            ProgressBar progress,
+            Button retry
+        ) {
+            this.root = root;
+            this.fileName = fileName;
+            this.statusCapacity = statusCapacity;
+            this.error = error;
+            this.progress = progress;
+            this.retry = retry;
+        }
+    }
+
+    private static final class RecentTaskTileViews {
+        private final FrameLayout root;
+        private final TextView strip;
+
+        private RecentTaskTileViews(FrameLayout root, TextView strip) {
+            this.root = root;
+            this.strip = strip;
         }
     }
 
@@ -1061,11 +1730,15 @@ public final class MainActivity extends Activity {
     }
 
     private View stat(String label, String value) {
+        return stat(label, label(value, 18, "#182B28"));
+    }
+
+    private View stat(String labelText, TextView valueView) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
-        item.addView(label(value, 18, "#182B28"));
-        item.addView(label(label, 11, "#7C7367"));
+        item.addView(valueView);
+        item.addView(label(labelText, 11, "#7C7367"));
         return item;
     }
 
