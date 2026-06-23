@@ -1,7 +1,6 @@
-# Claude Instructions
+# Claude 说明
 
 @AGENTS.md
 
-Read and follow all instructions in `AGENTS.md` for every task in this
-repository. Treat `AGENTS.md` as the single source of truth when these
-instructions are updated.
+本仓库的每个任务都必须读取并遵守 `AGENTS.md`。当说明发生变化时，以
+`AGENTS.md` 为唯一事实来源。

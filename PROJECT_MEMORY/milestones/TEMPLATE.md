@@ -1,27 +1,27 @@
-# M<number>: <Milestone Name>
+# M<number>：<里程碑名称>
 
-Status: Planned
+状态：计划中
 
-## Entry Criteria
+## 进入标准
 
-- [ ] Define the required starting state.
+- [ ] 定义必需的起始状态。
 
-## Exit Criteria
+## 退出标准
 
-- [ ] Define observable behavior and quality gates.
-- [ ] Record exact test, build, and manual validation requirements.
+- [ ] 定义可观察行为和质量门槛。
+- [ ] 记录精确测试、构建和人工验证要求。
 
-## Evidence
+## 证据
 
-- Target commit:
-- Commands:
-- Results:
-- Manual verification:
+- 目标提交：
+- 命令：
+- 结果：
+- 人工验证：
 
-## Risks
+## 风险
 
-List related IDs from `../02_RISK_REGISTER.md` and their resulting status.
+列出 `../02_RISK_REGISTER.md` 中的相关 ID 及其结果状态。
 
-## Rollback
+## 回滚
 
-Describe how to return to the last frozen baseline without losing user data.
+描述如何回到上一个冻结基线且不丢失用户数据。

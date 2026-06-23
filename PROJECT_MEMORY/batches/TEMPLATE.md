@@ -1,41 +1,41 @@
-# B<number>: <Batch Name>
+# B<number>：<批次名称>
 
-Date: YYYY-MM-DD
+日期：YYYY-MM-DD
 
-## Objective
+## 目标
 
-State one independently verifiable outcome.
+说明一个可独立验证的结果。
 
-## Scope
+## 范围
 
-List the files, modules, and behaviors allowed to change.
+列出允许改变的文件、模块和行为。
 
-## Non-Goals
+## 非目标
 
-List adjacent work intentionally excluded from this batch.
+列出本批次明确排除的相邻工作。
 
-## Risks and Decisions
+## 风险和决策
 
-List related risk and ADR IDs.
+列出相关风险 ID 和 ADR ID。
 
-## Invariants
+## 不变量
 
-List behavior that must remain unchanged.
+列出必须保持不变的行为。
 
-## Validation
+## 验证
 
 ```bash
-# exact commands
+# 精确命令
 ```
 
-Record exit codes, test counts, manual checks, and the environment used.
+记录退出码、测试数量、人工检查和使用环境。
 
-## Rollback
+## 回滚
 
-Describe a concrete rollback procedure and any data compatibility concern.
+描述具体回滚步骤和数据兼容性注意事项。
 
-## Result
+## 结果
 
-- Commit:
-- Outcome:
-- Follow-up:
+- 提交：
+- 结果：
+- 后续：

@@ -1,52 +1,48 @@
-# B01: Agent Governance Baseline
+# B01：代理治理基线
 
-Date: 2026-06-11
+日期：2026-06-11
 
-## Objective
+## 目标
 
-Create a tool-neutral agent entry point and durable project-memory structure
-grounded in the current repository state.
+创建与工具无关的代理入口，以及基于当前仓库状态的长期项目记忆结构。
 
-## Scope
+## 范围
 
-- Rename `AGENT.md` to `AGENTS.md`.
-- Point Claude and GitHub Copilot instructions to `AGENTS.md`.
-- Add status, architecture, risk, roadmap, ADR, handoff, freeze, milestone, and
-  batch documentation under `PROJECT_MEMORY/`.
-- Add contributor guidance.
+- 将 `AGENT.md` 重命名为 `AGENTS.md`。
+- 让 Claude 和 GitHub Copilot 说明指向 `AGENTS.md`。
+- 在 `PROJECT_MEMORY/` 下添加状态、架构、风险、路线图、ADR、交接、冻结、
+  里程碑和批次文档。
+- 添加贡献指南。
 
-## Non-Goals
+## 非目标
 
-- No application source or runtime behavior changes.
-- No merge of `codex/stability-macos-ux`.
-- No release or version change.
+- 不改变应用源码或运行时行为。
+- 不合并 `codex/stability-macos-ux`。
+- 不发布新版本，也不改变版本号。
 
-## Risks and Decisions
+## 风险和决策
 
-- Establishes ADR-007.
-- Documents existing risks R-001 through R-010.
+- 建立 ADR-007。
+- 记录既有风险 R-001 到 R-010。
 
-## Validation
+## 验证
 
-Required before closing this batch:
+关闭本批次前需要运行：
 
 ```bash
 git diff --check
 rg -n "AGENT\\.md" --glob '!PROJECT_MEMORY/batches/2026-06-11-B01-agent-governance.md'
 ```
 
-No platform test is required because this batch changes documentation only.
+本批次只修改文档，不需要平台测试。
 
-## Rollback
+## 回滚
 
-Revert the governance commit. Application source and released artifacts are
-unaffected.
+回滚治理提交。应用源码和已发布产物不受影响。
 
-## Result
+## 结果
 
-- `git diff --check`: passed.
-- Singular `AGENT.md` reference scan: passed; no stale references outside this
-  historical batch description.
-- Platform tests were not run because application source and runtime behavior
-  did not change.
-- Commit: the commit containing this batch record.
+- `git diff --check`：通过。
+- 单数 `AGENT.md` 引用扫描：通过；除本历史批次描述外没有过期引用。
+- 未运行平台测试，因为没有改变应用源码或运行时行为。
+- 提交：包含本批次记录的提交。

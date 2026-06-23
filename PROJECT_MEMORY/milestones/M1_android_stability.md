@@ -1,42 +1,38 @@
-# M1: Android Runtime Stability
+# M1：Android 运行时稳定性
 
-Status: In progress
+状态：进行中
 
-## Entry Criteria
+## 进入标准
 
-- [x] Stability design and implementation plan exist.
-- [x] Current Android tests and build commands are documented.
-- [x] Relevant risks R-001 and R-002 are registered.
+- [x] 稳定性设计和实施计划已存在。
+- [x] 当前 Android 测试和构建命令已记录。
+- [x] 相关风险 R-001 和 R-002 已登记。
 
-## Exit Criteria
+## 退出标准
 
-- [x] Grid thumbnail requests are bounded to display-scale dimensions.
-- [x] Preview requests have a documented upper bound.
-- [x] Thumbnail cache has a strict memory/entry bound.
-- [x] Duplicate decode requests are coalesced.
-- [x] Stale async thumbnail results cannot update reused or detached views.
-- [x] Queue status and pagination updates do not rebuild the full screen.
-- [x] Stale synchronization generations cannot mutate the active run.
-- [x] `./android/run_tests.sh` passes on the target commit.
-- [x] `./android/build.sh` passes and verifies the APK signature.
-- [ ] Physical-device stress test covers large media libraries, rapid
-  navigation, background/foreground transitions, and repeated sync starts.
-- [ ] No OOM, ANR, queue-state regression, or stale-thumbnail defect is observed.
+- [x] 网格缩略图请求限制在显示级尺寸内。
+- [x] 预览请求有已记录的上限。
+- [x] 缩略图缓存有严格内存/条目上限。
+- [x] 重复解码请求会被合并。
+- [x] 过期异步缩略图结果不能更新复用或已分离视图。
+- [x] 队列状态和分页更新不会重建整个屏幕。
+- [x] 过期同步代次不能修改当前运行。
+- [x] `./android/run_tests.sh` 在目标提交通过。
+- [x] `./android/build.sh` 通过并验证 APK 签名。
+- [ ] 真机压力测试覆盖大型媒体库、快速导航、前后台切换和重复开始同步。
+- [ ] 未观察到 OOM、ANR、队列状态回归或过期缩略图缺陷。
 
-## Candidate Evidence
+## 候选证据
 
-Branch `codex/stability-macos-ux` at `cbf31db` contains the candidate controls.
-On 2026-06-15, `./android/run_tests.sh` and `./android/build.sh` passed. No
-Android device was connected, so the physical-device criteria and final
-no-regression observation remain open. These controls were merged into
-`codex/agent-governance` at `23b09d5` on 2026-06-22, but are not accepted on
-`main` until device evidence is recorded.
+分支 `codex/stability-macos-ux` 的 `cbf31db` 包含候选控制措施。2026-06-15，
+`./android/run_tests.sh` 和 `./android/build.sh` 通过。没有连接 Android 设备，
+所以真机标准和最终无回归观察仍未完成。这些控制措施已于 2026-06-22 合并到
+`codex/agent-governance` 的 `23b09d5`，但在记录设备证据前不能视为在 `main`
+完成验收。
 
-On 2026-06-22, the integrated commit passed `./android/run_tests.sh` and
-`./android/build.sh`. It was merged into `main` at `8a09aa0`. Physical-device
-stress testing remains open.
+2026-06-22，集成提交通过 `./android/run_tests.sh` 和 `./android/build.sh`，并合并
+到 `main` 的 `8a09aa0`。真机压力测试仍未完成。
 
-## Rollback
+## 回滚
 
-Revert the integration batch as a unit. Do not remove the existing bounded
-`TaskWindow` behavior introduced before this milestone.
+把集成批次作为整体回滚。不要移除该里程碑之前已经引入的有界 `TaskWindow` 行为。

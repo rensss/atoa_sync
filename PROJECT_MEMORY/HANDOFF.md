@@ -1,22 +1,19 @@
-# Handoff
+# 交接
 
-Last updated: 2026-06-22
+最后更新：2026-06-22
 
-## Start Here
+## 从这里开始
 
-The primary branch is `main` with B04 implementation commit `fee8063`. Product
-version is `0.1.2`. Governance documents and the approved stability/macOS UX
-implementation are now merged into `main`.
+主分支是 `main`，B04 实现提交为 `fee8063`。产品版本为 `0.1.2`。治理文档和已
+批准的稳定性/macOS UX 实现已经合并到 `main`。
 
-The candidate implementation branch `codex/stability-macos-ux` is at `cbf31db`.
-It contains the complete approved Android stability and macOS UX work plus
-automated regression coverage. Independent final code review approved the
-candidate with no blocking issues. It was merged into `codex/agent-governance`
-at `23b09d5` and then into `main` at `8a09aa0` on 2026-06-22. The integrated
-commit passed automated Android/macOS validation and still needs
-physical-device Android stress testing and final macOS visual/interaction QA.
+候选实现分支 `codex/stability-macos-ux` 位于 `cbf31db`。它包含完整的已批准
+Android 稳定性和 macOS UX 工作，以及自动化回归覆盖。独立最终代码审查未发现
+阻塞问题。该分支于 2026-06-22 合并到 `codex/agent-governance` 的 `23b09d5`，
+随后合并到 `main` 的 `8a09aa0`。集成提交通过了 Android/macOS 自动化验证，但
+仍需要 Android 真机压力测试和 macOS 最终视觉/交互 QA。
 
-## Immediate Procedure
+## 立即执行流程
 
 ```bash
 git status --short --branch
@@ -26,39 +23,41 @@ swift test --package-path macos
 ./macos/build_and_run.sh verify
 ```
 
-The automated checks above passed on 2026-06-22 for integration commit
-`23b09d5`. Perform the missing device and GUI checks recorded in
-`batches/2026-06-15-B02-stability-macos-ux-candidate.md`. Review risks R-001
-and R-002 before accepting the Android stability milestone.
+以上自动化检查已于 2026-06-22 在集成提交 `23b09d5` 通过。仍需执行
+`batches/2026-06-15-B02-stability-macos-ux-candidate.md` 中记录的设备和 GUI
+检查。验收 Android 稳定性里程碑前，先复核风险 R-001 和 R-002。
 
-## Latest Local Work
+## 最新本地工作
 
-B04 macOS idempotent delete handling is implemented on `main` at `fee8063`.
-`LibraryRepository.delete` no longer reports `missingFile` when an active
-record's file is already gone, and deletion of an already deleted record is a
-no-op. Regression tests were added in `LibraryRepositoryTests`.
+B05 中文文档和项目记忆治理已完成：仓库级文档、平台 README、发布说明、历史计划/
+设计文档和 `PROJECT_MEMORY/` 已统一整理为中文；冗余根目录 `CHANGELOG.md` 和
+`CONTRIBUTING.md` 已移除；`AGENTS.md` 已明确 `PROJECT_MEMORY/` 文档结构和更新规则。
+验证：`git diff --check` 通过；引用扫描确认活跃代理入口仍指向 `AGENTS.md`。未运行
+平台测试，因为只改 Markdown 文档。
 
-Validation for B04: `swift build --package-path macos` passed on 2026-06-22.
-The following command built successfully but hung while starting XCTest in this
-automation environment, including with escalated permissions:
+B04 macOS 幂等删除处理已在 `main` 的 `fee8063` 实现。`LibraryRepository.delete`
+在活动记录的文件已经不存在时不再报告 `missingFile`，对已经删除的记录再次删除
+也会成为 no-op。`LibraryRepositoryTests` 已添加回归测试。
+
+B04 验证：`swift build --package-path macos` 于 2026-06-22 通过。以下命令构建
+成功，但在当前自动化环境中启动 XCTest 时挂起：
 
 ```bash
 swift test --package-path macos --filter LibraryRepositoryTests
 ```
 
-Direct `xcrun xctest` was blocked by macOS system policy for the unsigned
-SwiftPM test bundle.
+直接运行 `xcrun xctest` 被 macOS 系统策略阻止，因为 SwiftPM 测试包未签名。
 
-## Important Constraints
+## 重要约束
 
-- Do not merge design plans as proof of implementation.
-- Do not expose the receiver outside a trusted LAN.
-- Preserve `.part` upload staging and size validation.
-- Keep Android queue locks free of I/O and bitmap decoding.
-- Keep final Android integration evidence distinct from macOS acceptance even
-  though both implementations currently share the candidate branch.
+- 不要把设计计划合并当作实现证明。
+- 不要把接收端暴露到可信局域网之外。
+- 保留 `.part` 上传暂存和尺寸校验。
+- Android 队列锁内不得进行 I/O 或 bitmap 解码。
+- 即使 Android 和 macOS 实现目前共享候选分支，也要把最终 Android 集成证据与
+  macOS 验收证据分开记录。
 
-## Documentation on Completion
+## 完成后的文档
 
-After device/GUI QA, update `00_PROJECT_STATUS.md`, this file, the relevant
-risk rows, the applicable milestone, and the batch record with the evidence.
+完成设备/GUI QA 后，更新 `00_PROJECT_STATUS.md`、本文件、相关风险行、适用
+里程碑和批次记录，并写入证据。

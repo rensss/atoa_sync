@@ -1,17 +1,18 @@
 # Android Sync v0.1.1
 
-Crash fix release.
+崩溃修复版本。
 
-## Fixed
+## 修复内容
 
-- Queue tab no longer tries to render every scanned photo/video row at once.
-- Queue display now shows a limited first page and a "show more" button for the next batch.
+- 队列 tab 不再尝试一次渲染所有已扫描照片/视频行。
+- 队列显示改为有限首屏页面，并提供“显示更多”按钮加载下一批。
 
-## Why
+## 原因
 
-Version `0.1.0` scanned the full media library, then the queue tab built every row and thumbnail synchronously. Large photo libraries could crash or freeze the app when opening the queue.
+版本 `0.1.0` 会扫描完整媒体库，然后队列 tab 同步构建每一行和缩略图。大型照片库
+在打开队列时可能造成应用崩溃或冻结。
 
-## Verification
+## 验证
 
 - `android/run_tests.sh`
 - `python3 -m unittest receiver.tests.test_receiver`

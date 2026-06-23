@@ -1,88 +1,94 @@
-# Platform Directory Layout Implementation Plan
+# 平台目录布局实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **给执行代理：** 必须使用 `superpowers:subagent-driven-development`（推荐）或
+> `superpowers:executing-plans`，按任务逐项执行。所有步骤使用复选框跟踪。
 
-**Goal:** Split all active macOS and Android project files into their platform directories and remove the obsolete Python receiver.
+**目标：** 将所有活跃 macOS 和 Android 项目文件拆分到各自平台目录，并移除废弃
+Python 接收端。
 
-**Architecture:** The repository root retains shared product metadata and release artifacts. Each platform directory becomes independently buildable, with the Android web prototype owned by `android/prototype/` and the Swift package fully owned by `macos/`.
+**架构：** 仓库根目录保留共享产品元数据和发布产物。每个平台目录都可独立构建；
+Android Web 原型归属 `android/prototype/`，Swift package 完全归属 `macos/`。
 
-**Tech Stack:** Java/Android SDK command-line tools, Swift 6/SwiftPM, Bash, static HTML/CSS/JavaScript.
+**技术栈：** Java/Android SDK 命令行工具、Swift 6/SwiftPM、Bash、静态
+HTML/CSS/JavaScript。
 
 ---
 
-### Task 1: Move Platform-Owned Files
+### 任务 1：移动平台拥有的文件
 
-**Files:**
-- Move: `Package.swift` to `macos/Package.swift`
-- Move: `script/build_and_run.sh` to `macos/build_and_run.sh`
-- Move: `index.html`, `app.js`, `styles.css`, `assets/`, and `design-qa.md` to `android/prototype/`
-- Delete: `receiver/`
+**文件：**
 
-- [x] **Step 1: Move the Android browser prototype**
+- 移动：`Package.swift` 到 `macos/Package.swift`
+- 移动：`script/build_and_run.sh` 到 `macos/build_and_run.sh`
+- 移动：`index.html`、`app.js`、`styles.css`、`assets/` 和 `design-qa.md` 到
+  `android/prototype/`
+- 删除：`receiver/`
 
-Create `android/prototype/` and move the HTML, CSS, JavaScript, image assets,
-and QA report into it without changing relative asset URLs.
+- [x] **步骤 1：移动 Android 浏览器原型**
 
-- [x] **Step 2: Move the macOS package files**
+创建 `android/prototype/`，把 HTML、CSS、JavaScript、图片资产和 QA 报告移入其中，
+并保持相对资产 URL 不变。
 
-Move the Swift package manifest and app packaging script into `macos/`.
+- [x] **步骤 2：移动 macOS package 文件**
 
-- [x] **Step 3: Remove the Python receiver**
+把 Swift package manifest 和应用打包脚本移入 `macos/`。
 
-Delete the tracked Python receiver source, tests, documentation, and upload
-placeholder because the native macOS receiver supersedes it.
+- [x] **步骤 3：移除 Python 接收端**
 
-### Task 2: Repair Build and Documentation Paths
+删除已跟踪的 Python 接收端源码、测试、文档和上传占位文件，因为原生 macOS 接收端
+已取代它。
 
-**Files:**
-- Modify: `macos/Package.swift`
-- Modify: `macos/build_and_run.sh`
-- Modify: `macos/README.md`
-- Modify: `android/README.md`
-- Modify: `.gitignore`
-- Create: `README.md`
+### 任务 2：修复构建和文档路径
 
-- [x] **Step 1: Make the Swift package self-contained**
+**文件：**
 
-Change target paths in `macos/Package.swift` to `Sources/...` and `Tests/...`.
+- 修改：`macos/Package.swift`
+- 修改：`macos/build_and_run.sh`
+- 修改：`macos/README.md`
+- 修改：`android/README.md`
+- 修改：`.gitignore`
+- 新建：`README.md`
 
-- [x] **Step 2: Update macOS packaging paths**
+- [x] **步骤 1：让 Swift package 自包含**
 
-Set the script package directory to `macos/`, repository directory to its
-parent, version input to repository `VERSION`, icon input to
-`macos/Resources/AppIcon.icns`, and output to repository `dist/`.
+将 `macos/Package.swift` 中的 target 路径改为 `Sources/...` 和 `Tests/...`。
 
-- [x] **Step 3: Update active documentation**
+- [x] **步骤 2：更新 macOS 打包路径**
 
-Document root commands using `--package-path macos`, direct Android users to
-the native macOS receiver, and add a root project map.
+将脚本 package 目录设为 `macos/`，仓库目录设为其父目录，版本输入设为仓库
+`VERSION`，图标输入设为 `macos/Resources/AppIcon.icns`，输出设为仓库 `dist/`。
 
-- [x] **Step 4: Update ignore rules**
+- [x] **步骤 3：更新活跃文档**
 
-Remove Python receiver rules and ignore SwiftPM output inside `macos/`.
+记录使用 `--package-path macos` 的根目录命令，引导 Android 用户使用原生 macOS
+接收端，并增加根项目地图。
 
-### Task 3: Verify Both Platforms
+- [x] **步骤 4：更新忽略规则**
 
-**Files:**
-- Verify only
+移除 Python 接收端规则，并忽略 `macos/` 内的 SwiftPM 输出。
 
-- [x] **Step 1: Run Android unit tests**
+### 任务 3：验证两个平台
 
-Run `./android/run_tests.sh` and require exit code 0.
+**文件：**
 
-- [x] **Step 2: Build Android APK**
+- 仅验证
 
-Run `./android/build.sh` and require APK signature verification to succeed.
+- [x] **步骤 1：运行 Android 单元测试**
 
-- [x] **Step 3: Run macOS unit tests**
+运行 `./android/run_tests.sh`，要求退出码为 0。
 
-Run `swift test --package-path macos` and require all tests to pass.
+- [x] **步骤 2：构建 Android APK**
 
-- [x] **Step 4: Build macOS executable**
+运行 `./android/build.sh`，要求 APK 签名验证成功。
 
-Run `swift build --package-path macos` and require exit code 0.
+- [x] **步骤 3：运行 macOS 单元测试**
 
-- [x] **Step 5: Audit paths and repository state**
+运行 `swift test --package-path macos`，要求所有测试通过。
 
-Search active files for stale paths, inspect `git diff --check`, and verify the
-final root layout.
+- [x] **步骤 4：构建 macOS executable**
+
+运行 `swift build --package-path macos`，要求退出码为 0。
+
+- [x] **步骤 5：审计路径和仓库状态**
+
+搜索活跃文件中的过期路径，检查 `git diff --check`，并验证最终根目录布局。

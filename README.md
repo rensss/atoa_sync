@@ -1,15 +1,15 @@
 # Android Sync
 
-Android Sync transfers photos and videos from an Android device to a macOS
-computer or another HTTP/WebDAV-compatible destination on the local network.
+Android Sync 用于把 Android 设备上的照片和视频传输到 macOS，或传输到局域网内
+兼容 HTTP/WebDAV 的目标。
 
-## Repository layout
+## 仓库结构
 
-- `android/` contains the dependency-free Android app, tests, build scripts,
-  and the browser UI prototype.
-- `macos/` contains the native Swift receiver, media library, tests, SwiftPM
-  manifest, and packaging script.
-- `releases/` contains versioned APKs and historical release notes.
+- `android/`：无第三方依赖的 Android 应用、测试、构建脚本和浏览器 UI 原型。
+- `macos/`：原生 Swift 接收端、媒体库、测试、SwiftPM 清单和打包脚本。
+- `docs/`：共享设计、计划和规格文档。
+- `releases/`：版本化 APK 和历史发布说明。
+- `PROJECT_MEMORY/`：当前技术状态、架构、风险、路线图、决策和交接上下文。
 
 ## Android
 
@@ -18,8 +18,11 @@ computer or another HTTP/WebDAV-compatible destination on the local network.
 ./android/build.sh
 ```
 
-The signed debug APK is written to
-`android/build/AndroidSync-debug.apk`.
+签名调试 APK 输出到：
+
+```text
+android/build/AndroidSync-debug.apk
+```
 
 ## macOS
 
@@ -28,14 +31,15 @@ swift test --package-path macos
 ./macos/build_and_run.sh
 ```
 
-The packaging script writes the app bundle to `dist/Android Sync.app`.
+打包脚本会把应用包写入：
 
-See `android/README.md` and `macos/README.md` for platform-specific details.
+```text
+dist/Android Sync.app
+```
 
-## Development and agent context
+平台细节见 `android/README.md` 和 `macos/README.md`。
 
-- Contributors and coding agents start with `AGENTS.md`.
-- Current technical state, architecture, risks, roadmap, decisions, and handoff
-  context are maintained under `PROJECT_MEMORY/`.
-- Contribution and validation expectations are documented in
-  `CONTRIBUTING.md`.
+## 开发和代理上下文
+
+- 贡献者和编码代理从 `AGENTS.md` 开始。
+- 当前技术状态、架构、风险、路线图、决策和交接信息维护在 `PROJECT_MEMORY/`。

@@ -1,9 +1,9 @@
-# Architecture
+# 架构
 
-## System Context
+## 系统上下文
 
-Android Sync transfers media from an Android device to a native macOS receiver
-or another HTTP/WebDAV-compatible destination on a trusted local network.
+Android Sync 把 Android 设备上的媒体传输到原生 macOS 接收端，或传输到可信局域网
+内兼容 HTTP/WebDAV 的目标。
 
 ```text
 Android MediaStore
@@ -23,55 +23,48 @@ MediaStoreScanner -> SyncQueue -> HttpFileUploader
           media directories       metadata sidecars      uploads.jsonl
 ```
 
-## Android Boundary
+## Android 边界
 
-The Android app is dependency-free Java built directly with local Android SDK
-tools.
+Android 应用使用 Java 编写，不引入第三方依赖，通过本地 Android SDK 工具直接构建。
 
-- `MainActivity`: UI composition, navigation, scan/upload orchestration, and
-  asynchronous thumbnail presentation.
-- `MediaStoreScanner`: reads photos and videos from Android `MediaStore`.
-- `SyncQueue`: synchronized in-memory task ownership, status transitions,
-  filtering, summaries, and bounded visible windows.
-- `RemoteManifestClient`: reads receiver history and identifies media already
-  stored remotely.
-- `HttpFileUploader`: streams media using HTTP `PUT` and Android Sync metadata
-  headers.
+- `MainActivity`：UI 组合、导航、扫描/上传编排和异步缩略图展示。
+- `MediaStoreScanner`：从 Android `MediaStore` 读取照片和视频。
+- `SyncQueue`：同步内存中的任务归属、状态转换、筛选、汇总和有界可见窗口。
+- `RemoteManifestClient`：读取接收端历史并识别远端已经存储的媒体。
+- `HttpFileUploader`：使用 HTTP `PUT` 和 Android Sync 元数据 header 流式上传媒体。
 
-The queue is the authoritative task state during a process lifetime. UI code
-must consume queue snapshots or bounded windows and must not create a second,
-independently mutable task model.
+在进程生命周期内，队列是权威任务状态。UI 代码必须消费队列快照或有界窗口，不得
+创建第二套可独立变更的任务模型。
 
-## macOS Boundary
+## macOS 边界
 
-The macOS app is a Swift 6 package targeting macOS 14+, split into:
+macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 
-- `AndroidSyncCore`: protocol parsing, network access policy, upload models,
-  file policy, storage, manifest history, and the receiver.
-- `AndroidSyncMac`: SwiftUI/SwiftData application state, views, settings,
-  directory access, Quick Look, and menu bar lifecycle.
+- `AndroidSyncCore`：协议解析、网络访问策略、上传模型、文件策略、存储、manifest
+  历史和接收端。
+- `AndroidSyncMac`：SwiftUI/SwiftData 应用状态、视图、设置、目录访问、Quick Look
+  和菜单栏生命周期。
 
-`ReceiverService` owns the `NWListener` and serial receiver queue. It accepts a
-maximum of four concurrent connections. Each connection streams request bytes
-into repository-managed temporary storage.
+`ReceiverService` 拥有 `NWListener` 和串行接收队列，最多接受 4 个并发连接。每个
+连接把请求字节流写入由 repository 管理的临时存储。
 
-`LibraryRepository` is an actor and is the only owner of durable media-library
-mutation. It validates size, chooses storage paths, atomically moves completed
-temporary files, writes sidecar metadata, and appends manifest history.
+`LibraryRepository` 是 actor，也是持久媒体库变更的唯一所有者。它负责校验尺寸、
+选择存储路径、原子移动已完成临时文件、写入 sidecar 元数据，并追加 manifest
+历史。
 
-## Protocol
+## 协议
 
-Supported native receiver endpoints:
+受支持的原生接收端端点：
 
 - `GET /`
 - `GET /health`
 - `GET /manifest.json`
 - `PUT /uploads/<filename>`
 
-Uploads include stable ID, size, MIME type, and available Android media
-timestamps in headers. The receiver stores content without transcoding.
+上传 header 包含稳定 ID、尺寸、MIME 类型和可用的 Android 媒体时间戳。接收端按
+原始内容存储，不进行转码。
 
-## Storage Model
+## 存储模型
 
 ```text
 <selected-root>/
@@ -82,25 +75,21 @@ timestamps in headers. The receiver stores content without transcoding.
 `-- uploads.jsonl
 ```
 
-Each stored file may have a `.metadata.json` sidecar. `uploads.jsonl` is an
-append-only event history used to construct the current manifest, including
-deletion tombstones.
+每个已存储文件可拥有一个 `.metadata.json` sidecar。`uploads.jsonl` 是追加式事件
+历史，用于构建当前 manifest，包括删除 tombstone。
 
-## Concurrency Model
+## 并发模型
 
-- Android scanning, thumbnail decoding, and uploads must remain off the main
-  thread. UI updates return to the Android main thread.
-- `SyncQueue` synchronizes task-map access. Long I/O and bitmap decoding must
-  never occur while holding its monitor.
-- macOS listener and connection state run on one serial dispatch queue.
-- macOS storage mutations run through the `LibraryRepository` actor.
-- SwiftUI state belongs to the main actor through `AppModel`; receiver events
-  must cross explicitly into UI state.
+- Android 扫描、缩略图解码和上传必须留在主线程之外。UI 更新再回到 Android 主线程。
+- `SyncQueue` 同步任务 map 访问。持有其 monitor 时绝不能执行长 I/O 或 bitmap 解码。
+- macOS listener 和连接状态运行在一个串行 dispatch queue 上。
+- macOS 存储变更通过 `LibraryRepository` actor 执行。
+- SwiftUI 状态通过 `AppModel` 归属 main actor；接收端事件必须显式切换到 UI 状态。
 
-## Ownership Rules
+## 所有权规则
 
-- Platform code stays in its platform directory.
-- Core network and storage behavior stays testable in `AndroidSyncCore`.
-- SwiftUI views do not directly mutate files or parse HTTP.
-- Android UI code does not directly own durable receiver history.
-- Generated output belongs in ignored build directories or `dist/`.
+- 平台代码留在所属平台目录。
+- 核心网络和存储行为留在可测试的 `AndroidSyncCore`。
+- SwiftUI 视图不直接变更文件，也不直接解析 HTTP。
+- Android UI 代码不直接拥有持久接收端历史。
+- 生成产物放在已忽略的构建目录或 `dist/`。

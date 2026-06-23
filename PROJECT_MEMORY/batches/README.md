@@ -1,20 +1,20 @@
-# Batches
+# 批次记录
 
-Create one Markdown file per non-trivial implementation batch using:
+每个非平凡实施批次创建一个 Markdown 文件，命名格式：
 
 ```text
 YYYY-MM-DD-BNN-short-name.md
 ```
 
-Each record must contain:
+每条记录必须包含：
 
-- objective and explicit non-goals;
-- files and modules changed;
-- related risk and ADR IDs;
-- behavioral invariants;
-- exact validation commands and results;
-- rollback procedure;
-- final commit and follow-up work.
+- 目标和明确的非目标；
+- 变更的文件、模块和行为；
+- 相关风险 ID 和 ADR ID；
+- 必须保持不变的行为不变量；
+- 精确验证命令和结果；
+- 回滚步骤；
+- 最终提交和后续工作。
 
-Prefer batches that change a few hundred lines or less. If a batch grows beyond
-what can be independently reviewed and rolled back, split it before merging.
+优先选择只改几百行以内的批次。如果一个批次大到无法独立审查和回滚，应在合并前
+拆分。

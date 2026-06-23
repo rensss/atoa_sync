@@ -1,43 +1,41 @@
 # Android Sync for macOS
 
-Native macOS 14+ receiver and media library for the Android Sync app.
+这是 Android Sync 的原生 macOS 14+ 接收端和媒体库。
 
-The interface defaults to Simplified Chinese. Open Settings from the gear
-button in the main window toolbar to switch between Simplified Chinese and
-English.
+界面默认使用简体中文。可通过主窗口工具栏中的齿轮按钮打开设置，并在简体中文和
+英文之间切换。
 
-## Run
+## 运行
 
 ```bash
 ./macos/build_and_run.sh
 ```
 
-The packaged app is written to:
+打包后的应用写入：
 
 ```text
 dist/Android Sync.app
 ```
 
-Run tests without opening the app:
+只运行测试、不打开应用：
 
 ```bash
 swift test --package-path macos
 ```
 
-## First launch
+## 首次启动
 
-1. Choose a receive folder.
-2. Allow incoming network connections if macOS asks.
-3. Copy the upload address shown in the app.
-4. Set that address as the target URL in the Android app.
+1. 选择接收文件夹。
+2. 如果 macOS 弹出提示，允许传入网络连接。
+3. 复制应用中显示的上传地址。
+4. 在 Android 应用中把该地址设为目标 URL。
 
-The app starts receiving automatically after a folder is selected. Closing the
-main window leaves the receiver running in the menu bar. Use **Quit Android
-Sync** in the menu bar to stop the process.
+选择文件夹后，应用会自动开始接收。关闭主窗口后，接收端仍会在菜单栏中运行。
+通过菜单栏中的 **退出 Android Sync** 停止进程。
 
-## Storage compatibility
+## 存储兼容性
 
-The macOS app keeps the existing receiver layout:
+macOS 应用保留现有接收端布局：
 
 ```text
 photos/YYYY-MM/
@@ -46,40 +44,33 @@ files/YYYY-MM/
 uploads.jsonl
 ```
 
-Files are streamed to a temporary `.part` file and moved into place only after
-the complete `Content-Length` has arrived. Media bytes are not transcoded or
-compressed. The app preserves Android Sync timestamps, stable IDs, MIME type,
-source IP, JSONL history, and `.metadata.json` sidecars.
+文件先流式写入临时 `.part` 文件，只有完整 `Content-Length` 到达后才移动到最终
+位置。媒体字节不会被转码或压缩。应用会保留 Android Sync 时间戳、稳定 ID、MIME
+类型、来源 IP、JSONL 历史和 `.metadata.json` sidecar。
 
-Selecting an existing Python receiver directory imports its `uploads.jsonl`
-history automatically.
+选择既有 Python 接收端目录时，会自动导入其中的 `uploads.jsonl` 历史。
 
-## Receiver endpoints
+## 接收端点
 
 - `GET /`
 - `GET /health`
 - `GET /manifest.json`
 - `PUT /uploads/<filename>`
 
-The receiver accepts loopback, IPv4 private/link-local, and IPv6 link-local or
-unique-local source addresses. It does not use an authentication token, so it
-should only be used on a trusted LAN.
+接收端接受 loopback、IPv4 私有/链路本地地址，以及 IPv6 链路本地或唯一本地地址。
+当前没有认证令牌，只应在可信局域网内使用。
 
-## File management
+## 文件管理
 
-The main window provides category filters, search, grid/list layouts, Quick
-Look, Finder reveal, metadata inspection, rename, multiple selection, and Move
-to Trash. Select one file and press Space to open Quick Look; press Space again
-to close it. Deleted items retain a manifest tombstone so the Android app does
-not upload the same media again.
+主窗口提供分类筛选、搜索、网格/列表布局、Quick Look、在 Finder 中显示、元数据
+检查、重命名、多选和移到废纸篓。选中一个文件后按空格打开 Quick Look；再次按
+空格关闭。删除项目会保留 manifest tombstone，避免 Android 应用再次上传同一媒体。
 
-## Version information
+## 版本信息
 
-Settings includes an About section with the app version and build number:
+设置中包含“关于”区域，显示应用版本和构建号：
 
-- The release version comes from the repository root `VERSION` file and is
-  packaged as `CFBundleShortVersionString`.
-- The build number is the current Git commit count and is packaged as
-  `CFBundleVersion`.
-- When the source is built outside a Git worktree, the packaging script uses a
-  positive UTC timestamp as the build number.
+- 发布版本来自仓库根目录的 `VERSION` 文件，并打包为
+  `CFBundleShortVersionString`。
+- 构建号来自当前 Git 提交计数，并打包为 `CFBundleVersion`。
+- 如果源码不在 Git 工作树中构建，打包脚本会使用正 UTC 时间戳作为构建号。

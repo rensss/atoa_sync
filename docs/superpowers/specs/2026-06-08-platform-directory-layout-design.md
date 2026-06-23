@@ -1,12 +1,11 @@
-# Platform Directory Layout Design
+# 平台目录布局设计
 
-## Goal
+## 目标
 
-Make the repository root describe the product as a whole while keeping all
-platform-specific source, build configuration, scripts, and prototypes inside
-`android/` or `macos/`.
+让仓库根目录描述整个产品，同时把所有平台专属源码、构建配置、脚本和原型保留在
+`android/` 或 `macos/` 内。
 
-## Target Layout
+## 目标布局
 
 ```text
 .
@@ -23,40 +22,33 @@ platform-specific source, build configuration, scripts, and prototypes inside
 |   |-- Tests/
 |   `-- build_and_run.sh
 |-- releases/
-|-- CHANGELOG.md
 |-- VERSION
 `-- README.md
 ```
 
-The Android browser prototype moves from the repository root to
-`android/prototype/`, including its local image assets and QA report.
+Android 浏览器原型从仓库根目录移动到 `android/prototype/`，包括本地图片资产和 QA
+报告。
 
-The Swift package manifest and packaging script move into `macos/`. SwiftPM
-paths become relative to that directory, and the packaging script writes to
-the repository-level `dist/` directory so existing packaged app output remains
-in the same place.
+Swift package manifest 和打包脚本移动到 `macos/`。SwiftPM 路径改为相对该目录；
+打包脚本继续写入仓库级 `dist/` 目录，以保持现有应用包输出位置不变。
 
-## Receiver Removal
+## 接收端移除
 
-Delete the standalone Python `receiver/` implementation. It is not imported or
-invoked by the Android or macOS applications, and the native macOS
-`ReceiverService` provides the supported computer-side receiver.
+删除独立 Python `receiver/` 实现。Android 或 macOS 应用不导入也不调用它，原生
+macOS `ReceiverService` 提供受支持的电脑端接收器。
 
-Update current Android documentation to direct users to the macOS app or a
-generic HTTP/WebDAV receiver. Historical release notes remain unchanged because
-they document commands and capabilities that were valid for those releases.
+更新当前 Android 文档，引导用户使用 macOS 应用或通用 HTTP/WebDAV 接收端。历史
+发布说明保持其记录的命令和能力，因为这些内容在对应版本中曾经有效。
 
-## Repository Documentation
+## 仓库文档
 
-Add a root README that identifies the two platform directories and gives the
-current test/build commands. Update platform READMEs so commands work from the
-repository root and clearly state platform ownership.
+增加根 README，标识两个平台目录并给出当前测试/构建命令。更新平台 README，让命令
+可从仓库根目录运行，并清楚说明平台所有权。
 
-## Verification
+## 验证
 
-- Run Android unit tests with `./android/run_tests.sh`.
-- Build and verify the Android debug APK with `./android/build.sh`.
-- Run macOS tests with `swift test --package-path macos`.
-- Build the macOS package with `swift build --package-path macos`.
-- Check that active files contain no stale `receiver/`, root `Package.swift`,
-  root prototype, or root build-script references.
+- 使用 `./android/run_tests.sh` 运行 Android 单元测试。
+- 使用 `./android/build.sh` 构建并验证 Android 调试 APK。
+- 使用 `swift test --package-path macos` 运行 macOS 测试。
+- 使用 `swift build --package-path macos` 构建 macOS package。
+- 检查活跃文件中没有过期的 `receiver/`、根 `Package.swift`、根原型或根构建脚本引用。

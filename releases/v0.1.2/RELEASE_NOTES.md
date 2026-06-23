@@ -1,39 +1,43 @@
 # Android Sync v0.1.2
 
-Stability and workflow update for large phone libraries.
+面向大型手机媒体库的稳定性和工作流更新。
 
-## Queue and performance
+## 队列和性能
 
-- Queue tab no longer builds a full filtered list on the UI thread before paging.
-- Home and queue screens do not calculate full queue summaries while the scanner is still indexing media.
-- Bulk scan enqueue no longer holds the queue lock for the whole media library.
-- Home and queue thumbnails no longer call `ImageView.setImageURI()` on the main thread; they load small system thumbnails on a background pool.
-- Scrolling near the bottom automatically loads the next queue window.
-- Queue filters use equal widths, and a floating control returns the list to the top.
+- 队列 tab 不再在分页前于 UI 线程构建完整筛选列表。
+- 扫描器仍在索引媒体时，首页和队列屏幕不会计算完整队列汇总。
+- 批量扫描入队不再持有整个媒体库期间的队列锁。
+- 首页和队列缩略图不再在主线程调用 `ImageView.setImageURI()`；小型系统缩略图会在
+  后台池加载。
+- 滚动接近底部时自动加载下一段队列窗口。
+- 队列筛选器使用等宽布局，浮动控件可返回列表顶部。
 
-## Media details
+## 媒体详情
 
-- Tapping a queue row opens an in-app detail screen.
-- Photo and video previews use the original media URI with display-size decoding.
-- Video details include explicit play/pause controls and an external-app fallback.
-- File type, MIME type, size, sync state, and captured/added/modified timestamps are shown.
+- 点击队列行会打开应用内详情页。
+- 照片和视频预览使用原始媒体 URI，并按显示尺寸解码。
+- 视频详情包含明确的播放/暂停控制和外部应用 fallback。
+- 显示文件类型、MIME 类型、大小、同步状态，以及拍摄/添加/修改时间戳。
 
-## Home and settings
+## 首页和设置
 
-- Recent tasks are displayed as a non-clickable 10-column status grid, capped at 50 items.
-- A settings screen exposes receiver URL editing, connection status, rescanning, and app version.
-- Secondary screens hide the bottom navigation and use status-bar safe spacing.
-- Cards and controls use consistent rounded styling.
+- 最近任务显示为不可点击的 10 列状态网格，最多 50 项。
+- 设置页提供接收端 URL 编辑、连接状态、重新扫描和应用版本。
+- 二级页面隐藏底部导航，并使用状态栏安全间距。
+- 卡片和控件使用统一圆角样式。
 
-## Why
+## 原因
 
-Version `0.1.1` limited visible queue rows, but the UI still copied and filtered the whole queue before applying that limit. On a large photo library this could block the main thread and trigger Android's input timeout ANR.
+版本 `0.1.1` 限制了可见队列行，但 UI 在应用该限制前仍会复制并筛选完整队列。大型
+照片库会阻塞主线程并触发 Android input timeout ANR。
 
-Device logs also showed full media decode work happening inside `MainActivity.thumbnail()` on the main thread, including 3000x4000 image decode and `Skipped 141 frames`. This release keeps placeholders visible immediately and swaps in thumbnails after background loading completes, while adding the missing queue, detail, and settings workflows.
+设备日志还显示，完整媒体解码发生在主线程的 `MainActivity.thumbnail()` 内，包括
+3000x4000 图片解码和 `Skipped 141 frames`。本版本会立即显示占位符，并在后台加载
+完成后替换为缩略图，同时补齐队列、详情和设置工作流。
 
-## Verification
+## 验证
 
 - `android/run_tests.sh`
 - `python3 -m unittest receiver.tests.test_receiver`
 - `android/build.sh`
-- Device install via `adb install -r`
+- 通过 `adb install -r` 安装到设备

@@ -1,12 +1,11 @@
-# Milestones
+# 里程碑
 
-Milestone files define entry criteria, exit criteria, and durable validation
-evidence for roadmap phases.
+里程碑文件定义路线图阶段的进入标准、退出标准和长期验证证据。
 
-A milestone is complete only when:
+里程碑只有同时满足以下条件才算完成：
 
-- every exit criterion is checked;
-- exact commands and results are recorded;
-- evidence references the verified commit;
-- related high-severity risks are closed or explicitly accepted;
-- `00_PROJECT_STATUS.md` and `HANDOFF.md` are updated.
+- 每一项退出标准都已勾选；
+- 已记录精确命令和结果；
+- 证据引用已验证提交；
+- 相关高严重度风险已关闭或明确接受；
+- `00_PROJECT_STATUS.md` 和 `HANDOFF.md` 已更新。

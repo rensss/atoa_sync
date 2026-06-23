@@ -821,7 +821,7 @@ git commit -m "feat: add macOS settings version information"
 
 **文件：**
 
-- 可能修改：`CHANGELOG.md`
+- 可能修改：`PROJECT_MEMORY/` 中的状态、批次或里程碑记录
 
 - [ ] **步骤 1：运行静态和单元测试**
 
@@ -884,13 +884,14 @@ adb logcat -d | rg "AndroidRuntime|FATAL EXCEPTION|OutOfMemoryError|ANR|Skipped 
 
 预期：无 OOM、Fatal Exception 和 ANR；队列状态变化不整页闪烁。
 
-- [ ] **步骤 6：更新变更日志**
+- [ ] **步骤 6：更新项目记忆**
 
-在 `CHANGELOG.md` 的未发布版本中记录本次 Android 稳定性和 macOS 体验改进。
+在 `PROJECT_MEMORY/` 的相关状态、批次或里程碑记录中记录本次 Android 稳定性和
+macOS 体验改进。
 
 - [ ] **步骤 7：最终提交**
 
 ```bash
-git add CHANGELOG.md
+git add PROJECT_MEMORY
 git commit -m "docs: record stability and macOS UX improvements"
 ```

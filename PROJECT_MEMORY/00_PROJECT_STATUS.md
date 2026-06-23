@@ -1,64 +1,57 @@
-# Project Status
+# 项目状态
 
-Last reviewed: 2026-06-22
+最后复核：2026-06-22
 
-## Baseline
+## 基线
 
-- Product version: `0.1.2`
-- Primary branch: `main`
-- Remote: `origin` at `git@github.com:rensss/atoa_sync.git`
-- Current main integration commit: `8a09aa0`
-- Latest B04 implementation commit on `main`: `fee8063`
-- Governance work branch: `codex/agent-governance` at `a07593a`
-- Candidate implementation branch: `codex/stability-macos-ux` at `cbf31db`
-- Integration branch: `codex/agent-governance` at `23b09d5`
-- Latest released tag: `v0.1.2`
-- Repository layout: Android code under `android/`, macOS code under `macos/`
-- Supported receiver: native macOS `ReceiverService`
+- 产品版本：`0.1.2`
+- 主分支：`main`
+- 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
+- 当前主线集成提交：`8a09aa0`
+- `main` 上最新 B04 实现提交：`fee8063`
+- 治理工作分支：`codex/agent-governance`，位于 `a07593a`
+- 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
+- 集成分支：`codex/agent-governance`，位于 `23b09d5`
+- 最新发布标签：`v0.1.2`
+- 仓库布局：Android 代码在 `android/`，macOS 代码在 `macos/`
+- 受支持接收端：原生 macOS `ReceiverService`
 
-## Verified Current State
+## 已验证当前状态
 
-- `main` contains the released Android `0.1.2` implementation, native macOS
-  receiver/media library, repository governance documents, and the approved
-  Android stability and macOS UX implementation.
-- Platform reorganization and removal of the obsolete Python receiver are
-  complete.
-- The stability and macOS UX design and implementation plan are present under
-  `docs/superpowers/`.
-- Branch `codex/stability-macos-ux` implements the approved Android stability
-  and macOS UX plan. It was merged into `codex/agent-governance` at `23b09d5`
-  and then into `main` at `8a09aa0` on 2026-06-22. Android work includes
-  bounded/coalesced thumbnail requests, lifecycle guards, in-place queue
-  updates, and sync-generation isolation. macOS work includes default Chinese
-  localization, native toolbar controls, stable thumbnail sizing, Space-key
-  Quick Look, failed-upload cleanup, serialized receiver lifecycle handling,
-  settings, and version information.
-- The candidate branch passes Android tests/build and 75 macOS tests, builds the
-  macOS release target, and produces a signed app bundle with version `0.1.2`
-  and build `35`. Independent final code review found no blocking issues. The
-  integration merge at `23b09d5` passed Android tests/build, Swift tests, and
-  macOS app verification on 2026-06-22.
-- No Android device was connected for the required stress run. The current
-  automation session also could not capture the macOS display for final visual
-  QA, so neither platform milestone should be treated as fully accepted.
-- B04 changes on `main` make macOS delete handling idempotent when a received
-  file is already gone or already marked deleted. The implementation commit is
-  `fee8063`. Build verification passed; XCTest execution is currently blocked
-  by the local runner/system-policy issue recorded in
-  `PROJECT_MEMORY/batches/2026-06-22-B04-macos-idempotent-delete.md`.
+- `main` 包含已发布的 Android `0.1.2` 实现、原生 macOS 接收端/媒体库、仓库治理
+  文档，以及已批准的 Android 稳定性和 macOS UX 实现。
+- 平台目录重组和废弃 Python 接收端移除已完成。
+- 稳定性与 macOS UX 的设计和实施计划位于 `docs/superpowers/`。
+- `codex/stability-macos-ux` 分支实现了已批准的 Android 稳定性和 macOS UX 计划。
+  该分支已于 2026-06-22 合并到 `codex/agent-governance` 的 `23b09d5`，随后合并
+  到 `main` 的 `8a09aa0`。Android 侧包括有界/合并缩略图请求、生命周期保护、
+  队列原地更新和同步代次隔离。macOS 侧包括默认中文本地化、原生工具栏、稳定
+  缩略图尺寸、空格 Quick Look、失败上传清理、串行接收器生命周期、设置和版本信息。
+- 候选分支通过了 Android 测试/构建和 75 个 macOS 测试，构建了 macOS release
+  目标，并生成签名应用包，版本 `0.1.2`、构建号 `35`。独立最终代码审查未发现
+  阻塞问题。集成提交 `23b09d5` 于 2026-06-22 通过 Android 测试/构建、Swift
+  测试和 macOS 应用验证。
+- 未连接 Android 真机，因此必需的压力测试尚未完成。当前自动化会话也无法捕获
+  macOS 显示画面进行最终视觉 QA，所以两个平台里程碑都不能视为完全验收。
+- `main` 上的 B04 改动让 macOS 删除处理在接收文件已经不存在或记录已标记删除时
+  具备幂等性。实现提交为 `fee8063`。构建验证已通过；XCTest 执行目前被本地
+  runner/系统策略问题阻塞，详见
+  `PROJECT_MEMORY/batches/2026-06-22-B04-macos-idempotent-delete.md`。
+- B05 文档治理改动已将仓库级文档、平台 README、发布说明、历史计划/设计文档和
+  `PROJECT_MEMORY/` 统一整理为中文，并在 `AGENTS.md` 明确项目记忆结构和更新规则。
+  根目录冗余的 `CHANGELOG.md` 和 `CONTRIBUTING.md` 已移除。本批次只修改 Markdown
+  文档。
 
-## Open Work
+## 开放工作
 
-1. Complete physical-device Android stress testing for large libraries,
-   navigation, lifecycle transitions, and repeated sync starts.
-2. Perform final macOS visual and interaction QA for toolbar placement,
-   localized menus, inspector/search layout, thumbnails, and Quick Look.
-3. Reassess LAN authentication and transport security before use outside a
-   trusted private network.
+1. 完成 Android 真机压力测试，覆盖大型媒体库、导航、生命周期切换和重复开始同步。
+2. 完成 macOS 最终视觉与交互 QA，覆盖工具栏位置、本地化菜单、Inspector/搜索布局、
+   缩略图和 Quick Look。
+3. 在可信私有网络之外使用前，重新评估局域网认证和传输安全。
 
-## Current Validation Record
+## 当前验证记录
 
-Candidate commit `cbf31db` was validated on 2026-06-15 with:
+候选提交 `cbf31db` 于 2026-06-15 使用以下命令验证：
 
 ```bash
 ./android/run_tests.sh
@@ -71,14 +64,12 @@ plutil -lint "dist/Android Sync.app/Contents/Info.plist"
 codesign --verify --deep --strict "dist/Android Sync.app"
 ```
 
-All commands passed. The macOS suite ran 75 tests. The generated plist reported
-`CFBundleShortVersionString=0.1.2` and `CFBundleVersion=35`. ADB reported no
-connected devices, and display capture was unavailable in the automation
-session.
+全部通过。macOS 套件运行 75 个测试。生成的 plist 报告
+`CFBundleShortVersionString=0.1.2` 和 `CFBundleVersion=35`。ADB 未发现已连接
+设备，自动化会话无法进行显示捕获。
 
-Integration commit `23b09d5` was created on 2026-06-22 by merging
-`codex/stability-macos-ux` into `codex/agent-governance`. The integrated commit
-was validated on 2026-06-22 with:
+集成提交 `23b09d5` 于 2026-06-22 通过把 `codex/stability-macos-ux` 合并到
+`codex/agent-governance` 创建。该集成提交使用以下命令验证：
 
 ```bash
 git diff --check
@@ -88,31 +79,38 @@ swift test --package-path macos
 ./macos/build_and_run.sh verify
 ```
 
-All commands passed. Swift ran 75 tests. Android physical-device stress testing
-and final macOS visual/interaction QA remain open.
+全部通过。Swift 运行 75 个测试。Android 真机压力测试和 macOS 最终视觉/交互 QA
+仍未完成。
 
-Main merge commit `8a09aa0` was created on 2026-06-22 by merging
-`codex/agent-governance` into `main`. The merge completed without conflicts.
+主线合并提交 `8a09aa0` 于 2026-06-22 通过把 `codex/agent-governance` 合并到
+`main` 创建，合并无冲突。
 
-B04 local macOS idempotent delete changes were validated on 2026-06-22 with:
+B04 本地 macOS 幂等删除改动于 2026-06-22 使用以下命令验证：
 
 ```bash
 swift build --package-path macos
 ```
 
-The build passed. The following command built successfully but hung while
-starting XCTest in this automation environment, including with escalated
-permissions:
+构建通过。以下命令构建成功，但在当前自动化环境中启动 XCTest 时挂起：
 
 ```bash
 swift test --package-path macos --filter LibraryRepositoryTests
 ```
 
-Direct `xcrun xctest` was rejected by macOS system policy for the unsigned
-SwiftPM test bundle.
+直接运行 `xcrun xctest` 被 macOS 系统策略拒绝，因为 SwiftPM 测试包未签名。
 
-## Status Maintenance
+B05 中文文档和项目记忆治理改动于 2026-06-22 使用以下命令验证：
 
-Update this file whenever the primary branch, release version, active phase,
-open work, or verified validation state changes. Never mark planned work as
-complete solely because a plan or branch exists.
+```bash
+git diff --check
+rg -n "AGENT\\.md|AGENTS\\.md|CLAUDE\\.md|PROJECT_MEMORY|Documentation|Update Rules|Reading Order" -g '*.md'
+```
+
+`git diff --check` 通过。引用扫描确认活跃文档指向 `AGENTS.md` 和 `PROJECT_MEMORY/`；
+单数 `AGENT.md` 只出现在扫描命令和 B01 历史批次描述中。未运行平台测试，因为本批次只修改
+Markdown 文档。
+
+## 状态维护
+
+当主分支、发布版本、活跃阶段、开放事项或已验证状态变化时，必须更新本文件。
+不要仅因计划或分支存在就把计划工作标记为完成。

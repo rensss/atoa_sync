@@ -1,54 +1,63 @@
-final result: passed
+最终结果：通过
 
-## Source Visual Truth
+## 来源视觉基准
 
-- Home concept: `/Users/ios_k/.codex/generated_images/019e8bbd-eccb-7bb1-923f-796ff7511975/ig_04d3b7f5df4966f5016a1fc40277c8819e965bf50fd401357a.png`
-- Queue concept: `/Users/ios_k/.codex/generated_images/019e8bbd-eccb-7bb1-923f-796ff7511975/ig_04d3b7f5df4966f5016a1fc4742b98819e96c171079b6ba713.png`
+- 首页概念图：`/Users/ios_k/.codex/generated_images/019e8bbd-eccb-7bb1-923f-796ff7511975/ig_04d3b7f5df4966f5016a1fc40277c8819e965bf50fd401357a.png`
+- 队列概念图：`/Users/ios_k/.codex/generated_images/019e8bbd-eccb-7bb1-923f-796ff7511975/ig_04d3b7f5df4966f5016a1fc4742b98819e96c171079b6ba713.png`
 
-## Implementation Evidence
+## 实现证据
 
-- URL: `http://127.0.0.1:4173/`
-- Viewport: `390 x 844`
-- Home screenshot: `/private/tmp/android-sync-home-polished.png`
-- Queue screenshot: `/private/tmp/android-sync-queue-polished.png`
-- Home comparison: `/private/tmp/android-sync-home-compare-final.png`
-- Queue comparison: `/private/tmp/android-sync-queue-compare-final.png`
-- State: home active, queue active, failed filter and retry interaction tested.
+- URL：`http://127.0.0.1:4173/`
+- 视口：`390 x 844`
+- 首页截图：`/private/tmp/android-sync-home-polished.png`
+- 队列截图：`/private/tmp/android-sync-queue-polished.png`
+- 首页对比：`/private/tmp/android-sync-home-compare-final.png`
+- 队列对比：`/private/tmp/android-sync-queue-compare-final.png`
+- 状态：首页激活、队列激活、失败筛选和重试交互已测试。
 
-## Full-View Comparison Evidence
+## 全视图对比证据
 
-The implementation preserves the selected product direction: white Android utility surface, green sync state, large home progress ring, target NAS/Wi-Fi status, four summary rows, quick actions, bottom navigation, queue filters, dated queue rows, thumbnails, progress bars, state chips, and retry controls.
+实现保留了选定产品方向：白色 Android 工具界面、绿色同步状态、大型首页进度环、
+目标 NAS/Wi-Fi 状态、四行汇总、快捷操作、底部导航、队列筛选、按日期分组的队列行、
+缩略图、进度条、状态 chip 和重试控件。
 
-Focused region comparison was not needed for this pass because the important UI surfaces are readable in the full mobile screenshots and the prototype is a front-end concept, not a pixel-perfect production Android build.
+本轮不需要局部区域对比，因为重要 UI 表面在完整移动截图中已经可读，并且该原型是
+前端概念，不是像素级生产 Android 构建。
 
-## Fidelity Surfaces
+## 保真表面
 
-- Fonts and typography: passed. The prototype uses system Chinese/UI fonts with heavier weights for browser readability. This is an intentional prototype deviation from the generated image's lighter, denser rendering.
-- Spacing and layout rhythm: passed. Home and queue both keep the source structure. The home progress ring was reduced so quick actions remain visible in the first viewport.
-- Colors and visual tokens: passed. Green sync state, muted dividers, white surface, red failure, and orange waiting states match the selected direction.
-- Image quality and asset fidelity: passed. Queue thumbnails now use cropped local bitmap assets from the selected queue concept instead of generated CSS blocks.
-- Copy and content: passed. UI copy stays within the approved scope: local one-way album backup to NAS/PC, Wi-Fi-only rule, status, queue, retry, target, album, and settings actions.
+- 字体和排版：通过。原型使用系统中文/UI 字体，并为浏览器可读性使用较重字重。这是
+  相对于生成图更轻、更密集渲染的有意原型偏差。
+- 间距和布局节奏：通过。首页和队列都保留来源结构。首页进度环缩小，保证快捷操作
+  出现在首屏。
+- 颜色和视觉 token：通过。绿色同步状态、弱化分隔线、白色表面、红色失败和橙色等待
+  状态匹配选定方向。
+- 图片质量和资产保真：通过。队列缩略图改用从选定队列概念图裁切的本地 bitmap 资产，
+  不再使用生成 CSS 色块。
+- 文案和内容：通过。UI 文案保持在批准范围内：本地单向相册备份到 NAS/PC、仅 Wi-Fi
+  规则、状态、队列、重试、目标、相册和设置动作。
 
-## Interaction Checks
+## 交互检查
 
-- Pause sync: passed. `暂停同步` changes the main state to `已暂停` and updates the action to `继续同步`.
-- Target drawer: passed. `选择目标` opens the target device panel and can be dismissed.
-- Queue navigation: passed. Bottom `队列` switches from home to task queue.
-- Queue filtering: passed. `失败` filter shows the failed task.
-- Retry: passed. Failed task retry shows `已将失败任务加入重试队列`.
-- Console health: passed. Browser logs had no `error` or `warn` entries during load and interaction checks.
+- 暂停同步：通过。`暂停同步` 会把主状态改为 `已暂停`，并把动作改为 `继续同步`。
+- 目标抽屉：通过。`选择目标` 会打开目标设备面板，并可关闭。
+- 队列导航：通过。底部 `队列` 从首页切换到任务队列。
+- 队列筛选：通过。`失败` 筛选器显示失败任务。
+- 重试：通过。失败任务重试显示 `已将失败任务加入重试队列`。
+- 控制台健康：通过。加载和交互检查期间，浏览器日志没有 `error` 或 `warn`。
 
-## Patches Made During QA
+## QA 期间的补丁
 
-- Reduced home progress ring and row spacing so quick actions fit the mobile viewport.
-- Tightened queue grid columns so filenames, status chips, and row actions fit.
-- Fixed the small upload progress ring from shrinking in the queue header.
-- Replaced abstract thumbnail backgrounds with local bitmap thumbnails cropped from the selected queue concept.
-- Compressed typography, ring size, row spacing, quick actions, bottom navigation, and queue rows to better match the high-density mobile concept images.
-- Fixed NAS icon masking in compact headers and hid browser scrollbars from prototype screenshots.
-- Added a project QA report with source and implementation evidence paths.
+- 缩小首页进度环和行距，让快捷操作适配移动视口。
+- 收紧队列网格列，让文件名、状态 chip 和行动作适配。
+- 修复队列 header 中的小上传进度环被压缩的问题。
+- 用从选定队列概念图裁切的本地 bitmap 缩略图替换抽象缩略图背景。
+- 压缩排版、进度环尺寸、行距、快捷操作、底部导航和队列行，更贴近高密度移动概念图。
+- 修复紧凑 header 中的 NAS 图标遮罩，并在原型截图中隐藏浏览器滚动条。
+- 增加项目 QA 报告，记录来源和实现证据路径。
 
-## Remaining P3 Polish
+## 剩余 P3 打磨
 
-- The prototype is still browser-rendered HTML/CSS rather than Android-native Material components; exact font rasterization and system bar treatment will differ in a real APK.
-- Queue header and recent-activity micro-layout should be tuned again if this moves into Jetpack Compose.
+- 原型仍是浏览器渲染的 HTML/CSS，不是 Android 原生 Material 组件；真实 APK 中字体
+  栅格化和系统栏处理会不同。
+- 如果该方向迁移到 Jetpack Compose，应再次调整队列 header 和最近活动的微布局。

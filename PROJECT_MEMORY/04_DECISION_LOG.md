@@ -1,98 +1,90 @@
-# Architecture Decision Log
+# 架构决策记录
 
-Decisions are append-only. To change an accepted decision, add a new ADR that
-explicitly supersedes it and obtain user approval before implementation.
+决策记录采用追加式维护。若要改变已接受决策，必须先获得用户批准，再新增一个明确
+supersede 旧决策的 ADR。
 
-## ADR-001: Platform-Owned Repository Layout
+## ADR-001：平台拥有的仓库布局
 
-- Date: 2026-06-08
-- Status: Accepted
+- 日期：2026-06-08
+- 状态：已接受
 
-Context: Active Android and macOS files were mixed at the repository root.
+背景：活跃 Android 和 macOS 文件曾混在仓库根目录。
 
-Decision: Android implementation belongs under `android/`; macOS implementation
-belongs under `macos/`; shared metadata and releases remain at the root.
+决策：Android 实现归属 `android/`；macOS 实现归属 `macos/`；共享元数据和发布
+内容保留在根目录。
 
-Consequences: Each platform is independently understandable and buildable.
-Platform-specific files must not drift back to the root.
+后果：每个平台可以独立理解和构建。平台专属文件不得漂回根目录。
 
-## ADR-002: Native macOS Receiver Is the Supported Receiver
+## ADR-002：原生 macOS 接收端是受支持接收端
 
-- Date: 2026-06-08
-- Status: Accepted
+- 日期：2026-06-08
+- 状态：已接受
 
-Context: A standalone Python receiver duplicated native macOS functionality.
+背景：独立 Python 接收端重复了原生 macOS 功能。
 
-Decision: Remove the Python receiver and use
-`macos/Sources/AndroidSyncCore/ReceiverService.swift` as the supported local
-computer receiver.
+决策：移除 Python 接收端，使用
+`macos/Sources/AndroidSyncCore/ReceiverService.swift` 作为受支持的本地电脑端接收器。
 
-Consequences: Receiver protocol and storage changes must be implemented and
-tested in `AndroidSyncCore`.
+后果：接收协议和存储变更必须在 `AndroidSyncCore` 中实现并测试。
 
-## ADR-003: Preserve Existing Platform Toolchains
+## ADR-003：保留现有平台工具链
 
-- Date: 2026-06-08
-- Status: Accepted
+- 日期：2026-06-08
+- 状态：已接受
 
-Context: The Android app uses direct Android SDK scripts and the macOS app uses
-SwiftPM, SwiftUI, and SwiftData.
+背景：Android 应用使用直接 Android SDK 脚本，macOS 应用使用 SwiftPM、SwiftUI 和
+SwiftData。
 
-Decision: Continue those toolchains during the stability and UX refactor.
+决策：稳定性和 UX 重构期间继续使用这些工具链。
 
-Consequences: Introducing Gradle, third-party Android libraries, another macOS
-package manager, or a replacement UI framework requires a superseding ADR.
+后果：引入 Gradle、第三方 Android 库、其他 macOS 包管理器或替换 UI 框架，都需要
+supersede ADR。
 
-## ADR-004: Stream Then Atomically Commit Uploads
+## ADR-004：先流式暂存再原子提交上传
 
-- Date: 2026-06-08
-- Status: Accepted
+- 日期：2026-06-08
+- 状态：已接受
 
-Context: Partial network transfers must not appear as complete library media.
+背景：部分网络传输不能以完整媒体形式出现在媒体库中。
 
-Decision: Stream uploads to `.incoming/*.part`, verify expected size, then move
-the completed file into its final dated media directory.
+决策：上传先流式写入 `.incoming/*.part`，校验期望尺寸后，再把完成文件移动到最终
+日期媒体目录。
 
-Consequences: Every error and cancellation path must clean temporary files.
-Direct writes to final media paths are prohibited.
+后果：每个错误和取消路径都必须清理临时文件。禁止直接写入最终媒体路径。
 
-## ADR-005: Append-Only Manifest with Tombstones
+## ADR-005：追加式 manifest 和 tombstone
 
-- Date: 2026-06-08
-- Status: Accepted
+- 日期：2026-06-08
+- 状态：已接受
 
-Context: Android reconciliation requires durable knowledge of stored and
-deleted media.
+背景：Android reconciliation 需要持久知道已存储和已删除的媒体。
 
-Decision: Record stored and deleted events in `uploads.jsonl`; represent
-deletions as tombstones instead of erasing history.
+决策：在 `uploads.jsonl` 中记录 stored 和 deleted 事件；删除使用 tombstone 表示，
+而不是擦除历史。
 
-Consequences: Readers must derive latest state per stable ID and tolerate
-historical records. Future compaction must preserve equivalent semantics.
+后果：读取方必须按稳定 ID 推导最新状态，并容忍历史记录。未来 compaction 必须
+保持等价语义。
 
-## ADR-006: Trusted-LAN Operation for Current Releases
+## ADR-006：当前发布面向可信局域网
 
-- Date: 2026-06-11
-- Status: Accepted risk
+- 日期：2026-06-11
+- 状态：已接受风险
 
-Context: Current protocol uses cleartext HTTP and no authentication.
+背景：当前协议使用明文 HTTP 且没有认证。
 
-Decision: Limit current operation to trusted private/link-local networks.
+决策：当前操作限制在可信私有/链路本地网络。
 
-Consequences: Documentation must not imply internet-safe deployment. Public
-exposure, authentication, or TLS requires a separate security decision and
-protocol design.
+后果：文档不得暗示可安全部署到互联网。公网暴露、认证或 TLS 需要单独安全决策和
+协议设计。
 
-## ADR-007: Batch-Governed Evolution
+## ADR-007：批次治理式演进
 
-- Date: 2026-06-11
-- Status: Accepted
+- 日期：2026-06-11
+- 状态：已接受
 
-Context: Stability, concurrency, storage, and UI work have different failure
-modes and verification needs.
+背景：稳定性、并发、存储和 UI 工作有不同失败模式和验证需求。
 
-Decision: Implement non-trivial work as small batches with scope, risks,
-validation evidence, and rollback instructions in `PROJECT_MEMORY/batches/`.
+决策：非平凡工作以小批次实现，并在 `PROJECT_MEMORY/batches/` 记录范围、风险、
+验证证据和回滚说明。
 
-Consequences: Large all-at-once refactors are outside the approved execution
-model. Milestone completion requires accumulated batch evidence.
+后果：大型一次性重构不符合已批准执行模型。里程碑完成需要累积批次证据。

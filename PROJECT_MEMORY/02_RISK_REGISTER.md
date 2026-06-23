@@ -1,30 +1,29 @@
-# Risk Register
+# 风险登记
 
-Severity: Critical, High, Medium, Low.
+严重程度：Critical、High、Medium、Low。
 
-| ID | Severity | Status | Risk | Required Control |
+| ID | 严重程度 | 状态 | 风险 | 必需控制措施 |
 |---|---|---|---|---|
-| R-001 | High | Open; controls merged to `main` at `8a09aa0`; device stress pending | Android thumbnail decoding can create excessive bitmap memory pressure or apply stale async results to reused views. | Bound decode sizes, use a bounded cache, coalesce requests, verify view identity, and handle `OutOfMemoryError`. |
-| R-002 | High | Open; controls merged to `main` at `8a09aa0`; device stress pending | Rebuilding large queue views or copying/filtering the full queue on the UI thread can cause ANR, flashing, or lost scroll position. | Use bounded queue windows and in-place row/summary updates. Run queue regression tests and device smoke tests. |
-| R-003 | High | Accepted, constrained | Receiver has no authentication and Android permits cleartext HTTP. Exposure beyond a trusted LAN permits unauthorized upload or metadata access. | Keep network access restricted to private/link-local peers. Do not expose the port publicly. Add authentication/TLS before broader deployment. |
-| R-004 | High | Mitigated on `main` at `8a09aa0` | Interrupted or failed uploads may leave `.incoming/*.part` files if every failure path does not clean up. | Ensure connection close and storage failure paths remove temporary files; add interruption tests. |
-| R-005 | Medium | Mitigated on `main` at `8a09aa0` | Receiver-wide failure and single-upload failure currently share `.failed`, which can incorrectly mark the whole receiver as unavailable. | Separate listener lifecycle failures from per-upload failures and test both event paths. |
-| R-006 | Medium | Mitigated | Duplicate names can overwrite user media. | `LibraryRepository` generates unique destination names. Preserve this behavior and its tests. |
-| R-007 | Medium | Mitigated | Incomplete uploads can be committed as valid files. | Stream to `.part`, compare actual and expected size, then move into place. Preserve size-mismatch tests. |
-| R-008 | Medium | Open | Manifest is append-only JSONL; corruption or unbounded growth can degrade startup and reconciliation. | Keep parsing tolerant, add malformed-line coverage, and design compaction before long-term high-volume use. |
-| R-009 | Medium | Open | Android queue state is process-local. App termination can lose waiting, failed, and retry state. | Decide whether persistence is required before claiming resumable synchronization. |
-| R-010 | Low | Open | Command-line Android build depends on locally installed SDK tools and paths, reducing reproducibility. | Document prerequisites and consider a pinned CI environment without replacing the current build system casually. |
+| R-001 | High | 开放；控制措施已在 `8a09aa0` 合并到 `main`；等待真机压力测试 | Android 缩略图解码可能造成过高 bitmap 内存压力，或把过期异步结果应用到复用视图。 | 限制解码尺寸，使用有界缓存，合并重复请求，校验视图身份，并处理 `OutOfMemoryError`。 |
+| R-002 | High | 开放；控制措施已在 `8a09aa0` 合并到 `main`；等待真机压力测试 | 在 UI 线程重建大型队列视图或复制/筛选完整队列，可能造成 ANR、闪烁或滚动位置丢失。 | 使用有界队列窗口和原地行/汇总更新。运行队列回归测试和真机冒烟测试。 |
+| R-003 | High | 已接受，受约束 | 接收端没有认证，Android 允许明文 HTTP。暴露到可信局域网之外会允许未授权上传或元数据访问。 | 将网络访问限制在私有/链路本地对端。不要公开暴露端口。更广泛部署前增加认证/TLS。 |
+| R-004 | High | 已在 `8a09aa0` 缓解 | 如果失败路径未全部清理，中断或失败上传可能留下 `.incoming/*.part` 文件。 | 确保连接关闭和存储失败路径移除临时文件；增加中断测试。 |
+| R-005 | Medium | 已在 `8a09aa0` 缓解 | 接收器整体失败和单次上传失败共用 `.failed`，可能错误地把整个接收器标记为不可用。 | 区分 listener 生命周期失败和单次上传失败，并测试两类事件路径。 |
+| R-006 | Medium | 已缓解 | 重复文件名可能覆盖用户媒体。 | `LibraryRepository` 生成唯一目标文件名。保留该行为及其测试。 |
+| R-007 | Medium | 已缓解 | 未完成上传可能被提交为有效文件。 | 流式写入 `.part`，比较实际和期望尺寸，再移动到最终位置。保留尺寸不匹配测试。 |
+| R-008 | Medium | 开放 | Manifest 是追加式 JSONL；损坏或无限增长会降低启动和 reconciliation 性能。 | 保持解析容错，增加 malformed line 覆盖，并在长期高容量使用前设计 compaction。 |
+| R-009 | Medium | 开放 | Android 队列状态是进程内状态。应用终止会丢失等待、失败和重试状态。 | 在声明可恢复同步前，决定是否需要持久化。 |
+| R-010 | Low | 开放 | 命令行 Android 构建依赖本地安装的 SDK 工具和路径，降低可复现性。 | 记录前置条件，并考虑固定 CI 环境；不要轻率替换当前构建系统。 |
 
-## Closed Risks
+## 已关闭风险
 
-| ID | Closed In | Evidence |
+| ID | 关闭位置 | 证据 |
 |---|---|---|
-| R-C01 | `v0.1.1` | Queue rendering was capped with `TaskWindow` to avoid creating every media row at once. |
-| R-C02 | `0621390` | Obsolete Python receiver removed; native macOS receiver is the single supported implementation. |
+| R-C01 | `v0.1.1` | 使用 `TaskWindow` 限制队列渲染，避免一次创建所有媒体行。 |
+| R-C02 | `0621390` | 废弃 Python 接收端已移除；原生 macOS 接收端是唯一受支持实现。 |
 
-## Change Rule
+## 变更规则
 
-Any change touching media decoding, queue synchronization, receiver lifecycle,
-network exposure, temporary files, manifest parsing, or deletion must name the
-relevant risk IDs in its batch record. A risk closes only with reproducible
-verification evidence and a commit reference.
+任何触及媒体解码、队列同步、接收端生命周期、网络暴露、临时文件、manifest 解析或
+删除行为的变更，都必须在批次记录中列出相关风险 ID。风险只有在具备可复现验证证据
+和提交引用后才能关闭。

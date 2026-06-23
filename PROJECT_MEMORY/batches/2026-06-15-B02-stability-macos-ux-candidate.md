@@ -1,44 +1,42 @@
-# B02: Stability and macOS UX Candidate
+# B02：稳定性和 macOS UX 候选实现
 
-Date: 2026-06-15
+日期：2026-06-15
 
-## Objective
+## 目标
 
-Record the completed candidate implementation and automated verification for
-the approved Android stability and macOS UX plan.
+记录已批准 Android 稳定性和 macOS UX 计划的完成候选实现及自动化验证。
 
-## Scope
+## 范围
 
-- Android thumbnail memory, request coalescing, lifecycle guards, queue refresh,
-  ordering, and synchronization generations.
-- macOS localization, toolbar placement, thumbnail layout, Quick Look, failed
-  upload cleanup, receiver lifecycle serialization, settings, and version data.
-- Regression tests, platform documentation, packaging, and changelog entries.
+- Android 缩略图内存、请求合并、生命周期保护、队列刷新、排序和同步代次。
+- macOS 本地化、工具栏位置、缩略图布局、Quick Look、失败上传清理、接收端
+  生命周期串行化、设置和版本数据。
+- 回归测试、平台文档、打包和 changelog 条目。
 
-## Non-Goals
+## 非目标
 
-- Merging the candidate branch into `main`.
-- Closing the Android stability milestone without a physical-device stress run.
-- Claiming final macOS visual acceptance without interactive GUI inspection.
-- Changing LAN authentication or cleartext transport policy.
+- 不把候选分支合并到 `main`。
+- 没有真机压力测试前，不关闭 Android 稳定性里程碑。
+- 没有交互式 GUI 检查前，不宣称 macOS 最终视觉验收完成。
+- 不改变局域网认证或明文传输策略。
 
-## Risks and Decisions
+## 风险和决策
 
-- Risks: R-001, R-002, R-004, R-005.
-- Protected decisions in `04_DECISION_LOG.md` were not changed.
+- 风险：R-001、R-002、R-004、R-005。
+- 未改变 `04_DECISION_LOG.md` 中的受保护决策。
 
-## Invariants
+## 不变量
 
-- Android queue locks remain free of bitmap decoding and network I/O.
-- macOS uploads remain staged as `.part` files and validated before commit.
-- Unique destination naming and tolerant manifest parsing remain intact.
-- The receiver remains limited to trusted local networks.
+- Android 队列锁内仍不执行 bitmap 解码和网络 I/O。
+- macOS 上传仍暂存为 `.part` 文件，并在提交前校验。
+- 唯一目标命名和容错 manifest 解析保持不变。
+- 接收端仍限制在可信本地网络内使用。
 
-## Validation
+## 验证
 
-Run from
+在候选提交 `cbf31db` 的
 `/Users/ios_k/Desktop/PProject/Android_sync/.worktrees/stability-macos-ux`
-at candidate commit `cbf31db`:
+运行：
 
 ```bash
 ./android/run_tests.sh
@@ -52,29 +50,23 @@ codesign --verify --deep --strict "dist/Android Sync.app"
 git diff --check
 ```
 
-All commands exited successfully. The macOS suite ran 75 tests. The app bundle
-reported version `0.1.2`, build `35`, and passed strict deep code-signature
-verification. The Android APK was produced successfully.
+所有命令均成功退出。macOS 套件运行 75 个测试。应用包报告版本 `0.1.2`、构建号
+`35`，并通过严格 deep code-signature 验证。Android APK 成功生成。
 
-An independent final code review found and drove fixes for Quick Look keyboard
-event routing, preview observer lifecycle, and Android home-grid status refresh.
-The final review approved `cbf31db` with no blocking issues.
+独立最终代码审查发现并推动修复了 Quick Look 键盘事件路由、预览 observer 生命周期
+和 Android 首页网格状态刷新问题。最终审查批准 `cbf31db`，没有阻塞问题。
 
-`adb devices -l` reported no connected devices. macOS display capture was also
-unavailable in the automation session, so device stress and final visual QA are
-explicit follow-ups.
+`adb devices -l` 报告没有连接设备。自动化会话也无法捕获 macOS 显示画面，因此真机
+压力测试和最终视觉 QA 是明确后续事项。
 
-## Rollback
+## 回滚
 
-Do not merge `codex/stability-macos-ux`, or revert its integration commit as a
-unit after merge. No persistent data migration is introduced. Failed-upload
-cleanup behavior should be retained if individual macOS commits are ported.
+不要合并 `codex/stability-macos-ux`，或在合并后把其集成提交作为整体回滚。本批次
+未引入持久数据迁移。如果单独移植 macOS 提交，应保留失败上传清理行为。
 
-## Result
+## 结果
 
-- Commit: candidate `cbf31db`; merged into `codex/agent-governance` at
-  `23b09d5` and then into `main` at `8a09aa0` on 2026-06-22.
-- Outcome: implementation, candidate automated verification, and merged-commit
-  automated validation are complete; acceptance is blocked on device/GUI
-  evidence.
-- Follow-up: run the missing manual checks and record final acceptance evidence.
+- 提交：候选 `cbf31db`；已于 2026-06-22 合并到 `codex/agent-governance` 的
+  `23b09d5`，随后合并到 `main` 的 `8a09aa0`。
+- 结果：实现、候选自动化验证和合并提交自动化验证已完成；验收仍受设备/GUI 证据阻塞。
+- 后续：运行缺失的人工检查并记录最终验收证据。

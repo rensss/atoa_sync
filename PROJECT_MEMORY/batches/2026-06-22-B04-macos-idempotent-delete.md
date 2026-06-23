@@ -1,59 +1,54 @@
-# B04: macOS Idempotent Delete Handling
+# B04：macOS 幂等删除处理
 
-Date: 2026-06-22
+日期：2026-06-22
 
-## Objective
+## 目标
 
-Prevent repeated deletion actions on an already removed received file from
-surfacing the user-facing "The received file no longer exists." error.
+避免对已移除接收文件重复执行删除操作时，向用户显示 “The received file no longer
+exists.” 错误。
 
-## Scope
+## 范围
 
-- Make `LibraryRepository.delete` tolerant of missing media files by treating a
-  missing active file as a completed delete request and writing a tombstone.
-- Make deletion of an `UploadRecord` that is already marked deleted a no-op.
-- Add repository regression coverage for missing-file deletion and repeated
-  deletion of an already deleted record.
+- 让 `LibraryRepository.delete` 容忍缺失媒体文件：活动文件缺失时视为删除请求完成，
+  并写入 tombstone。
+- 删除已经标记为 deleted 的 `UploadRecord` 时执行 no-op。
+- 为缺失文件删除和重复删除已删除记录增加 repository 回归覆盖。
 
-## Non-Goals
+## 非目标
 
-- Changing rename behavior for missing files.
-- Changing manifest tombstone semantics or Android reconciliation.
-- Changing trash handling for files that still exist.
+- 不改变缺失文件的重命名行为。
+- 不改变 manifest tombstone 语义或 Android reconciliation。
+- 不改变仍存在文件的废纸篓处理。
 
-## Risks and Decisions
+## 风险和决策
 
-- Risks: R-008, deletion/tombstone behavior covered by ADR-005.
-- Protected decisions in `04_DECISION_LOG.md` were not changed.
+- 风险：R-008；删除/tombstone 行为受 ADR-005 约束。
+- 未改变 `04_DECISION_LOG.md` 中的受保护决策。
 
-## Validation
+## 验证
 
-Run from `/Users/ios_k/Desktop/PProject/Android_sync`:
+在 `/Users/ios_k/Desktop/PProject/Android_sync` 运行：
 
 ```bash
 swift build --package-path macos
 ```
 
-The build completed successfully.
+构建成功完成。
 
-`swift test --package-path macos` initially compiled and ran the macOS test
-suite far enough to expose the new regression tests failing against the old
-delete implementation. After the fix, repeated attempts to run
-`swift test --package-path macos --filter LibraryRepositoryTests` built
-successfully but hung while starting the XCTest runner, both inside the sandbox
-and with escalated permissions. A direct `xcrun xctest` invocation could not be
-used as a replacement because macOS rejected the unsigned SwiftPM test bundle
-with `library load denied by system policy`.
+`swift test --package-path macos` 最初编译并运行 macOS 测试套件到足以暴露新增回归
+测试在旧删除实现上失败。修复后，多次运行
+`swift test --package-path macos --filter LibraryRepositoryTests` 均构建成功，但在
+启动 XCTest runner 时挂起，包括在 sandbox 内和提升权限后。无法用直接
+`xcrun xctest` 替代，因为 macOS 以 `library load denied by system policy` 拒绝未
+签名的 SwiftPM 测试包。
 
-## Rollback
+## 回滚
 
-Revert the `LibraryRepository.delete` change and the associated test additions.
-This restores the previous behavior where a missing file causes
-`LibraryRepositoryError.missingFile`.
+回滚 `LibraryRepository.delete` 改动及相关测试新增内容。这会恢复先前行为：缺失
+文件导致 `LibraryRepositoryError.missingFile`。
 
-## Result
+## 结果
 
-- Commit: `fee8063`
-- Outcome: implementation and regression tests are present; build verification
-  passed. XCTest execution remains blocked by the local runner/system-policy
-  issue described above.
+- 提交：`fee8063`
+- 结果：实现和回归测试已存在；构建验证通过。XCTest 执行仍受上述本地 runner/
+  系统策略问题阻塞。

@@ -1,43 +1,38 @@
-# B03: Merge Stability and macOS UX Candidate
+# B03：合并稳定性和 macOS UX 候选实现
 
-Date: 2026-06-22
+日期：2026-06-22
 
-## Objective
+## 目标
 
-Merge the approved `codex/stability-macos-ux` candidate into the current
-governance branch and then into `main` while preserving repository memory and
-agent instructions.
+把已批准的 `codex/stability-macos-ux` 候选分支合并到当前治理分支，再合并到
+`main`，同时保留项目记忆和代理说明。
 
-## Scope
+## 范围
 
-- Merge `codex/stability-macos-ux` into `codex/agent-governance`.
-- Merge `codex/agent-governance` into `main`.
-- Preserve governance files added after the candidate branch diverged from
-  `main`.
-- Update project memory to record the integration commit and remaining
-  validation gaps.
+- 将 `codex/stability-macos-ux` 合并到 `codex/agent-governance`。
+- 将 `codex/agent-governance` 合并到 `main`。
+- 保留候选分支从 `main` 分叉后新增的治理文件。
+- 更新项目记忆，记录集成提交和剩余验证缺口。
 
-## Non-Goals
+## 非目标
 
-- No release or version change.
-- No claim that physical-device Android stress testing or macOS visual QA is
-  complete.
+- 不发布新版本，也不改变版本号。
+- 不宣称 Android 真机压力测试或 macOS 视觉 QA 已完成。
 
-## Risks and Decisions
+## 风险和决策
 
-- Risks: R-001, R-002, R-004, R-005.
-- Protected decisions in `04_DECISION_LOG.md` were not changed.
+- 风险：R-001、R-002、R-004、R-005。
+- 未改变 `04_DECISION_LOG.md` 中的受保护决策。
 
-## Validation
+## 验证
 
-Merge command:
+合并命令：
 
 ```bash
 git merge --no-ff codex/stability-macos-ux
 ```
 
-The merge completed without conflicts and created integration commit `23b09d5`.
-The integrated commit was validated with:
+合并无冲突完成，并创建集成提交 `23b09d5`。集成提交使用以下命令验证：
 
 ```bash
 git diff --check
@@ -47,21 +42,16 @@ swift test --package-path macos
 ./macos/build_and_run.sh verify
 ```
 
-All commands passed. Swift ran 75 tests. Android physical-device stress testing
-and macOS visual/interaction QA remain open.
+全部通过。Swift 运行 75 个测试。Android 真机压力测试和 macOS 视觉/交互 QA 仍未完成。
 
-The `main` merge also completed without conflicts and created merge commit
-`8a09aa0`.
+`main` 合并也无冲突完成，并创建合并提交 `8a09aa0`。
 
-## Rollback
+## 回滚
 
-Revert main merge commit `8a09aa0` as a unit if `main` must return to the
-pre-integration baseline.
+如果 `main` 必须回到集成前基线，把主线合并提交 `8a09aa0` 作为整体回滚。
 
-## Result
+## 结果
 
-- Commit: `8a09aa0`.
-- Outcome: candidate implementation is integrated into `main`; automated checks
-  passed on the integrated content before the final `main` merge.
-- Follow-up: complete physical-device Android stress testing and macOS
-  visual/interaction QA.
+- 提交：`8a09aa0`。
+- 结果：候选实现已集成到 `main`；最终 `main` 合并前，集成内容的自动化检查已通过。
+- 后续：完成 Android 真机压力测试和 macOS 视觉/交互 QA。
