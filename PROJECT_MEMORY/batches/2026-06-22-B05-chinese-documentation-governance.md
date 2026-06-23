@@ -55,7 +55,7 @@ rg -n "AGENT\\.md|AGENTS\\.md|CLAUDE\\.md|PROJECT_MEMORY|Documentation|Update Ru
 
 ## 结果
 
-- 提交：待提交。
+- 提交：`a24a442`。
 - 结果：文档已统一中文化，冗余根目录文档已移除，`AGENTS.md` 已明确
   PROJECT_MEMORY 结构和更新规则。
 - 后续：未来新增文档应默认使用中文；引用第三方命令、API 名称和代码符号时保留原文。

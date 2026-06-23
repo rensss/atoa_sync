@@ -1,6 +1,6 @@
 # 项目状态
 
-最后复核：2026-06-22
+最后复核：2026-06-23
 
 ## 基线
 
@@ -9,6 +9,7 @@
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
 - 当前主线集成提交：`8a09aa0`
 - `main` 上最新 B04 实现提交：`fee8063`
+- `main` 上最新 B05 文档治理提交：`a24a442`
 - 治理工作分支：`codex/agent-governance`，位于 `a07593a`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 集成分支：`codex/agent-governance`，位于 `23b09d5`
@@ -99,7 +100,7 @@ swift test --package-path macos --filter LibraryRepositoryTests
 
 直接运行 `xcrun xctest` 被 macOS 系统策略拒绝，因为 SwiftPM 测试包未签名。
 
-B05 中文文档和项目记忆治理改动于 2026-06-22 使用以下命令验证：
+B05 中文文档和项目记忆治理改动于 2026-06-23 使用以下命令验证：
 
 ```bash
 git diff --check

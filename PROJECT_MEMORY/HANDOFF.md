@@ -1,6 +1,6 @@
 # 交接
 
-最后更新：2026-06-22
+最后更新：2026-06-23
 
 ## 从这里开始
 
@@ -29,7 +29,7 @@ swift test --package-path macos
 
 ## 最新本地工作
 
-B05 中文文档和项目记忆治理已完成：仓库级文档、平台 README、发布说明、历史计划/
+B05 中文文档和项目记忆治理已完成，提交为 `a24a442`：仓库级文档、平台 README、发布说明、历史计划/
 设计文档和 `PROJECT_MEMORY/` 已统一整理为中文；冗余根目录 `CHANGELOG.md` 和
 `CONTRIBUTING.md` 已移除；`AGENTS.md` 已明确 `PROJECT_MEMORY/` 文档结构和更新规则。
 验证：`git diff --check` 通过；引用扫描确认活跃代理入口仍指向 `AGENTS.md`。未运行
