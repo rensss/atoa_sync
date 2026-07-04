@@ -1,6 +1,6 @@
 # 交接
 
-最后更新：2026-06-23
+最后更新：2026-07-04
 
 ## 从这里开始
 
@@ -28,6 +28,11 @@ swift test --package-path macos
 检查。验收 Android 稳定性里程碑前，先复核风险 R-001 和 R-002。
 
 ## 最新本地工作
+
+B06 项目记忆文档订正已完成：修正 `00_PROJECT_STATUS.md` 的主线提交与分支指针
+（补记 `main` 最近提交 `5f6fd33`；治理分支 `codex/agent-governance` tip 为
+`a07593a`，其上集成合并提交为 `23b09d5`），并为 B01、B03、B04 批次记录补齐模板要求
+的“不变量”段。只改 `PROJECT_MEMORY/` 内的 Markdown 文档，未触及源码或运行时行为。
 
 B05 中文文档和项目记忆治理已完成，提交为 `a24a442`：仓库级文档、平台 README、发布说明、历史计划/
 设计文档和 `PROJECT_MEMORY/` 已统一整理为中文；冗余根目录 `CHANGELOG.md` 和

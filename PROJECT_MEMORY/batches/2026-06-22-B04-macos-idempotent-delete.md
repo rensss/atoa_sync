@@ -25,6 +25,13 @@ exists.” 错误。
 - 风险：R-008；删除/tombstone 行为受 ADR-005 约束。
 - 未改变 `04_DECISION_LOG.md` 中的受保护决策。
 
+## 不变量
+
+- 缺失文件的重命名行为不变。
+- manifest tombstone 语义与 Android reconciliation 不变。
+- 仍存在文件的废纸篓（trash）处理不变。
+- `LibraryRepository` 的唯一目标命名保持。
+
 ## 验证
 
 在 `/Users/ios_k/Desktop/PProject/Android_sync` 运行：

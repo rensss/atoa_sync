@@ -1,18 +1,19 @@
 # 项目状态
 
-最后复核：2026-06-23
+最后复核：2026-07-04
 
 ## 基线
 
 - 产品版本：`0.1.2`
 - 主分支：`main`
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
-- 当前主线集成提交：`8a09aa0`
-- `main` 上最新 B04 实现提交：`fee8063`
-- `main` 上最新 B05 文档治理提交：`a24a442`
-- 治理工作分支：`codex/agent-governance`，位于 `a07593a`
+- `main` 最近内容提交（HEAD）：`5f6fd33`（B05 后续记录提交）
+- 主线集成合并提交：`8a09aa0`（B03 集成合并）
+- `main` 上 B04 实现提交：`fee8063`
+- `main` 上 B05 文档治理提交：`a24a442`
+- `main` 上 B06 文档订正提交：待本批次落盘后回填
+- 治理分支：`codex/agent-governance`，tip 位于 `a07593a`；其上的集成合并提交为 `23b09d5`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
-- 集成分支：`codex/agent-governance`，位于 `23b09d5`
 - 最新发布标签：`v0.1.2`
 - 仓库布局：Android 代码在 `android/`，macOS 代码在 `macos/`
 - 受支持接收端：原生 macOS `ReceiverService`
@@ -42,6 +43,11 @@
   `PROJECT_MEMORY/` 统一整理为中文，并在 `AGENTS.md` 明确项目记忆结构和更新规则。
   根目录冗余的 `CHANGELOG.md` 和 `CONTRIBUTING.md` 已移除。本批次只修改 Markdown
   文档。
+- B06 文档订正修正了本文件的主线提交与分支指针：补记 `main` 最近提交
+  `5f6fd33`，并消除同名治理分支 `codex/agent-governance` 两处 SHA 的歧义（tip 为
+  `a07593a`，其上集成合并提交为 `23b09d5`）。同时为 B01、B03、B04 批次记录补齐
+  `PROJECT_MEMORY/batches/TEMPLATE.md` 要求的“不变量”段。本批次只修改
+  `PROJECT_MEMORY/` 内的 Markdown 文档。
 
 ## 开放工作
 
@@ -110,6 +116,19 @@ rg -n "AGENT\\.md|AGENTS\\.md|CLAUDE\\.md|PROJECT_MEMORY|Documentation|Update Ru
 `git diff --check` 通过。引用扫描确认活跃文档指向 `AGENTS.md` 和 `PROJECT_MEMORY/`；
 单数 `AGENT.md` 只出现在扫描命令和 B01 历史批次描述中。未运行平台测试，因为本批次只修改
 Markdown 文档。
+
+B06 项目记忆文档订正于 2026-07-04 使用以下命令验证：
+
+```bash
+git diff --check
+for r in main codex/agent-governance codex/stability-macos-ux; do git rev-parse --short "$r"; done
+for f in PROJECT_MEMORY/batches/2026-*.md; do grep -q "^## 不变量" "$f" || echo "缺: $f"; done
+```
+
+`git diff --check` 通过。分支/HEAD 解析确认 `main` 位于 `5f6fd33`、
+`codex/agent-governance` 位于 `a07593a`、`codex/stability-macos-ux` 位于 `cbf31db`，
+与订正后的指针一致。不变量段扫描无输出，确认全部批次记录均含“不变量”段。未运行
+平台测试，因为本批次只修改 `PROJECT_MEMORY/` 内的 Markdown 文档。
 
 ## 状态维护
 
