@@ -12,6 +12,7 @@
 - `main` 上 B04 实现提交：`fee8063`
 - `main` 上 B05 文档治理提交：`a24a442`
 - `main` 上 B06 文档订正提交：待本批次落盘后回填
+- `main` 上 B07 AGENTS.md 结构优化提交：待本批次落盘后回填
 - 治理分支：`codex/agent-governance`，tip 位于 `a07593a`；其上的集成合并提交为 `23b09d5`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 最新发布标签：`v0.1.2`
@@ -48,6 +49,9 @@
   `a07593a`，其上集成合并提交为 `23b09d5`）。同时为 B01、B03、B04 批次记录补齐
   `PROJECT_MEMORY/batches/TEMPLATE.md` 要求的“不变量”段。本批次只修改
   `PROJECT_MEMORY/` 内的 Markdown 文档。
+- B07 AGENTS.md 结构优化在 `AGENTS.md` 中新增事实来源分层段，把 PROJECT_MEMORY
+  逐文件清单收敛为指向 `PROJECT_MEMORY/README.md`（消除重复），并将提交/分支引用
+  规范与文档语言约定升为明文规则。本批次只修改 `AGENTS.md` 与两份记录文档。
 
 ## 开放工作
 
@@ -129,6 +133,19 @@ for f in PROJECT_MEMORY/batches/2026-*.md; do grep -q "^## 不变量" "$f" || ec
 `codex/agent-governance` 位于 `a07593a`、`codex/stability-macos-ux` 位于 `cbf31db`，
 与订正后的指针一致。不变量段扫描无输出，确认全部批次记录均含“不变量”段。未运行
 平台测试，因为本批次只修改 `PROJECT_MEMORY/` 内的 Markdown 文档。
+
+B07 AGENTS.md 结构优化于 2026-07-04 使用以下命令验证：
+
+```bash
+git diff --check
+rg -n "PROJECT_MEMORY 文档结构" AGENTS.md
+rg -n "PROJECT_MEMORY/README.md" AGENTS.md
+rg -n "git rev-parse|默认使用中文|事实来源分层" AGENTS.md
+```
+
+`git diff --check` 通过。对“PROJECT_MEMORY 文档结构”的扫描无输出，确认重复清单已
+移除；`PROJECT_MEMORY/README.md` 与三条新增规则的扫描均命中。未运行平台测试，因为
+本批次只修改 Markdown 文档。
 
 ## 状态维护
 

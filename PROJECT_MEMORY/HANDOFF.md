@@ -29,6 +29,11 @@ swift test --package-path macos
 
 ## 最新本地工作
 
+B07 AGENTS.md 结构优化已完成：`AGENTS.md` 新增事实来源分层段，PROJECT_MEMORY
+逐文件清单收敛为指向 `PROJECT_MEMORY/README.md`（消除重复），并将提交/分支引用
+规范与文档语言约定升为明文规则。只改 `AGENTS.md` 与记录文档。B06 与 B07 均为本地
+未提交批次，提交后需把各自 SHA 回填进 `00_PROJECT_STATUS.md` 的“待回填”行。
+
 B06 项目记忆文档订正已完成：修正 `00_PROJECT_STATUS.md` 的主线提交与分支指针
 （补记 `main` 最近提交 `5f6fd33`；治理分支 `codex/agent-governance` tip 为
 `a07593a`，其上集成合并提交为 `23b09d5`），并为 B01、B03、B04 批次记录补齐模板要求
