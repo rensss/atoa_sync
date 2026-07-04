@@ -29,6 +29,10 @@ swift test --package-path macos
 
 ## 最新本地工作
 
+B08 macOS 里程碑补建已完成：新增 `milestones/M2_macos_receiver_correctness.md`
+与 `milestones/M3_macos_ux.md`，承接 Phase 2/Phase 3 退出标准并与路线图互链；未完成
+的设备/视觉 QA 与 B04 测试执行保持为未闭合项。B06–B08 均为本地未提交批次。
+
 B07 AGENTS.md 结构优化已完成：`AGENTS.md` 新增事实来源分层段，PROJECT_MEMORY
 逐文件清单收敛为指向 `PROJECT_MEMORY/README.md`（消除重复），并将提交/分支引用
 规范与文档语言约定升为明文规则。只改 `AGENTS.md` 与记录文档。B06 与 B07 均为本地

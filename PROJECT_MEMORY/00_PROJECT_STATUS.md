@@ -13,6 +13,7 @@
 - `main` 上 B05 文档治理提交：`a24a442`
 - `main` 上 B06 文档订正提交：待本批次落盘后回填
 - `main` 上 B07 AGENTS.md 结构优化提交：待本批次落盘后回填
+- `main` 上 B08 macOS 里程碑补建提交：待本批次落盘后回填
 - 治理分支：`codex/agent-governance`，tip 位于 `a07593a`；其上的集成合并提交为 `23b09d5`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 最新发布标签：`v0.1.2`
@@ -52,12 +53,17 @@
 - B07 AGENTS.md 结构优化在 `AGENTS.md` 中新增事实来源分层段，把 PROJECT_MEMORY
   逐文件清单收敛为指向 `PROJECT_MEMORY/README.md`（消除重复），并将提交/分支引用
   规范与文档语言约定升为明文规则。本批次只修改 `AGENTS.md` 与两份记录文档。
+- B08 macOS 里程碑补建新增 `milestones/M2_macos_receiver_correctness.md` 与
+  `milestones/M3_macos_ux.md`，承接 Phase 2/Phase 3 的进入/退出标准，并在路线图
+  互链。未完成的设备/视觉 QA 与 B04 测试执行保持为未闭合退出标准，未宣称阶段完成。
 
 ## 开放工作
 
-1. 完成 Android 真机压力测试，覆盖大型媒体库、导航、生命周期切换和重复开始同步。
+1. 完成 Android 真机压力测试，覆盖大型媒体库、导航、生命周期切换和重复开始同步
+   （退出标准见 `milestones/M1_android_stability.md`）。
 2. 完成 macOS 最终视觉与交互 QA，覆盖工具栏位置、本地化菜单、Inspector/搜索布局、
-   缩略图和 Quick Look。
+   缩略图和 Quick Look（退出标准见 `milestones/M3_macos_ux.md`；接收端正确性收尾见
+   `milestones/M2_macos_receiver_correctness.md`）。
 3. 在可信私有网络之外使用前，重新评估局域网认证和传输安全。
 
 ## 当前验证记录
@@ -146,6 +152,17 @@ rg -n "git rev-parse|默认使用中文|事实来源分层" AGENTS.md
 `git diff --check` 通过。对“PROJECT_MEMORY 文档结构”的扫描无输出，确认重复清单已
 移除；`PROJECT_MEMORY/README.md` 与三条新增规则的扫描均命中。未运行平台测试，因为
 本批次只修改 Markdown 文档。
+
+B08 macOS 里程碑补建于 2026-07-04 使用以下命令验证：
+
+```bash
+git diff --check
+ls PROJECT_MEMORY/milestones/M2_macos_receiver_correctness.md PROJECT_MEMORY/milestones/M3_macos_ux.md
+rg -n "milestones/M2_macos_receiver_correctness.md|milestones/M3_macos_ux.md" PROJECT_MEMORY/03_REFACTOR_ROADMAP.md
+```
+
+`git diff --check` 通过。两个里程碑文件存在；路线图 Phase 2、Phase 3 均已引用对应
+里程碑。未运行平台测试，因为本批次只修改 Markdown 文档。
 
 ## 状态维护
 

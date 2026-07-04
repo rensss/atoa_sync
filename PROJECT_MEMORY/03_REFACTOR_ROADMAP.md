@@ -38,6 +38,8 @@
 - 增加接收端生命周期和中断上传回归覆盖。
 - 保留原子提交、元数据、唯一命名和 tombstone。
 
+退出标准定义在 `milestones/M2_macos_receiver_correctness.md`。
+
 ## Phase 3：macOS UX 和应用测试
 
 状态：已在 `8a09aa0` 实现到 `main`；最终视觉/交互 QA 仍未完成。
@@ -46,6 +48,8 @@
 - 增加运行时中英文本地化。
 - 完成搜索、排序、Inspector、Quick Look 和设置行为。
 - 增加 `AndroidSyncMacTests` target，覆盖应用状态和本地化逻辑。
+
+退出标准定义在 `milestones/M3_macos_ux.md`。
 
 ## Phase 4：安全和运维加固
 
