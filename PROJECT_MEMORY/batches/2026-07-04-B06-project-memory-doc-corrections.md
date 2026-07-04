@@ -55,7 +55,7 @@ for f in PROJECT_MEMORY/batches/2026-*.md; do grep -q "^## 不变量" "$f" || ec
 
 ## 结果
 
-- 提交：待本批次落盘后回填。
+- 提交：`88c0150`。
 - 结果：主线提交与分支指针已与真实 Git 状态对齐；B01、B03、B04 批次记录补齐
   “不变量”段，五个批次记录现均符合模板。
 - 后续：为路线图 Phase 2（macOS 接收端正确性）与 Phase 3（macOS UX）补建 M2/M3

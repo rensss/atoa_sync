@@ -7,13 +7,13 @@
 - 产品版本：`0.1.2`
 - 主分支：`main`
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
-- `main` 最近内容提交（HEAD）：`5f6fd33`（B05 后续记录提交）
+- `main` 最近治理批次提交：`49ffee0`（B08 里程碑）
 - 主线集成合并提交：`8a09aa0`（B03 集成合并）
 - `main` 上 B04 实现提交：`fee8063`
 - `main` 上 B05 文档治理提交：`a24a442`
-- `main` 上 B06 文档订正提交：待本批次落盘后回填
-- `main` 上 B07 AGENTS.md 结构优化提交：待本批次落盘后回填
-- `main` 上 B08 macOS 里程碑补建提交：待本批次落盘后回填
+- `main` 上 B06 文档订正提交：`88c0150`
+- `main` 上 B07 AGENTS.md 结构优化提交：`3a1acd0`
+- `main` 上 B08 macOS 里程碑补建提交：`49ffee0`
 - 治理分支：`codex/agent-governance`，tip 位于 `a07593a`；其上的集成合并提交为 `23b09d5`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 最新发布标签：`v0.1.2`

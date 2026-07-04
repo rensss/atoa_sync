@@ -58,7 +58,7 @@ rg -n "milestones/M2_macos_receiver_correctness.md|milestones/M3_macos_ux.md" PR
 
 ## 结果
 
-- 提交：待本批次落盘后回填。
+- 提交：`49ffee0`。
 - 结果：Phase 2/Phase 3 均有里程碑文件承接退出标准，路线图与里程碑互链；此前评估
   中的结构缺口已闭合。
 - 后续：M2 需要 B04 幂等删除测试在可执行 XCTest 的环境运行并补端到端联调证据；
