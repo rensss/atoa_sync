@@ -950,14 +950,17 @@ final class AppModel {
             transferLingerTask = nil
             if transferCardState != .receiving {
                 burstCompletedCount = 0
+                burstBytesReceived = 0
+                burstSawProgress = false
+                transferSamples.removeAll()
             }
             transferCardState = .receiving
         case let .uploadProgress(id, bytesReceived, _):
             guard var upload = activeUploads[id] else { return }
             let delta = bytesReceived - upload.bytesReceived
+            guard delta > 0 else { return }
             upload.bytesReceived = bytesReceived
             activeUploads[id] = upload
-            guard delta > 0 else { return }
             burstSawProgress = true
             burstBytesReceived += delta
             let now = Date()
