@@ -86,7 +86,8 @@ private struct RenameSheet: View {
                     .disabled(filename.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .padding(20)
+        .padding(Theme.spacingL + Theme.spacingXS)
         .frame(width: 380)
+        .background(Theme.bgRaised)
     }
 }

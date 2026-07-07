@@ -12,29 +12,35 @@ struct InspectorView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         ThumbnailView(item: item, size: Theme.Thumb.inspectorSize)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusL))
                         Text(item.filename)
                             .font(.headline)
+                            .foregroundStyle(Theme.textPrimary)
                             .textSelection(.enabled)
                         metadata(item)
                         HStack {
                             Button(model.text(.quickLook)) { model.preview(item) }
                                 .disabled(item.removed)
+                                .buttonStyle(.bordered)
                             Button(model.text(.finder)) { model.reveal(item) }
                                 .disabled(item.removed)
+                                .buttonStyle(.bordered)
                         }
                         Button(model.text(.renameEllipsis)) {
                             renameValue = item.filename
                             renamePresented = true
                         }
                         .disabled(item.removed)
+                        .buttonStyle(.bordered)
                         Button(model.text(.moveToTrash), role: .destructive) {
                             Task { await model.deleteSelected() }
                         }
                         .disabled(item.removed)
+                        .buttonStyle(.bordered)
                     }
                     .padding()
                 }
+                .background(Theme.bg)
             } else {
                 ContentUnavailableView(
                     model.text(.noSelection),
@@ -87,7 +93,7 @@ struct InspectorView: View {
     private func row(_ label: String, _ value: String) -> some View {
         GridRow {
             Text(label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
             Text(value)
         }
     }
