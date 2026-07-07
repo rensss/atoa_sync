@@ -81,7 +81,7 @@ swift test --package-path macos        # 78 个测试全部通过
 
 ## 结果
 
-- 提交：待回填
+- 提交：`039af65`
 - 结果：实现与回归测试完成；完整 macOS 测试套件（78 个）通过；打包验证通过。
 - 后续：`LibraryRepository.manifest()` 对无 `stable_id` 的记录会丢弃其
   tombstone（`fallback` 只收集未删除记录），此类条目依赖文件缺失推断删除；

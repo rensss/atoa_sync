@@ -14,7 +14,7 @@
 | R-008 | Medium | 开放 | Manifest 是追加式 JSONL；损坏或无限增长会降低启动和 reconciliation 性能。 | 保持解析容错，增加 malformed line 覆盖，并在长期高容量使用前设计 compaction。 |
 | R-009 | Medium | 开放 | Android 队列状态是进程内状态。应用终止会丢失等待、失败和重试状态。 | 在声明可恢复同步前，决定是否需要持久化。 |
 | R-010 | Low | 开放 | 命令行 Android 构建依赖本地安装的 SDK 工具和路径，降低可复现性。 | 记录前置条件，并考虑固定 CI 环境；不要轻率替换当前构建系统。 |
-| R-011 | High | 已缓解（B09，提交待回填） | SwiftData `@Model` 属性若使用 NSManagedObject 保留名（如 `deleted`），`ModelContext.save()` 会静默丢弃写入值，导致 UI 状态与 manifest 永久不一致（已删除条目复活）。 | 实体属性避开 Core Data/NSManagedObject 保留名；`MediaItemEntity` 已改用 `removed` 并有回归测试 `AppModelDeleteTests` 守护。新增实体属性时核对保留名。 |
+| R-011 | High | 已缓解（B09，提交 `039af65`） | SwiftData `@Model` 属性若使用 NSManagedObject 保留名（如 `deleted`），`ModelContext.save()` 会静默丢弃写入值，导致 UI 状态与 manifest 永久不一致（已删除条目复活）。 | 实体属性避开 Core Data/NSManagedObject 保留名；`MediaItemEntity` 已改用 `removed` 并有回归测试 `AppModelDeleteTests` 守护。新增实体属性时核对保留名。 |
 
 ## 已关闭风险
 

@@ -29,7 +29,7 @@ swift test --package-path macos
 
 ## 最新本地工作
 
-B09 macOS 删除标记修复已完成（本地未提交）：用户报告“删除的 item 还在列表
+B09 macOS 删除标记修复已完成（提交 `039af65`）：用户报告“删除的 item 还在列表
 显示”。根因是 `MediaItemEntity` 的 SwiftData 属性名 `deleted` 与 NSManagedObject
 保留名冲突，`ModelContext.save()` 静默丢弃写入值，导致已删除条目在会话内和每次
 启动后都复活（真实库中同一条目累积了 5 条重复 tombstone）。属性已改名为

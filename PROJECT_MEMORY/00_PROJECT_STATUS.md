@@ -56,7 +56,7 @@
 - B08 macOS 里程碑补建新增 `milestones/M2_macos_receiver_correctness.md` 与
   `milestones/M3_macos_ux.md`，承接 Phase 2/Phase 3 的进入/退出标准，并在路线图
   互链。未完成的设备/视觉 QA 与 B04 测试执行保持为未闭合退出标准，未宣称阶段完成。
-- B09（本地未提交）修复 macOS 已删除条目在列表中复活的缺陷：`MediaItemEntity`
+- B09（提交 `039af65`）修复 macOS 已删除条目在列表中复活的缺陷：`MediaItemEntity`
   的 `deleted` 属性与 NSManagedObject 保留名冲突，`ModelContext.save()` 静默丢弃
   写入值；已改名为 `removed` 并新增回归测试。完整 macOS 测试套件（78 个）通过，
   真实 store 副本轻量迁移验证通过。详见
