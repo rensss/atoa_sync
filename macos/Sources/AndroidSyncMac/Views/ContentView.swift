@@ -14,8 +14,6 @@ struct ContentView: View {
                     OnboardingView(model: model)
                 } else {
                     VStack(spacing: 0) {
-                        ReceiverStatusView(model: model)
-                        Divider()
                         LibraryView(
                             model: model,
                             quickLookBlocked: renamePresented

@@ -5,6 +5,10 @@ struct LibraryToolbar: ToolbarContent {
     @Environment(\.openSettings) private var openSettings
 
     var body: some ToolbarContent {
+        ToolbarItem(placement: .status) {
+            StatusCapsuleView(model: model)
+        }
+
         if model.receiveDirectory != nil {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
