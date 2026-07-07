@@ -68,6 +68,9 @@
   `docs/superpowers/specs/2026-07-07-macos-ui-redesign-design.md`、
   `docs/superpowers/plans/2026-07-07-macos-ui-redesign.md`，批次详情见
   `PROJECT_MEMORY/batches/2026-07-07-B10-macos-dark-theme-status-capsule.md`。
+- B11（同分支，提交 `45c101c`/`78a55a4`）为 UI 重设计批次 2/6：侧栏分类计数
+  （不受搜索/日期过滤影响）与深色侧栏样式。84 个测试全绿。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B11-macos-sidebar-counts.md`。
 
 ## 开放工作
 
