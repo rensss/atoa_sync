@@ -362,6 +362,23 @@ final class AppModel {
         }
     }
 
+    var statusCapsuleTitle: String {
+        if isRunning, !activeUploads.isEmpty {
+            return format(.receivingFilesFormat, activeUploads.count)
+        }
+        return switch status {
+        case .needsDirectory: text(.receiveFolderRequired)
+        case .stopped: text(.receiverPaused)
+        case .starting: text(.startingReceiver)
+        case .running: text(.readyToReceive)
+        case .failed: text(.receiverUnavailable)
+        }
+    }
+
+    var statusCapsuleDetail: String {
+        uploadURL.isEmpty ? format(.portFormat, Int(port)) : uploadURL
+    }
+
     func launchIfNeeded() async {
         guard !launched else { return }
         launched = true
