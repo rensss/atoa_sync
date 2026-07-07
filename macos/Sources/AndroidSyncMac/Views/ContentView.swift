@@ -14,6 +14,7 @@ struct ContentView: View {
                     OnboardingView(model: model)
                 } else {
                     VStack(spacing: 0) {
+                        TransferCardRow(model: model)
                         LibraryView(
                             model: model,
                             quickLookBlocked: renamePresented
