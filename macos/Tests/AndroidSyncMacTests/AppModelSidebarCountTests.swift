@@ -7,7 +7,8 @@ import AndroidSyncCore
 final class AppModelSidebarCountTests: XCTestCase {
     private func makeItem(
         kind: UploadKind,
-        removed: Bool = false
+        removed: Bool = false,
+        receivedAt: Date = Date()
     ) -> MediaItemEntity {
         let record = UploadRecord(
             id: UUID(),
@@ -21,7 +22,7 @@ final class AppModelSidebarCountTests: XCTestCase {
             dateTakenMillis: nil,
             dateAddedMillis: nil,
             sourceIP: nil,
-            receivedAt: Date(),
+            receivedAt: receivedAt,
             fileURL: URL(fileURLWithPath: "/tmp/f"),
             deleted: removed
         )
@@ -38,8 +39,9 @@ final class AppModelSidebarCountTests: XCTestCase {
             modelContainer: container,
             userDefaults: UserDefaults(suiteName: UUID().uuidString)!
         )
+        let sixtyDaysAgo = Calendar.current.date(byAdding: .day, value: -60, to: Date())!
         model.items = [
-            makeItem(kind: .photo),
+            makeItem(kind: .photo, receivedAt: sixtyDaysAgo),
             makeItem(kind: .photo),
             makeItem(kind: .video),
             makeItem(kind: .photo, removed: true),
