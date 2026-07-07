@@ -99,6 +99,12 @@ struct ActiveUpload: Equatable, Identifiable {
     let expectedSize: Int64
 }
 
+enum TransferCardState: Equatable {
+    case idle
+    case receiving
+    case completed(Int)
+}
+
 protocol ReceiverServiceControlling: AnyObject, Sendable {
     func start() async throws -> UInt16
     func stop()
@@ -201,6 +207,10 @@ final class AppModel {
     var lastError: String?
     var activeUploads: [UUID: ActiveUpload] = [:]
     var transientUploadMessage: String?
+    private(set) var transferCardState: TransferCardState = .idle
+    var transferCompletionLinger: Duration = .seconds(3)
+    private(set) var transferLingerTask: Task<Void, Never>?
+    private var burstCompletedCount = 0
 
     init(
         modelContainer: ModelContainer,
@@ -268,6 +278,34 @@ final class AppModel {
             now: Date(),
             calendar: Calendar.current
         )
+    }
+
+    struct TodayStats: Equatable {
+        let count: Int
+        let bytes: Int64
+    }
+
+    static func todayStats(
+        _ items: [MediaItemEntity],
+        now: Date,
+        calendar: Calendar
+    ) -> TodayStats {
+        let startOfToday = calendar.startOfDay(for: now)
+        let todays = items.filter {
+            !$0.removed && $0.receivedAt >= startOfToday && $0.receivedAt <= now
+        }
+        return TodayStats(
+            count: todays.count,
+            bytes: todays.reduce(0) { $0 + $1.sizeBytes }
+        )
+    }
+
+    var todayStats: TodayStats {
+        Self.todayStats(items, now: Date(), calendar: .current)
+    }
+
+    var activeUploadsExpectedBytes: Int64 {
+        activeUploads.values.reduce(0) { $0 + $1.expectedSize }
     }
 
     static func filterItems(
@@ -869,6 +907,7 @@ final class AppModel {
         case .stopped:
             activeUploads.removeAll()
             clearTransientUploadFailure()
+            resetTransferCard()
             if receiveDirectory != nil {
                 status = .stopped
             }
@@ -878,8 +917,15 @@ final class AppModel {
                 filename: filename,
                 expectedSize: expectedSize
             )
+            transferLingerTask?.cancel()
+            transferLingerTask = nil
+            transferCardState = .receiving
         case let .uploadStored(id, _):
             activeUploads.removeValue(forKey: id)
+            burstCompletedCount += 1
+            if activeUploads.isEmpty {
+                beginTransferLinger()
+            }
             guard let repository else { return }
             let directoryGeneration = directoryConfigurationGeneration
             Task {
@@ -892,9 +938,17 @@ final class AppModel {
         case let .uploadFailed(id, filename, message):
             activeUploads.removeValue(forKey: id)
             showTransientUploadFailure(filename: filename, message: message)
+            if activeUploads.isEmpty {
+                if burstCompletedCount > 0 {
+                    beginTransferLinger()
+                } else {
+                    resetTransferCard()
+                }
+            }
         case let .receiverFailed(message):
             activeUploads.removeAll()
             clearTransientUploadFailure()
+            resetTransferCard()
             status = .failed(message)
             lastError = message
         }
@@ -914,6 +968,25 @@ final class AppModel {
         transientUploadMessageTask?.cancel()
         transientUploadMessageTask = nil
         transientUploadMessage = nil
+    }
+
+    private func beginTransferLinger() {
+        transferCardState = .completed(burstCompletedCount)
+        transferLingerTask?.cancel()
+        transferLingerTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: transferCompletionLinger)
+            guard !Task.isCancelled else { return }
+            self.transferCardState = .idle
+            self.burstCompletedCount = 0
+        }
+    }
+
+    private func resetTransferCard() {
+        transferLingerTask?.cancel()
+        transferLingerTask = nil
+        transferCardState = .idle
+        burstCompletedCount = 0
     }
 
     private func reloadLibrary(
