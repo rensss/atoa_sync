@@ -30,7 +30,8 @@ swift test --package-path macos
 ## 最新本地工作
 
 macOS UI 重设计进行中（分支 `codex/macos-ui-redesign`）：批次 1/6（B10，深色
-主题 + 状态胶囊）、批次 2/6（B11，侧栏计数）已完成并记录；后续批次按
+主题 + 状态胶囊）、批次 2/6（B11，侧栏计数）、批次 3/6（B12，传输卡片行）
+已完成并记录；后续批次按
 `docs/superpowers/plans/2026-07-07-macos-ui-redesign.md` 推进，全部完成并终审后
 合回 `main`。`transientUploadMessage` 暂无展示位为计划过渡态，批次 3 承接。
 

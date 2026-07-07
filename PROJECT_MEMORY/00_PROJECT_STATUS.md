@@ -71,6 +71,10 @@
 - B11（同分支，提交 `45c101c`/`78a55a4`）为 UI 重设计批次 2/6：侧栏分类计数
   （不受搜索/日期过滤影响）与深色侧栏样式。84 个测试全绿。详见
   `PROJECT_MEMORY/batches/2026-07-07-B11-macos-sidebar-counts.md`。
+- B12（同分支，提交 `d803856`/`f845190`/`1d5c4a0`）为 UI 重设计批次 3/6：
+  传输卡片状态机（含跨 burst 计数泄漏修复）、今日统计、网格上方传输卡片行，
+  `transientUploadMessage` 横幅展示位在此闭合。88 个测试全绿。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B12-macos-transfer-card-row.md`。
 
 ## 开放工作
 
