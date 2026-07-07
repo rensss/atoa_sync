@@ -41,6 +41,16 @@
   不受影响（发射点位于既有写入路径内、同队列，无生命周期语义变化）。
   未新增风险 ID。
 
+## 终审修复（提交 `9884b01`）
+
+全分支终审发现跨 burst 进度/速度状态泄漏（与 B12 计数泄漏同类：驻留任务被
+新 burst 取消时 `burstSawProgress`/`burstBytesReceived`/`transferSamples`
+未清零，新 burst 显示确定 0% 条与陈旧速度）。已在 `.uploadStarted` 的
+非 receiving 复位块统一清零四个 burst 字段，三处复位点语义一致；
+`.uploadProgress` 改为先查 `delta > 0` 再落 `bytesReceived`；新增驻留反复
+入场进度回归测试（RED 证据：`XCTAssertNil failed: "0.0"`）与多上传聚合
+测试。修复后 92 个测试全绿，verify 通过，独立复审确认。
+
 ## 不变量
 
 - 接收端 HTTP 协议、`.part` 暂存与尺寸校验、manifest 布局不变（事件为

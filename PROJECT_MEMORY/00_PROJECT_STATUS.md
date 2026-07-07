@@ -86,6 +86,9 @@
   事件（512 KB 节流）、传输卡片确定进度条与速度显示。90 个测试全绿。已知限制
   与风险复核（R-004/R-005/R-007 不受影响）见
   `PROJECT_MEMORY/batches/2026-07-07-B15-macos-upload-progress-events.md`。
+- 全分支终审（fable 级审查）判定 With fixes，唯一 Important（跨 burst 进度/
+  速度状态泄漏）已修复于 `9884b01` 并经独立复审确认；92 个测试全绿。分支等待
+  合回 `main`，GUI 手工 QA 仍为 M3 口径未闭合项。
 
 ## 开放工作
 
