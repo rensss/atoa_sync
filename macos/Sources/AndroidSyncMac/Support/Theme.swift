@@ -34,3 +34,15 @@ enum Theme {
     static let radiusS: CGFloat = 6
     static let radiusL: CGFloat = 10
 }
+
+extension Theme {
+    /// 缩略图尺寸 token（原 ThumbnailMetrics，并入主题避免两套常量）。
+    enum Thumb {
+        static let gridCell: CGFloat = 150
+        static let gridGap: CGFloat = 3
+        static let gridSize = CGSize(width: gridCell, height: gridCell)
+        static let listSize = CGSize(width: 56, height: 42)
+        static let inspectorSize = CGSize(width: 240, height: 166)
+        static let cornerRadius: CGFloat = Theme.radiusS
+    }
+}

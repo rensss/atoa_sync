@@ -2,14 +2,6 @@ import AppKit
 import QuickLookThumbnailing
 import SwiftUI
 
-enum ThumbnailMetrics {
-    static let gridCardWidth: CGFloat = 180
-    static let gridSize = CGSize(width: gridCardWidth, height: 124)
-    static let listSize = CGSize(width: 56, height: 42)
-    static let inspectorSize = CGSize(width: 240, height: 166)
-    static let cornerRadius: CGFloat = 9
-}
-
 struct ThumbnailView: View {
     let item: MediaItemEntity
     let size: CGSize
@@ -17,11 +9,11 @@ struct ThumbnailView: View {
 
     var body: some View {
         ZStack {
-            Color(nsColor: .controlBackgroundColor)
+            Theme.bgRaised
             if let image {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFit()
+                    .scaledToFill()
                     .frame(width: size.width, height: size.height)
             } else {
                 Image(systemName: item.kind == .video ? "film" : item.kind == .photo ? "photo" : "doc")
