@@ -75,6 +75,10 @@
   传输卡片状态机（含跨 burst 计数泄漏修复）、今日统计、网格上方传输卡片行，
   `transientUploadMessage` 横幅展示位在此闭合。88 个测试全绿。详见
   `PROJECT_MEMORY/batches/2026-07-07-B12-macos-transfer-card-row.md`。
+- B13（同分支，提交 `9f92e4a`/`aef49e6`）为 UI 重设计批次 4/6：ThumbnailMetrics
+  并入 `Theme.Thumb`、高密度网格（150pt/3pt/无标签/时长角标）、列表与
+  Inspector/RenameSheet 深色化。87 个测试全绿（度量测试 2 合 1）。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B13-macos-dense-grid-inspector.md`。
 
 ## 开放工作
 
