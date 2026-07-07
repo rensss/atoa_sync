@@ -919,6 +919,9 @@ final class AppModel {
             )
             transferLingerTask?.cancel()
             transferLingerTask = nil
+            if transferCardState != .receiving {
+                burstCompletedCount = 0
+            }
             transferCardState = .receiving
         case let .uploadStored(id, _):
             activeUploads.removeValue(forKey: id)

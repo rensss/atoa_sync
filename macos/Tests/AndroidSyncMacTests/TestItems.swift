@@ -28,7 +28,7 @@ enum TestItems {
         return MediaItemEntity(record: record)
     }
 
-    static func record(filename: String = "f") -> UploadRecord {
+    static func record() -> UploadRecord {
         item().uploadRecord
     }
 }

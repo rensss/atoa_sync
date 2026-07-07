@@ -42,6 +42,21 @@ final class TransferCardStateTests: XCTestCase {
         XCTAssertEqual(model.transferCardState, .idle)
     }
 
+    func testNewBurstDuringLingerResetsCompletedCount() throws {
+        let model = try makeModel()
+        model.transferCompletionLinger = .seconds(60) // 驻留窗口内不触发回 idle
+        let first = UUID()
+        model.handle(.uploadStarted(id: first, filename: "a.jpg", expectedSize: 100))
+        model.handle(.uploadStored(id: first, record: TestItems.record()))
+        XCTAssertEqual(model.transferCardState, .completed(1))
+
+        let second = UUID()
+        model.handle(.uploadStarted(id: second, filename: "b.jpg", expectedSize: 100))
+        XCTAssertEqual(model.transferCardState, .receiving)
+        model.handle(.uploadStored(id: second, record: TestItems.record()))
+        XCTAssertEqual(model.transferCardState, .completed(1))
+    }
+
     func testTodayStatsCountsOnlyTodayAndNotRemoved() {
         let calendar = Calendar.current
         let now = Date()
