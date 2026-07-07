@@ -82,6 +82,10 @@
 - B14（同分支，提交 `8d06185`）为 UI 重设计批次 5/6：Onboarding 重做与
   设置深色化，MenuBarView 按计划豁免。87 个测试全绿。详见
   `PROJECT_MEMORY/batches/2026-07-07-B14-macos-onboarding-settings-dark.md`。
+- B15（同分支，提交 `ffbfacf`）为 UI 重设计批次 6/6：ReceiverService 上传进度
+  事件（512 KB 节流）、传输卡片确定进度条与速度显示。90 个测试全绿。已知限制
+  与风险复核（R-004/R-005/R-007 不受影响）见
+  `PROJECT_MEMORY/batches/2026-07-07-B15-macos-upload-progress-events.md`。
 
 ## 开放工作
 

@@ -32,9 +32,9 @@ swift test --package-path macos
 macOS UI 重设计进行中（分支 `codex/macos-ui-redesign`）：批次 1/6（B10，深色
 主题 + 状态胶囊）、批次 2/6（B11，侧栏计数）、批次 3/6（B12，传输卡片行）、
 批次 4/6（B13，高密度网格 + Inspector 深色）、批次 5/6（B14，Onboarding/设置
-深色）已完成并记录；后续批次按
-`docs/superpowers/plans/2026-07-07-macos-ui-redesign.md` 推进，全部完成并终审后
-合回 `main`。`transientUploadMessage` 暂无展示位为计划过渡态，批次 3 承接。
+深色）、批次 6/6（B15，上传进度事件与速度）已完成并记录——实施批次全部完成，
+待全分支终审通过后合回 `main`。GUI 手工视觉核对（五状态胶囊、空闲无占位、
+真机大文件进度）仍未执行，属 M3 口径终验项。`transientUploadMessage` 暂无展示位为计划过渡态，批次 3 承接。
 
 B09 macOS 删除标记修复已完成（提交 `039af65`）：用户报告“删除的 item 还在列表
 显示”。根因是 `MediaItemEntity` 的 SwiftData 属性名 `deleted` 与 NSManagedObject
