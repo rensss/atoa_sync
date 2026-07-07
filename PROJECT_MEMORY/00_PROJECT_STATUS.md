@@ -62,6 +62,12 @@
   真实 store 副本轻量迁移验证通过。详见
   `PROJECT_MEMORY/batches/2026-07-07-B09-macos-swiftdata-deleted-flag.md`
   和风险 R-011。
+- B10（分支 `codex/macos-ui-redesign`，提交 `83205c2`/`a3acab4`/`e6a0f18`）为
+  macOS UI 重设计批次 1/6：深色主题 token、三 Scene 强制深色、工具栏状态胶囊
+  替代顶部状态条。83 个测试全绿；GUI 手工核对留分支终验。spec 与实施计划见
+  `docs/superpowers/specs/2026-07-07-macos-ui-redesign-design.md`、
+  `docs/superpowers/plans/2026-07-07-macos-ui-redesign.md`，批次详情见
+  `PROJECT_MEMORY/batches/2026-07-07-B10-macos-dark-theme-status-capsule.md`。
 
 ## 开放工作
 
