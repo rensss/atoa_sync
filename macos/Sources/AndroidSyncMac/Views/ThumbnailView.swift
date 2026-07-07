@@ -32,7 +32,7 @@ struct ThumbnailView: View {
         .frame(width: size.width, height: size.height)
         .clipped()
         .task(id: item.filePath) {
-            guard !item.deleted else { return }
+            guard !item.removed else { return }
             let request = QLThumbnailGenerator.Request(
                 fileAt: item.fileURL,
                 size: size,

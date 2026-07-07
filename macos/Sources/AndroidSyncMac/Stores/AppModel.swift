@@ -294,19 +294,19 @@ final class AppModel {
             let categoryMatches: Bool
             switch category {
             case .all:
-                categoryMatches = !item.deleted
+                categoryMatches = !item.removed
             case .photos:
-                categoryMatches = !item.deleted && item.kind == .photo
+                categoryMatches = !item.removed && item.kind == .photo
             case .videos:
-                categoryMatches = !item.deleted && item.kind == .video
+                categoryMatches = !item.removed && item.kind == .video
             case .files:
-                categoryMatches = !item.deleted && item.kind == .file
+                categoryMatches = !item.removed && item.kind == .file
             case .recent:
-                categoryMatches = !item.deleted
+                categoryMatches = !item.removed
                     && item.receivedAt >= startOfToday
                     && item.receivedAt <= now
             case .deleted:
-                categoryMatches = item.deleted
+                categoryMatches = item.removed
             }
             let dateMatches: Bool
             switch dateFilter {
@@ -421,12 +421,12 @@ final class AppModel {
     }
 
     func preview(_ item: MediaItemEntity) {
-        guard !item.deleted else { return }
+        guard !item.removed else { return }
         quickLookPreview.show(item.fileURL)
     }
 
     func toggleSelectedPreview() {
-        guard let item = selectedItem, !item.deleted else { return }
+        guard let item = selectedItem, !item.removed else { return }
         quickLookPreview.toggle(item.fileURL)
     }
 
@@ -451,7 +451,7 @@ final class AppModel {
     func deleteSelected() async {
         guard let repository else { return }
         let directoryGeneration = directoryConfigurationGeneration
-        let selected = items.filter { selectedIDs.contains($0.id) && !$0.deleted }
+        let selected = items.filter { selectedIDs.contains($0.id) && !$0.removed }
         do {
             for item in selected {
                 try await repository.delete(item.uploadRecord) { url in

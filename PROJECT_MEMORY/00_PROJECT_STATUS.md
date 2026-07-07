@@ -1,6 +1,6 @@
 # 项目状态
 
-最后复核：2026-07-04
+最后复核：2026-07-07
 
 ## 基线
 
@@ -56,6 +56,12 @@
 - B08 macOS 里程碑补建新增 `milestones/M2_macos_receiver_correctness.md` 与
   `milestones/M3_macos_ux.md`，承接 Phase 2/Phase 3 的进入/退出标准，并在路线图
   互链。未完成的设备/视觉 QA 与 B04 测试执行保持为未闭合退出标准，未宣称阶段完成。
+- B09（本地未提交）修复 macOS 已删除条目在列表中复活的缺陷：`MediaItemEntity`
+  的 `deleted` 属性与 NSManagedObject 保留名冲突，`ModelContext.save()` 静默丢弃
+  写入值；已改名为 `removed` 并新增回归测试。完整 macOS 测试套件（78 个）通过，
+  真实 store 副本轻量迁移验证通过。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B09-macos-swiftdata-deleted-flag.md`
+  和风险 R-011。
 
 ## 开放工作
 
@@ -163,6 +169,18 @@ rg -n "milestones/M2_macos_receiver_correctness.md|milestones/M3_macos_ux.md" PR
 
 `git diff --check` 通过。两个里程碑文件存在；路线图 Phase 2、Phase 3 均已引用对应
 里程碑。未运行平台测试，因为本批次只修改 Markdown 文档。
+
+B09 macOS 删除标记修复于 2026-07-07 使用以下命令验证：
+
+```bash
+swift test --package-path macos
+./macos/build_and_run.sh verify
+```
+
+全部通过；macOS 套件运行 78 个测试（含新增 `AppModelDeleteTests` 回归）。另用
+独立最小复现确认 SwiftData 保留名冲突（`deleted` 回滚、`removed` 正常），并用
+真实 `default.store` 与 `uploads.jsonl` 副本验证轻量迁移和 tombstone 解析。未运行
+Android 测试，因为本批次只修改 macOS 代码。
 
 ## 状态维护
 

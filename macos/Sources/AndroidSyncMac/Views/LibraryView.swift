@@ -111,15 +111,15 @@ struct LibraryView: View {
     @ViewBuilder
     private func itemMenu(_ item: MediaItemEntity) -> some View {
         Button(model.text(.quickLook)) { model.preview(item) }
-            .disabled(item.deleted)
+            .disabled(item.removed)
         Button(model.text(.showInFinder)) { model.reveal(item) }
-            .disabled(item.deleted)
+            .disabled(item.removed)
         Divider()
         Button(model.text(.moveToTrash), role: .destructive) {
             model.selectedIDs = [item.id]
             Task { await model.deleteSelected() }
         }
-        .disabled(item.deleted)
+        .disabled(item.removed)
     }
 
     private var textInputIsFirstResponder: Bool {
@@ -146,7 +146,7 @@ private struct MediaGridItem: View {
                     RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius)
                         .stroke(selected ? Color.accentColor : .clear, lineWidth: 3)
                 }
-                .opacity(item.deleted ? 0.45 : 1)
+                .opacity(item.removed ? 0.45 : 1)
             Text(item.filename)
                 .lineLimit(1)
                 .font(.callout.weight(.medium))
@@ -166,9 +166,9 @@ private struct MediaGridItem: View {
         .onTapGesture(count: 2, perform: onPreview)
         .contextMenu {
             Button(model.text(.quickLook), action: onPreview)
-                .disabled(item.deleted)
+                .disabled(item.removed)
             Button(model.text(.showInFinder), action: onReveal)
-                .disabled(item.deleted)
+                .disabled(item.removed)
         }
     }
 }

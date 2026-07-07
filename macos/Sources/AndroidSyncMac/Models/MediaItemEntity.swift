@@ -17,7 +17,9 @@ final class MediaItemEntity {
     var sourceIP: String?
     var receivedAt: Date
     var filePath: String
-    var deleted: Bool
+    // 不能命名为 `deleted`：该名字与 NSManagedObject 的保留属性
+    // `deleted`/`isDeleted` 冲突，ModelContext.save() 会静默丢弃写入的值。
+    var removed: Bool = false
 
     init(id: UUID = UUID(), record: UploadRecord) {
         self.id = id
@@ -33,7 +35,7 @@ final class MediaItemEntity {
         sourceIP = record.sourceIP
         receivedAt = record.receivedAt
         filePath = record.fileURL.path
-        deleted = record.deleted
+        removed = record.deleted
     }
 
     var kind: UploadKind {
@@ -59,7 +61,7 @@ final class MediaItemEntity {
             sourceIP: sourceIP,
             receivedAt: receivedAt,
             fileURL: fileURL,
-            deleted: deleted
+            deleted: removed
         )
     }
 
@@ -76,6 +78,6 @@ final class MediaItemEntity {
         sourceIP = record.sourceIP
         receivedAt = record.receivedAt
         filePath = record.fileURL.path
-        deleted = record.deleted
+        removed = record.deleted
     }
 }

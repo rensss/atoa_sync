@@ -1,6 +1,6 @@
 # 交接
 
-最后更新：2026-07-04
+最后更新：2026-07-07
 
 ## 从这里开始
 
@@ -28,6 +28,15 @@ swift test --package-path macos
 检查。验收 Android 稳定性里程碑前，先复核风险 R-001 和 R-002。
 
 ## 最新本地工作
+
+B09 macOS 删除标记修复已完成（本地未提交）：用户报告“删除的 item 还在列表
+显示”。根因是 `MediaItemEntity` 的 SwiftData 属性名 `deleted` 与 NSManagedObject
+保留名冲突，`ModelContext.save()` 静默丢弃写入值，导致已删除条目在会话内和每次
+启动后都复活（真实库中同一条目累积了 5 条重复 tombstone）。属性已改名为
+`removed`（带默认值支持旧 store 轻量迁移），实体用法同步更新，并新增回归测试
+`AppModelDeleteTests`。验证：`swift test --package-path macos`（78 个测试）与
+`./macos/build_and_run.sh verify` 通过；真实 store 副本迁移验证通过。提交后需把
+SHA 回填进 `00_PROJECT_STATUS.md` 与 B09 批次记录、R-011 风险行。
 
 B08 macOS 里程碑补建已完成：新增 `milestones/M2_macos_receiver_correctness.md`
 与 `milestones/M3_macos_ux.md`，承接 Phase 2/Phase 3 退出标准并与路线图互链；未完成

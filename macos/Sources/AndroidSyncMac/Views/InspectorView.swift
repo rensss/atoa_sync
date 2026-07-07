@@ -19,19 +19,19 @@ struct InspectorView: View {
                         metadata(item)
                         HStack {
                             Button(model.text(.quickLook)) { model.preview(item) }
-                                .disabled(item.deleted)
+                                .disabled(item.removed)
                             Button(model.text(.finder)) { model.reveal(item) }
-                                .disabled(item.deleted)
+                                .disabled(item.removed)
                         }
                         Button(model.text(.renameEllipsis)) {
                             renameValue = item.filename
                             renamePresented = true
                         }
-                        .disabled(item.deleted)
+                        .disabled(item.removed)
                         Button(model.text(.moveToTrash), role: .destructive) {
                             Task { await model.deleteSelected() }
                         }
-                        .disabled(item.deleted)
+                        .disabled(item.removed)
                     }
                     .padding()
                 }
