@@ -79,6 +79,9 @@
   并入 `Theme.Thumb`、高密度网格（150pt/3pt/无标签/时长角标）、列表与
   Inspector/RenameSheet 深色化。87 个测试全绿（度量测试 2 合 1）。详见
   `PROJECT_MEMORY/batches/2026-07-07-B13-macos-dense-grid-inspector.md`。
+- B14（同分支，提交 `8d06185`）为 UI 重设计批次 5/6：Onboarding 重做与
+  设置深色化，MenuBarView 按计划豁免。87 个测试全绿。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B14-macos-onboarding-settings-dark.md`。
 
 ## 开放工作
 
