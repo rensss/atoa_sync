@@ -6,6 +6,7 @@ public enum ReceiverServiceEvent: Sendable {
     case started(port: UInt16)
     case stopped
     case uploadStarted(id: UUID, filename: String, expectedSize: Int64)
+    case uploadProgress(id: UUID, bytesReceived: Int64, expectedSize: Int64)
     case uploadStored(id: UUID, record: UploadRecord)
     case uploadFailed(id: UUID, filename: String, message: String)
     case receiverFailed(message: String)
@@ -356,6 +357,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     private var temporaryURL: URL?
     private var fileHandle: FileHandle?
     private var lifecycle = ReceiverConnectionLifecycle()
+    private var lastProgressBytes: Int64 = 0
 
     init(
         connection: NWConnection,
@@ -534,6 +536,17 @@ private final class ReceiverConnection: @unchecked Sendable {
             } catch {
                 fail(status: 507, reason: "Insufficient Storage", message: error.localizedDescription)
                 return
+            }
+            let received = expectedSize - remainingBytes
+            if received - lastProgressBytes >= 512 * 1_024 || remainingBytes == 0 {
+                lastProgressBytes = received
+                eventHandler(
+                    .uploadProgress(
+                        id: uploadID,
+                        bytesReceived: received,
+                        expectedSize: expectedSize
+                    )
+                )
             }
         }
         if remainingBytes == 0 {

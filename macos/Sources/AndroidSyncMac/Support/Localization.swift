@@ -129,6 +129,7 @@ enum AppStringKey: String, CaseIterable {
     case todayReceived
     case itemsCountFormat
     case completedLingerFormat
+    case speedFormat
 }
 
 enum AppStrings {
@@ -226,6 +227,7 @@ enum AppStrings {
             .todayReceived: "今天已接收",
             .itemsCountFormat: "%d 项",
             .completedLingerFormat: "已完成 %d 项",
+            .speedFormat: "%@/秒",
         ],
         .english: [
             .settings: "Settings",
@@ -320,6 +322,7 @@ enum AppStrings {
             .todayReceived: "Received today",
             .itemsCountFormat: "%d items",
             .completedLingerFormat: "Completed %d items",
+            .speedFormat: "%@/s",
         ],
     ]
 

@@ -51,9 +51,25 @@ struct TransferCardRow: View {
             )
             .font(.callout.weight(.semibold))
             .foregroundStyle(.white)
-            ProgressView()
-                .progressViewStyle(.linear)
-                .tint(.white)
+            if let progress = model.transferProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .tint(.white)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(.white)
+            }
+            if let speed = model.transferSpeedBytesPerSecond {
+                Text(
+                    model.format(
+                        .speedFormat,
+                        model.formatByteCount(speed)
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+            }
         }
         .padding(Theme.spacingM)
         .frame(maxWidth: .infinity, alignment: .leading)

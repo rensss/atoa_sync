@@ -97,6 +97,7 @@ struct ActiveUpload: Equatable, Identifiable {
     let id: UUID
     let filename: String
     let expectedSize: Int64
+    var bytesReceived: Int64 = 0
 }
 
 enum TransferCardState: Equatable {
@@ -211,6 +212,14 @@ final class AppModel {
     var transferCompletionLinger: Duration = .seconds(3)
     private(set) var transferLingerTask: Task<Void, Never>?
     private var burstCompletedCount = 0
+    private var burstBytesReceived: Int64 = 0
+    private var burstSawProgress = false
+    private var transferSamples: [TransferSample] = []
+
+    struct TransferSample: Equatable {
+        let time: Date
+        let totalBytes: Int64
+    }
 
     init(
         modelContainer: ModelContainer,
@@ -306,6 +315,26 @@ final class AppModel {
 
     var activeUploadsExpectedBytes: Int64 {
         activeUploads.values.reduce(0) { $0 + $1.expectedSize }
+    }
+
+    var transferProgress: Double? {
+        guard burstSawProgress else { return nil }
+        let expected = activeUploadsExpectedBytes
+        guard expected > 0 else { return nil }
+        let received = activeUploads.values.reduce(0) { $0 + $1.bytesReceived }
+        return min(1, Double(received) / Double(expected))
+    }
+
+    static func transferSpeed(samples: [TransferSample]) -> Int64? {
+        guard let first = samples.first, let last = samples.last,
+              last.time > first.time
+        else { return nil }
+        let dt = last.time.timeIntervalSince(first.time)
+        return Int64(Double(last.totalBytes - first.totalBytes) / dt)
+    }
+
+    var transferSpeedBytesPerSecond: Int64? {
+        Self.transferSpeed(samples: transferSamples)
     }
 
     static func filterItems(
@@ -923,6 +952,21 @@ final class AppModel {
                 burstCompletedCount = 0
             }
             transferCardState = .receiving
+        case let .uploadProgress(id, bytesReceived, _):
+            guard var upload = activeUploads[id] else { return }
+            let delta = bytesReceived - upload.bytesReceived
+            upload.bytesReceived = bytesReceived
+            activeUploads[id] = upload
+            guard delta > 0 else { return }
+            burstSawProgress = true
+            burstBytesReceived += delta
+            let now = Date()
+            transferSamples.append(
+                TransferSample(time: now, totalBytes: burstBytesReceived)
+            )
+            transferSamples.removeAll {
+                now.timeIntervalSince($0.time) > 3
+            }
         case let .uploadStored(id, _):
             activeUploads.removeValue(forKey: id)
             burstCompletedCount += 1
@@ -982,6 +1026,9 @@ final class AppModel {
             guard !Task.isCancelled else { return }
             self.transferCardState = .idle
             self.burstCompletedCount = 0
+            self.burstBytesReceived = 0
+            self.burstSawProgress = false
+            self.transferSamples.removeAll()
         }
     }
 
@@ -990,6 +1037,9 @@ final class AppModel {
         transferLingerTask = nil
         transferCardState = .idle
         burstCompletedCount = 0
+        burstBytesReceived = 0
+        burstSawProgress = false
+        transferSamples.removeAll()
     }
 
     private func reloadLibrary(
