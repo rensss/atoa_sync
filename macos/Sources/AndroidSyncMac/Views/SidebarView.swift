@@ -9,9 +9,16 @@ struct SidebarView: View {
                 category.title(using: model.language),
                 systemImage: category.systemImage
             )
-                .tag(category)
+            .badge(
+                Text("\(model.categoryCount(category))")
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+            )
+            .tag(category)
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bgSidebar)
         .navigationTitle("Android Sync")
         .safeAreaInset(edge: .bottom) {
             if let directory = model.receiveDirectory {
@@ -20,9 +27,10 @@ struct SidebarView: View {
                 } label: {
                     Label(directory.lastPathComponent, systemImage: "folder")
                         .lineLimit(1)
+                        .foregroundStyle(Theme.textSecondary)
                 }
                 .buttonStyle(.plain)
-                .padding(12)
+                .padding(Theme.spacingM)
                 .help(directory.path)
             }
         }

@@ -340,6 +340,18 @@ final class AppModel {
         }
     }
 
+    func categoryCount(_ category: LibraryCategory) -> Int {
+        Self.filterItems(
+            items,
+            category: category,
+            dateFilter: .all,
+            sort: .newest,
+            searchText: "",
+            now: Date(),
+            calendar: .current
+        ).count
+    }
+
     var selectedItem: MediaItemEntity? {
         guard selectedIDs.count == 1, let id = selectedIDs.first else {
             return nil
