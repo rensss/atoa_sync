@@ -43,6 +43,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 
+import com.androidsync.app.android.AlbumPrefs;
 import com.androidsync.app.android.HttpFileUploader;
 import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.android.RemoteManifestClient;
@@ -53,6 +54,9 @@ import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
 import com.androidsync.app.core.ThumbnailPolicy;
+import com.androidsync.app.ui.AlbumPickerView;
+import com.androidsync.app.ui.SettingsPageView;
+import com.androidsync.app.ui.Theme;
 import com.androidsync.app.ui.ThumbnailLoader;
 import com.androidsync.app.ui.Widgets;
 
@@ -60,11 +64,14 @@ import java.lang.ref.WeakReference;
 import java.text.DateFormat;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -109,6 +116,10 @@ public final class MainActivity extends Activity {
     private MediaStoreScanner scanner;
     private Widgets widgets;
     private ThumbnailLoader thumbnailLoader;
+    private final Set<String> albumSelection = new HashSet<>();
+    private List<MediaStoreScanner.Album> albums = Collections.emptyList();
+    private Button albumDoneButton;
+    private String albumPickerReturn = "home";
     private String screen = "home";
     private String filter = "all";
     private String targetUrl;
@@ -145,7 +156,7 @@ public final class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_MEDIA_PERMISSION && hasMediaPermission()) {
-            scanMedia();
+            onPermissionReady();
         } else if (requestCode == REQUEST_MEDIA_PERMISSION) {
             Toast.makeText(this, "需要相册权限才能同步照片和视频", Toast.LENGTH_LONG).show();
         }
@@ -153,7 +164,7 @@ public final class MainActivity extends Activity {
 
     private void ensureMediaPermissionThenScan() {
         if (hasMediaPermission()) {
-            scanMedia();
+            onPermissionReady();
             return;
         }
         if (Build.VERSION.SDK_INT >= 33) {
@@ -161,6 +172,51 @@ public final class MainActivity extends Activity {
         } else {
             requestPermissions(new String[] { Manifest.permission.READ_EXTERNAL_STORAGE }, REQUEST_MEDIA_PERMISSION);
         }
+    }
+
+    private void onPermissionReady() {
+        if (!AlbumPrefs.isConfigured(prefs())) {
+            openAlbumPicker(true);
+        } else {
+            scanMedia();
+        }
+    }
+
+    /** 打开相册白名单选择页；{@code initialSetup} 为首启强制引导（预勾 Camera）。 */
+    private void openAlbumPicker(final boolean initialSetup) {
+        albumPickerReturn = initialSetup ? "home" : screen;
+        screen = "albumPicker";
+        scanMessage = "正在读取相册...";
+        render();
+        submitTask(new Runnable() {
+            @Override
+            public void run() {
+                if (destroyed) {
+                    return;
+                }
+                final List<MediaStoreScanner.Album> loaded = scanner.listAlbums();
+                postTask(new Runnable() {
+                    @Override
+                    public void run() {
+                        albums = loaded;
+                        Set<String> existing = AlbumPrefs.load(prefs());
+                        albumSelection.clear();
+                        if (existing != null) {
+                            albumSelection.addAll(existing);
+                        } else if (initialSetup) {
+                            for (MediaStoreScanner.Album album : loaded) {
+                                if ("Camera".equals(album.name)) {
+                                    albumSelection.add(album.bucketId);
+                                }
+                            }
+                        }
+                        if ("albumPicker".equals(screen)) {
+                            render();
+                        }
+                    }
+                });
+            }
+        });
     }
 
     private boolean hasMediaPermission() {
@@ -179,6 +235,13 @@ public final class MainActivity extends Activity {
             ensureMediaPermissionThenScan();
             return;
         }
+        final Set<String> whitelist = AlbumPrefs.load(prefs());
+        if (whitelist == null) {
+            scanning = false;
+            scanMessage = "请先选择同步相册";
+            render();
+            return;
+        }
         scanning = true;
         scanMessage = "正在扫描本机相册...";
         render();
@@ -188,7 +251,7 @@ public final class MainActivity extends Activity {
                 if (destroyed) {
                     return;
                 }
-                final List<MediaItem> media = scanner.scanAll();
+                final List<MediaItem> media = scanner.scanAll(whitelist);
                 if (destroyed) {
                     return;
                 }
@@ -371,6 +434,8 @@ public final class MainActivity extends Activity {
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         if ("detail".equals(screen)) {
             content.addView(detailView());
+        } else if ("albumPicker".equals(screen)) {
+            content.addView(albumPickerView());
         } else if ("settings".equals(screen)) {
             content.addView(settingsView());
         } else if ("queue".equals(screen)) {
@@ -397,6 +462,11 @@ public final class MainActivity extends Activity {
         }
         if ("settings".equals(screen)) {
             screen = "home";
+            render();
+            return;
+        }
+        if ("albumPicker".equals(screen)) {
+            screen = albumPickerReturn;
             render();
             return;
         }
@@ -645,43 +715,71 @@ public final class MainActivity extends Activity {
     }
 
     private View settingsView() {
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout page = widgets.pageLayout();
-        scroll.addView(page);
-        page.addView(backHeader("设置", "同步设置", "home"));
-
-        LinearLayout target = widgets.card();
-        target.addView(widgets.title("接收端服务", 20));
-        target.addView(widgets.label(networkLabel(), 13, "#6E665A"));
-        target.addView(widgets.label(targetUrl, 14, "#1F332F"));
-        Button edit = widgets.smallButton("修改接收端地址");
-        edit.setOnClickListener(new View.OnClickListener() {
+        return new SettingsPageView(this, widgets).build(new SettingsPageView.SettingsHost() {
             @Override
-            public void onClick(View view) {
-                editTarget();
+            public String targetUrl() {
+                return targetUrl;
+            }
+
+            @Override
+            public void editTarget() {
+                MainActivity.this.editTarget();
+            }
+
+            @Override
+            public void openAlbumPicker() {
+                MainActivity.this.openAlbumPicker(false);
+            }
+
+            @Override
+            public String appVersionText() {
+                return MainActivity.this.appVersionText();
+            }
+
+            @Override
+            public int whitelistCount() {
+                Set<String> whitelist = AlbumPrefs.load(prefs());
+                return whitelist == null ? 0 : whitelist.size();
             }
         });
-        target.addView(edit);
-        page.addView(target);
+    }
 
-        LinearLayout maintenance = widgets.card();
-        maintenance.addView(widgets.title("本机相册", 20));
-        maintenance.addView(widgets.label(scanMessage, 13, "#6B6257"));
-        Button rescan = widgets.actionButton(scanning ? "扫描中..." : "重新扫描", new View.OnClickListener() {
+    private View albumPickerView() {
+        LinearLayout page = widgets.pageLayout();
+        page.setBackgroundColor(widgets.color(Theme.BG));
+        page.addView(widgets.title("选择同步相册", 24));
+        page.addView(widgets.label("勾选要自动同步的相册，可随时在设置中调整", 13, Theme.TEXT_SECONDARY));
+
+        if (albums.isEmpty()) {
+            page.addView(widgets.label(scanMessage, 14, Theme.TEXT_SECONDARY));
+        } else {
+            Runnable onChanged = new Runnable() {
+                @Override
+                public void run() {
+                    if (albumDoneButton != null) {
+                        albumDoneButton.setEnabled(!albumSelection.isEmpty());
+                    }
+                }
+            };
+            View list = new AlbumPickerView(this, widgets).build(albums, albumSelection, onChanged);
+            page.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        }
+
+        albumDoneButton = widgets.actionButton("完成", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                if (albumSelection.isEmpty()) {
+                    return;
+                }
+                AlbumPrefs.save(prefs(), albumSelection);
+                screen = albumPickerReturn;
+                render();
                 scanMedia();
             }
         });
-        rescan.setEnabled(!scanning);
-        maintenance.addView(rescan);
-        page.addView(maintenance);
-
-        LinearLayout about = widgets.card();
-        about.addView(widgets.title("版本", 20));
-        about.addView(widgets.label(appVersionText(), 13, "#6B6257"));
-        page.addView(about);
-        return scroll;
+        albumDoneButton.setEnabled(!albumSelection.isEmpty());
+        page.addView(albumDoneButton);
+        return page;
     }
 
     private View homeHeader() {
@@ -1002,6 +1100,7 @@ public final class MainActivity extends Activity {
         detailMetadataStatusView = null;
         detailErrorView = null;
         detailErrorRow = null;
+        albumDoneButton = null;
     }
 
     private View metaRow(String name, String value) {
