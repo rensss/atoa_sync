@@ -106,7 +106,7 @@
   快进到 `2eb0889`；macOS 侧合并提交为 `784139a`。本轮验证通过 Android JVM 测试、
   APK 构建、无线 ADB 安装/启动、macOS 92 个测试、macOS 应用 verify 和接收端
   `/health` 检查；真机传输 QA 与 macOS GUI 人工 QA 仍未闭合。
-- B23（提交 `755360b`）处理 2026-07-08 真机/GUI QA 反馈：Android 侧修复深色文字
+- B23（提交 `7c2c0c6`）处理 2026-07-08 真机/GUI QA 反馈：Android 侧修复深色文字
   与系统栏、缩略图首进不显示、预览卡在加载、确认页贴边、网格同步状态显示、横竖屏
   重建重扫（固定竖屏）、batch 总数 header；macOS 侧新增已删除清空、稳定传输卡高度、
   batch 总数进度、媒体原始时间排序/显示和 sidecar 时间 fallback。Android 测试/构建、
