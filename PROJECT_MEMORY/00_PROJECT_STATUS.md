@@ -14,11 +14,13 @@
 - `main` 上 B06 文档订正提交：`88c0150`
 - `main` 上 B07 AGENTS.md 结构优化提交：`3a1acd0`
 - `main` 上 B08 macOS 里程碑补建提交：`49ffee0`
+- `main` 上 Android UI 重设计合入提交：`2eb0889`（B17-B21 快进）
+- `main` 上 macOS UI 重设计合并提交：`784139a`
 - 治理分支：`codex/agent-governance`，tip 位于 `a07593a`；其上的集成合并提交为 `23b09d5`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 最新发布标签：`v0.1.2`
-- macOS UI 重设计分支：`codex/macos-ui-redesign`（tip `0296cf6`，B10–B15 全部
-  完成并经全分支终审；合入 `main` 后仍需 GUI 手工 QA）
+- macOS UI 重设计历史 tip：`codex/macos-ui-redesign` 的 `0296cf6`（B10-B15 全部
+  完成并经全分支终审；已合入 `main`，仍需 GUI 手工 QA）
 - 仓库布局：Android 代码在 `android/`，macOS 代码在 `macos/`
 - 受支持接收端：原生 macOS `ReceiverService`
 
@@ -100,6 +102,10 @@
   `main`（tip `2eb0889`）。范围包括深色媒体库首页、相册白名单、同步前确认态、
   临时排除、传输卡片、设备名上传头、MainActivity 拆分和缩略图管线搬移。
   每批 `./android/run_tests.sh` 与 `./android/build.sh` 通过；真机 QA 未执行。
+- B22 本地集成把 Android UI 重设计和 macOS UI 重设计合入 `main`。Android 侧为
+  快进到 `2eb0889`；macOS 侧合并提交为 `784139a`。本轮验证通过 Android JVM 测试、
+  APK 构建、无线 ADB 安装/启动、macOS 92 个测试、macOS 应用 verify 和接收端
+  `/health` 检查；真机传输 QA 与 macOS GUI 人工 QA 仍未闭合。
 
 ## 开放工作
 
@@ -223,6 +229,26 @@ swift test --package-path macos
 独立最小复现确认 SwiftData 保留名冲突（`deleted` 回滚、`removed` 正常），并用
 真实 `default.store` 与 `uploads.jsonl` 副本验证轻量迁移和 tombstone 解析。未运行
 Android 测试，因为本批次只修改 macOS 代码。
+
+B22 UI 分支本地集成于 2026-07-08 在 `main` 验证：
+
+```bash
+./android/run_tests.sh
+./android/build.sh
+adb devices -l
+adb install -r android/build/AndroidSync-debug.apk
+adb shell monkey -p com.androidsync.app -c android.intent.category.LAUNCHER 1
+./macos/build_and_run.sh verify
+curl -fsS http://127.0.0.1:8765/health
+swift test --package-path macos
+```
+
+结果：Android JVM 测试通过（`AlbumFilterTest passed`）；APK 构建通过并输出
+`android/build/AndroidSync-debug.apk`；无线设备 `22081212C` 在线，APK 安装成功并
+启动到 `com.androidsync.app/.MainActivity`；macOS 应用启动成功，接收端 health
+返回 `{"status":"ok"}`；`swift test --package-path macos` 运行 92 个测试且全部通过。
+Mac 局域网测试 URL 为 `http://192.168.1.6:8765/uploads/`。本轮只完成安装和自动化
+验证，不把 Android 真机传输或 macOS GUI 手工检查标记为通过。
 
 ## 状态维护
 

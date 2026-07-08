@@ -4,8 +4,9 @@
 
 ## 从这里开始
 
-主分支是 `main`，B04 实现提交为 `fee8063`。产品版本为 `0.1.2`。治理文档和已
-批准的稳定性/macOS UX 实现已经合并到 `main`。
+主分支是 `main`，B04 实现提交为 `fee8063`。产品版本为 `0.1.2`。治理文档、已
+批准的稳定性/macOS UX 实现、Android UI 重设计和 macOS UI 重设计已经合并到
+`main`。Android UI 快进合入点为 `2eb0889`；macOS UI 合并提交为 `784139a`。
 
 候选实现分支 `codex/stability-macos-ux` 位于 `cbf31db`。它包含完整的已批准
 Android 稳定性和 macOS UX 工作，以及自动化回归覆盖。独立最终代码审查未发现
@@ -23,24 +24,32 @@ swift test --package-path macos
 ./macos/build_and_run.sh verify
 ```
 
-以上自动化检查已于 2026-06-22 在集成提交 `23b09d5` 通过。仍需执行
-`batches/2026-06-15-B02-stability-macos-ux-candidate.md` 中记录的设备和 GUI
-检查。验收 Android 稳定性里程碑前，先复核风险 R-001 和 R-002。
+以上自动化检查最近于 2026-07-08 的 UI 集成后通过：Android JVM 测试、APK 构建、
+macOS 92 个测试和 `./macos/build_and_run.sh verify` 均通过。仍需执行
+`batches/2026-07-08-B21-android-device-header-qa.md` 中记录的 Android 真机清单
+和 macOS GUI 手工 QA。验收 Android 稳定性里程碑前，先复核风险 R-001 和 R-002。
 
 ## 最新本地工作
+
+B22 UI 分支集成已完成（`main`）：Android UI 重设计快进到 `2eb0889`，macOS UI
+重设计合并提交 `784139a`。2026-07-08 已构建并安装 Android APK 到无线 ADB 设备
+`22081212C`，启动到 `com.androidsync.app/.MainActivity`；macOS 接收端已用
+`./macos/build_and_run.sh verify` 打开，`curl http://127.0.0.1:8765/health`
+返回 ok。Mac 局域网测试 URL：`http://192.168.1.6:8765/uploads/`。这只证明安装、
+启动和自动化通过，不证明真机传输 QA 已完成。
 
 B16 Android 大文件上传 OOM 修复已完成（`main`，提交 `fbec5bc`）：根因为
 `HttpFileUploader` 未设流式模式、请求体整体缓冲内存；已加
 `setFixedLengthStreamingMode(long)`。Android 测试/构建通过，真机大文件回归
 未执行。详见 `batches/2026-07-08-B16-android-large-file-oom.md`。
 
-macOS UI 重设计位于分支 `codex/macos-ui-redesign`（tip `0296cf6`）：B10–B15
-六批次完成、全分支终审通过（92 个 macOS 测试），合入 `main` 后仍待 GUI 手工 QA。
+macOS UI 重设计历史 tip `0296cf6`：B10–B15 六批次完成、全分支终审通过（92 个
+macOS 测试），已合入 `main`，仍待 GUI 手工 QA。
 2026-07-08 已用限速 curl 实测传输态：状态胶囊、卡片行进度/速度、今日统计正常
 （含 880pt 最小宽度）。用户报告的"传输时胶囊不可见"在新构建上未复现，疑为
 旧安装包（v0.1.2 无胶囊），待用户确认。
 
-Android 端重设计已在分支 `codex/android-ui-redesign` 全部实现并快进合入 `main`
+Android 端重设计已在 `codex/android-ui-redesign` 全部实现并快进合入 `main`
 （2026-07-08，B17–B21，tip `2eb0889`）：依 spec `12090ab` + 计划 `804c732`
 逐任务执行。
 每批 `./android/run_tests.sh`（含新增 `AlbumFilterTest`）+ `./android/build.sh`
