@@ -303,6 +303,43 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(records.first(where: { $0.stableID == "image:gone" })?.deleted, true)
     }
 
+    func testLibraryRecordsFallbackToSidecarOriginalDates() async throws {
+        let photoDirectory = temporaryDirectory
+            .appendingPathComponent("photos/2026-06", isDirectory: true)
+        try FileManager.default.createDirectory(at: photoDirectory, withIntermediateDirectories: true)
+        let photoURL = photoDirectory.appendingPathComponent("sidecar-date.jpg")
+        try Data([1, 2, 3]).write(to: photoURL)
+        let sidecarURL = photoURL.appendingPathExtension("metadata.json")
+        let sidecar: [String: Any] = [
+            "filename": "sidecar-date.jpg",
+            "original_filename": "sidecar-date.jpg",
+            "kind": "photos",
+            "size_bytes": 3,
+            "path": photoURL.path,
+            "date_modified_millis": 1_780_482_600_000,
+            "date_taken_millis": 1_780_479_000_000,
+            "date_added_millis": 1_780_478_000_000,
+        ]
+        try JSONSerialization.data(withJSONObject: sidecar)
+            .write(to: sidecarURL)
+        let log = """
+        {"time":"2026-06-03T10:30:00","client_ip":"192.168.1.9","filename":"sidecar-date.jpg","kind":"photos","size_bytes":3,"status":"stored","stable_id":"image:sidecar-date","path":"\(photoURL.path)"}
+        """
+        try log.write(
+            to: temporaryDirectory.appendingPathComponent("uploads.jsonl"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let repository = LibraryRepository(rootURL: temporaryDirectory)
+        let records = try await repository.libraryRecords()
+        let record = try XCTUnwrap(records.first)
+
+        XCTAssertEqual(record.dateModifiedMillis, 1_780_482_600_000)
+        XCTAssertEqual(record.dateTakenMillis, 1_780_479_000_000)
+        XCTAssertEqual(record.dateAddedMillis, 1_780_478_000_000)
+    }
+
     private func allPaths() throws -> [String] {
         try FileManager.default.subpathsOfDirectory(atPath: temporaryDirectory.path)
     }

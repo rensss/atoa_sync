@@ -70,12 +70,12 @@ struct InspectorView: View {
                 model.text(.metadataReceived),
                 model.formatDate(item.receivedAt)
             )
-            if let millis = item.dateTakenMillis {
+            if item.dateTakenMillis != nil
+                || item.dateModifiedMillis != nil
+                || item.dateAddedMillis != nil {
                 row(
                     model.text(.metadataCaptured),
-                    model.formatDate(
-                        Date(timeIntervalSince1970: Double(millis) / 1_000)
-                    )
+                    model.formatDate(item.mediaDate)
                 )
             }
             if let sourceIP = item.sourceIP {

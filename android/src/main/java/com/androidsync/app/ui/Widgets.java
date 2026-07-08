@@ -35,7 +35,7 @@ public final class Widgets {
         LinearLayout card = new LinearLayout(activity);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackground(rounded("#FFFFFF", "#E8E0D4", 1, 12));
+        card.setBackground(rounded(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_L));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(8), 0, dp(8));
         card.setLayoutParams(params);
@@ -43,13 +43,13 @@ public final class Widgets {
     }
 
     public TextView title(String text, int sp) {
-        TextView view = label(text, sp, "#182B28");
+        TextView view = label(text, sp, Theme.TEXT_PRIMARY);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         return view;
     }
 
     public TextView sectionHeader(String text) {
-        TextView view = label(text, 16, "#2F3D38");
+        TextView view = label(text, 16, Theme.TEXT_PRIMARY);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         view.setPadding(0, dp(12), 0, dp(2));
         return view;
@@ -68,14 +68,14 @@ public final class Widgets {
         TextView view = label(text, 13, "#FFFFFF");
         view.setGravity(Gravity.CENTER);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setBackground(rounded("#2F6B5F", "#2F6B5F", 0, 12));
+        view.setBackground(rounded(Theme.ACCENT, Theme.ACCENT, 0, 12));
         return view;
     }
 
     public Button actionButton(String text, View.OnClickListener listener) {
         Button button = smallButton(text);
         button.setTextColor(Color.WHITE);
-        button.setBackground(rounded("#182B28", "#182B28", 0, 12));
+        button.setBackground(rounded(Theme.ACCENT, Theme.ACCENT, 0, 12));
         button.setOnClickListener(listener);
         return button;
     }
@@ -84,11 +84,11 @@ public final class Widgets {
         Button button = new Button(activity);
         button.setText(text);
         button.setTextSize(13);
-        button.setTextColor(color("#2E3B37"));
+        button.setTextColor(color(Theme.TEXT_PRIMARY));
         button.setAllCaps(false);
         button.setMinHeight(dp(40));
         button.setPadding(dp(10), 0, dp(10), 0);
-        button.setBackground(rounded("#EEE7DB", "#DDD3C4", 1, 12));
+        button.setBackground(rounded(Theme.BG_RAISED, Theme.STROKE, 1, 12));
         return button;
     }
 

@@ -249,9 +249,12 @@ public actor LibraryRepository {
                 sizeBytes: manifestRecord.sizeBytes,
                 contentType: sidecar["content_type"] as? String ?? manifestRecord.contentType,
                 stableID: manifestRecord.stableID,
-                dateModifiedMillis: manifestRecord.dateModifiedMillis,
-                dateTakenMillis: manifestRecord.dateTakenMillis,
-                dateAddedMillis: manifestRecord.dateAddedMillis,
+                dateModifiedMillis: manifestRecord.dateModifiedMillis
+                    ?? Self.int64(sidecar["date_modified_millis"]),
+                dateTakenMillis: manifestRecord.dateTakenMillis
+                    ?? Self.int64(sidecar["date_taken_millis"]),
+                dateAddedMillis: manifestRecord.dateAddedMillis
+                    ?? Self.int64(sidecar["date_added_millis"]),
                 sourceIP: sidecar["source_ip"] as? String ?? manifestRecord.sourceIP,
                 receivedAt: receivedAt,
                 fileURL: fileURL,

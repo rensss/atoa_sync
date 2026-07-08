@@ -89,7 +89,7 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.filename)
                         .lineLimit(1)
-                    Text(model.formatDate(item.receivedAt))
+                    Text(model.formatDate(item.mediaDate))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

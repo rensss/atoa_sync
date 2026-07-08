@@ -11,7 +11,7 @@ final class AppModelQueryTests: XCTestCase {
         return calendar
     }()
 
-    func testNewestAndOldestSortUseReceivedDateInDisplayOrder() {
+    func testNewestAndOldestSortUseReceivedDateWhenOriginalDateIsMissing() {
         let older = makeItem(filename: "older.jpg", receivedAt: date(2026, 6, 9, 12))
         let newer = makeItem(filename: "newer.jpg", receivedAt: date(2026, 6, 11, 8))
 
@@ -36,6 +36,41 @@ final class AppModelQueryTests: XCTestCase {
 
         XCTAssertEqual(newest.map(\.filename), ["newer.jpg", "older.jpg"])
         XCTAssertEqual(oldest.map(\.filename), ["older.jpg", "newer.jpg"])
+    }
+
+    func testNewestAndOldestSortUseOriginalMediaDateBeforeReceivedDate() {
+        let receivedLater = makeItem(
+            filename: "received-later.jpg",
+            receivedAt: date(2026, 6, 11, 12),
+            dateTakenMillis: millis(date(2026, 6, 1, 12))
+        )
+        let capturedLater = makeItem(
+            filename: "captured-later.jpg",
+            receivedAt: date(2026, 6, 10, 12),
+            dateTakenMillis: millis(date(2026, 6, 9, 12))
+        )
+
+        let newest = AppModel.filterItems(
+            [receivedLater, capturedLater],
+            category: .all,
+            dateFilter: .all,
+            sort: .newest,
+            searchText: "",
+            now: date(2026, 6, 11, 15),
+            calendar: calendar
+        )
+        let oldest = AppModel.filterItems(
+            [capturedLater, receivedLater],
+            category: .all,
+            dateFilter: .all,
+            sort: .oldest,
+            searchText: "",
+            now: date(2026, 6, 11, 15),
+            calendar: calendar
+        )
+
+        XCTAssertEqual(newest.map(\.filename), ["captured-later.jpg", "received-later.jpg"])
+        XCTAssertEqual(oldest.map(\.filename), ["received-later.jpg", "captured-later.jpg"])
     }
 
     func testTodayFilterUsesInjectedNowAndCalendar() {
@@ -121,7 +156,11 @@ final class AppModelQueryTests: XCTestCase {
         XCTAssertEqual(result.map(\.filename), ["boundary.jpg"])
     }
 
-    private func makeItem(filename: String, receivedAt: Date) -> MediaItemEntity {
+    private func makeItem(
+        filename: String,
+        receivedAt: Date,
+        dateTakenMillis: Int64? = nil
+    ) -> MediaItemEntity {
         MediaItemEntity(
             record: UploadRecord(
                 filename: filename,
@@ -131,13 +170,17 @@ final class AppModelQueryTests: XCTestCase {
                 contentType: "image/jpeg",
                 stableID: filename,
                 dateModifiedMillis: nil,
-                dateTakenMillis: nil,
+                dateTakenMillis: dateTakenMillis,
                 dateAddedMillis: nil,
                 sourceIP: nil,
                 receivedAt: receivedAt,
                 fileURL: URL(fileURLWithPath: "/tmp/\(filename)")
             )
         )
+    }
+
+    private func millis(_ date: Date) -> Int64 {
+        Int64(date.timeIntervalSince1970 * 1_000)
     }
 
     private func date(

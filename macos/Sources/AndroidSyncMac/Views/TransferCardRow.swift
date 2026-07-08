@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransferCardRow: View {
     @Bindable var model: AppModel
+    private let cardHeight: CGFloat = 96
 
     var body: some View {
         VStack(spacing: Theme.spacingS) {
@@ -44,9 +45,11 @@ struct TransferCardRow: View {
         VStack(alignment: .leading, spacing: Theme.spacingS) {
             Text(
                 model.format(
-                    .receivingSummaryFormat,
+                    .receivingProgressFormat,
+                    model.transferCompletedCount,
+                    max(1, model.transferTotalCount),
                     model.activeUploads.count,
-                    model.formatByteCount(model.activeUploadsExpectedBytes)
+                    model.formatByteCount(model.activeUploadsRemainingBytes)
                 )
             )
             .font(.callout.weight(.semibold))
@@ -60,22 +63,27 @@ struct TransferCardRow: View {
                     .progressViewStyle(.linear)
                     .tint(.white)
             }
-            if let speed = model.transferSpeedBytesPerSecond {
-                Text(
-                    model.format(
-                        .speedFormat,
-                        model.formatByteCount(speed)
-                    )
-                )
+            Text(speedText)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
-            }
+                .opacity(model.transferSpeedBytesPerSecond == nil ? 0 : 1)
+                .frame(height: 16, alignment: .leading)
         }
         .padding(Theme.spacingM)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: cardHeight, maxHeight: cardHeight, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusL)
                 .fill(Theme.cardGradient)
+        )
+    }
+
+    private var speedText: String {
+        guard let speed = model.transferSpeedBytesPerSecond else {
+            return " "
+        }
+        return model.format(
+            .speedFormat,
+            model.formatByteCount(speed)
         )
     }
 
@@ -88,7 +96,7 @@ struct TransferCardRow: View {
                 .foregroundStyle(Theme.textPrimary)
         }
         .padding(Theme.spacingM)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: cardHeight, maxHeight: cardHeight, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusL)
                 .fill(Theme.bgRaised)
@@ -116,6 +124,7 @@ struct TransferCardRow: View {
         }
         .padding(Theme.spacingM)
         .frame(width: 180, alignment: .leading)
+        .frame(minHeight: cardHeight, maxHeight: cardHeight, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Theme.radiusL)
                 .fill(Theme.bgRaised)

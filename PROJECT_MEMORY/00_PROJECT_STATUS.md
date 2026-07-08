@@ -106,6 +106,12 @@
   快进到 `2eb0889`；macOS 侧合并提交为 `784139a`。本轮验证通过 Android JVM 测试、
   APK 构建、无线 ADB 安装/启动、macOS 92 个测试、macOS 应用 verify 和接收端
   `/health` 检查；真机传输 QA 与 macOS GUI 人工 QA 仍未闭合。
+- B23（提交 `755360b`）处理 2026-07-08 真机/GUI QA 反馈：Android 侧修复深色文字
+  与系统栏、缩略图首进不显示、预览卡在加载、确认页贴边、网格同步状态显示、横竖屏
+  重建重扫（固定竖屏）、batch 总数 header；macOS 侧新增已删除清空、稳定传输卡高度、
+  batch 总数进度、媒体原始时间排序/显示和 sidecar 时间 fallback。Android 测试/构建、
+  macOS 96 个测试、macOS verify、ADB 安装启动和截图检查通过；真实端到端大文件传输
+  仍待用户真机验证。
 
 ## 开放工作
 
@@ -249,6 +255,27 @@ swift test --package-path macos
 返回 `{"status":"ok"}`；`swift test --package-path macos` 运行 92 个测试且全部通过。
 Mac 局域网测试 URL 为 `http://192.168.1.6:8765/uploads/`。本轮只完成安装和自动化
 验证，不把 Android 真机传输或 macOS GUI 手工检查标记为通过。
+
+B23 QA 修复于 2026-07-08 在 `main` 验证：
+
+```bash
+./android/run_tests.sh
+./android/build.sh
+swift test --package-path macos
+./macos/build_and_run.sh verify
+adb devices -l
+adb install -r android/build/AndroidSync-debug.apk
+adb shell am start -n com.androidsync.app/.MainActivity
+adb exec-out screencap -p > /tmp/android-sync-current.png
+curl -fsS http://127.0.0.1:8765/health
+git diff --check
+```
+
+结果：Android JVM 测试通过（`AlbumFilterTest passed`），APK 构建通过；macOS 96 个
+测试全部通过，`./macos/build_and_run.sh verify` 通过；无线设备 `22081212C` 安装并
+启动到 `com.androidsync.app/.MainActivity`；截图人工检查确认状态栏为亮色文字且缩略图
+首屏显示；接收端 health 返回 `{"status":"ok"}`。未把真实 Android 到 Mac 的大文件
+传输验收标记为完成。
 
 ## 状态维护
 

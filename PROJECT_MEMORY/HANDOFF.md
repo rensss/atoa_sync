@@ -31,6 +31,15 @@ macOS 92 个测试和 `./macos/build_and_run.sh verify` 均通过。仍需执行
 
 ## 最新本地工作
 
+B23 QA 修复已完成（提交 `755360b`）：针对 2026-07-08 真机/GUI 反馈，Android
+修复深色文字/状态栏、缩略图首进不显示、预览加载卡住、确认页贴边、网格同步状态、
+横竖屏触发重扫（固定竖屏）和 batch 进度 header；macOS 新增已删除清空、固定传输
+卡高度、显示 batch 总数/进度、按媒体原始时间排序/显示并补 sidecar 时间 fallback。
+验证：`./android/run_tests.sh`、`./android/build.sh`、`swift test --package-path macos`
+（96 tests）、`./macos/build_and_run.sh verify`、ADB 安装/启动与截图检查均通过。
+Mac 局域网测试 URL 仍为 `http://192.168.1.6:8765/uploads/`。真实端到端大文件传输
+仍待用户真机验证。
+
 B22 UI 分支集成已完成（`main`）：Android UI 重设计快进到 `2eb0889`，macOS UI
 重设计合并提交 `784139a`。2026-07-08 已构建并安装 Android APK 到无线 ADB 设备
 `22081212C`，启动到 `com.androidsync.app/.MainActivity`；macOS 接收端已用

@@ -20,6 +20,15 @@ struct LibraryToolbar: ToolbarContent {
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
+                if model.category == .deleted && model.categoryCount(.deleted) > 0 {
+                    Button(role: .destructive) {
+                        model.clearDeletedItems()
+                    } label: {
+                        Label(model.text(.clearDeleted), systemImage: "trash.slash")
+                    }
+                    .help(model.text(.clearDeleted))
+                }
+
                 if !model.selectedIDs.isEmpty {
                     Button(role: .destructive) {
                         Task { await model.deleteSelected() }

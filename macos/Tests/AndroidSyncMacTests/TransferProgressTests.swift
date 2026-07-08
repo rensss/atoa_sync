@@ -20,7 +20,7 @@ final class TransferProgressTests: XCTestCase {
         let model = try makeModel()
         let id = UUID()
         model.handle(.uploadStarted(id: id, filename: "a.mp4", expectedSize: 200))
-        XCTAssertNil(model.transferProgress) // 无进度样本前为不确定
+        XCTAssertEqual(model.transferProgress, 0)
         model.handle(
             .uploadProgress(id: id, bytesReceived: 50, expectedSize: 200)
         )
@@ -48,8 +48,27 @@ final class TransferProgressTests: XCTestCase {
 
         let second = UUID()
         model.handle(.uploadStarted(id: second, filename: "b.mp4", expectedSize: 200))
-        XCTAssertNil(model.transferProgress) // 不吃上一轮 burstSawProgress
+        XCTAssertEqual(model.transferProgress, 0) // 不吃上一轮 burstSawProgress
         XCTAssertNil(model.transferSpeedBytesPerSecond) // 样本已清
+    }
+
+    func testProgressUsesBatchTotalWhenProvided() throws {
+        let model = try makeModel()
+        let id = UUID()
+        model.handle(
+            .uploadStarted(
+                id: id,
+                filename: "a.mp4",
+                expectedSize: 200,
+                batchIndex: 2,
+                batchTotal: 4
+            )
+        )
+        model.handle(
+            .uploadProgress(id: id, bytesReceived: 100, expectedSize: 200)
+        )
+
+        XCTAssertEqual(model.transferProgress, 0.375)
     }
 
     func testSpeedFromSamples() {

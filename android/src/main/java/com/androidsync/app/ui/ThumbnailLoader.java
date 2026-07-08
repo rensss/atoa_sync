@@ -4,6 +4,7 @@ package com.androidsync.app.ui;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.io.InputStream;
 
 /**
  * 缩略图/预览加载管线，B17 自 MainActivity 原样搬移（行为零变化）。
@@ -91,6 +93,9 @@ public final class ThumbnailLoader {
         if (shutdown) {
             return;
         }
+        image.setTag(mediaUri);
+        image.setImageDrawable(null);
+        placeholder.setVisibility(View.VISIBLE);
         final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
         Bitmap cached = thumbnailCache.get(cacheKey);
         if (cached != null) {
@@ -210,11 +215,15 @@ public final class ThumbnailLoader {
     }
 
     private Bitmap loadThumbnailBitmap(String mediaUri, int requestPixels) {
-        if (Build.VERSION.SDK_INT < 29) {
-            return null;
-        }
         try {
-            return resolver.loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
+            Uri uri = Uri.parse(mediaUri);
+            if (Build.VERSION.SDK_INT >= 29) {
+                Bitmap thumbnail = resolver.loadThumbnail(uri, new Size(requestPixels, requestPixels), null);
+                if (thumbnail != null) {
+                    return thumbnail;
+                }
+            }
+            return loadImageBitmapFallback(uri, requestPixels);
         } catch (OutOfMemoryError error) {
             Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
             return null;
@@ -301,10 +310,7 @@ public final class ThumbnailLoader {
         }
         ImageView image = target.image.get();
         TextView loading = target.loading.get();
-        if (image == null || loading == null
-                || !mediaUri.equals(image.getTag())
-                || !image.isAttachedToWindow()
-                || !loading.isAttachedToWindow()) {
+        if (image == null || loading == null || !mediaUri.equals(image.getTag())) {
             return;
         }
         if (bitmap == null) {
@@ -316,11 +322,15 @@ public final class ThumbnailLoader {
     }
 
     private Bitmap loadPreviewBitmap(String mediaUri, int requestPixels) {
-        if (Build.VERSION.SDK_INT < 29) {
-            return null;
-        }
         try {
-            return resolver.loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
+            Uri uri = Uri.parse(mediaUri);
+            if (Build.VERSION.SDK_INT >= 29) {
+                Bitmap preview = resolver.loadThumbnail(uri, new Size(requestPixels, requestPixels), null);
+                if (preview != null) {
+                    return preview;
+                }
+            }
+            return loadImageBitmapFallback(uri, requestPixels);
         } catch (OutOfMemoryError error) {
             Log.w(TAG, "Unable to load preview " + mediaUri, error);
             return null;
@@ -328,6 +338,46 @@ public final class ThumbnailLoader {
             Log.w(TAG, "Unable to load preview " + mediaUri, error);
             return null;
         }
+    }
+
+    private Bitmap loadImageBitmapFallback(Uri uri, int requestPixels) throws Exception {
+        String type = resolver.getType(uri);
+        if (type == null || !type.startsWith("image/")) {
+            return null;
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        InputStream boundsStream = resolver.openInputStream(uri);
+        if (boundsStream == null) {
+            return null;
+        }
+        try {
+            BitmapFactory.decodeStream(boundsStream, null, bounds);
+        } finally {
+            boundsStream.close();
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return null;
+        }
+        BitmapFactory.Options decode = new BitmapFactory.Options();
+        decode.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, requestPixels);
+        InputStream imageStream = resolver.openInputStream(uri);
+        if (imageStream == null) {
+            return null;
+        }
+        try {
+            return BitmapFactory.decodeStream(imageStream, null, decode);
+        } finally {
+            imageStream.close();
+        }
+    }
+
+    private static int sampleSize(int width, int height, int requestPixels) {
+        int sample = 1;
+        while ((width / (sample * 2)) >= requestPixels && (height / (sample * 2)) >= requestPixels) {
+            sample *= 2;
+        }
+        return Math.max(1, sample);
     }
 
     private void postTask(final Runnable task) {

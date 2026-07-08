@@ -97,7 +97,25 @@ struct ActiveUpload: Equatable, Identifiable {
     let id: UUID
     let filename: String
     let expectedSize: Int64
+    let batchIndex: Int?
+    let batchTotal: Int?
     var bytesReceived: Int64 = 0
+
+    init(
+        id: UUID,
+        filename: String,
+        expectedSize: Int64,
+        batchIndex: Int? = nil,
+        batchTotal: Int? = nil,
+        bytesReceived: Int64 = 0
+    ) {
+        self.id = id
+        self.filename = filename
+        self.expectedSize = expectedSize
+        self.batchIndex = batchIndex
+        self.batchTotal = batchTotal
+        self.bytesReceived = bytesReceived
+    }
 }
 
 enum TransferCardState: Equatable {
@@ -214,7 +232,10 @@ final class AppModel {
     private var burstCompletedCount = 0
     private var burstBytesReceived: Int64 = 0
     private var burstSawProgress = false
+    private var burstExpectedCount = 0
     private var transferSamples: [TransferSample] = []
+    private var clearedDeletedKeys: Set<String>
+    private static let clearedDeletedKeysDefaultsKey = "clearedDeletedItemKeys"
 
     struct TransferSample: Equatable {
         let time: Date
@@ -252,6 +273,9 @@ final class AppModel {
         let storedPort = userDefaults.integer(forKey: "receiverPort")
         port = storedPort == 0 ? 8765 : UInt16(clamping: storedPort)
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        clearedDeletedKeys = Set(
+            userDefaults.stringArray(forKey: Self.clearedDeletedKeysDefaultsKey) ?? []
+        )
     }
 
     func text(_ key: AppStringKey) -> String {
@@ -317,7 +341,50 @@ final class AppModel {
         activeUploads.values.reduce(0) { $0 + $1.expectedSize }
     }
 
+    var activeUploadsRemainingBytes: Int64 {
+        activeUploads.values.reduce(0) {
+            $0 + max(0, $1.expectedSize - $1.bytesReceived)
+        }
+    }
+
+    var transferCompletedCount: Int {
+        let indexedCompleted = activeUploads.values.compactMap { upload -> Int? in
+            guard let index = upload.batchIndex, index > 0 else {
+                return nil
+            }
+            return index - 1
+        }.max() ?? 0
+        return max(burstCompletedCount, indexedCompleted)
+    }
+
+    var transferTotalCount: Int {
+        max(burstExpectedCount, burstCompletedCount + activeUploads.count)
+    }
+
     var transferProgress: Double? {
+        let indexedUploads = activeUploads.values.compactMap { upload -> Double? in
+            guard let index = upload.batchIndex,
+                  let total = upload.batchTotal,
+                  index > 0,
+                  total > 0,
+                  upload.expectedSize > 0
+            else {
+                return nil
+            }
+            let currentFraction = min(1, Double(upload.bytesReceived) / Double(upload.expectedSize))
+            return (Double(index - 1) + currentFraction) / Double(total)
+        }
+        if let indexedProgress = indexedUploads.max() {
+            return min(1, indexedProgress)
+        }
+        let totalCount = transferTotalCount
+        if totalCount > 0 {
+            let activeFractions = activeUploads.values.reduce(0.0) { partial, upload in
+                guard upload.expectedSize > 0 else { return partial }
+                return partial + min(1, Double(upload.bytesReceived) / Double(upload.expectedSize))
+            }
+            return min(1, (Double(burstCompletedCount) + activeFractions) / Double(totalCount))
+        }
         guard burstSawProgress else { return nil }
         let expected = activeUploadsExpectedBytes
         guard expected > 0 else { return nil }
@@ -358,6 +425,7 @@ final class AppModel {
             to: startOfToday
         ) ?? startOfToday
         let filtered = items.filter { item in
+            let itemDate = item.mediaDate
             let categoryMatches: Bool
             switch category {
             case .all:
@@ -380,14 +448,14 @@ final class AppModel {
             case .all:
                 dateMatches = true
             case .today:
-                dateMatches = item.receivedAt >= startOfToday
-                    && item.receivedAt <= now
+                dateMatches = itemDate >= startOfToday
+                    && itemDate <= now
             case .sevenDays:
-                dateMatches = item.receivedAt >= startOfSevenDays
-                    && item.receivedAt <= now
+                dateMatches = itemDate >= startOfSevenDays
+                    && itemDate <= now
             case .thirtyDays:
-                dateMatches = item.receivedAt >= startOfThirtyDays
-                    && item.receivedAt <= now
+                dateMatches = itemDate >= startOfThirtyDays
+                    && itemDate <= now
             }
             return categoryMatches && dateMatches
                 && (searchText.isEmpty
@@ -395,9 +463,9 @@ final class AppModel {
         }
         switch sort {
         case .newest:
-            return filtered.sorted { $0.receivedAt > $1.receivedAt }
+            return filtered.sorted { $0.mediaDate > $1.mediaDate }
         case .oldest:
-            return filtered.sorted { $0.receivedAt < $1.receivedAt }
+            return filtered.sorted { $0.mediaDate < $1.mediaDate }
         case .filename:
             return filtered.sorted {
                 $0.filename.localizedStandardCompare($1.filename) == .orderedAscending
@@ -562,6 +630,21 @@ final class AppModel {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    func clearDeletedItems() {
+        let deleted = items.filter(\.removed)
+        guard !deleted.isEmpty else { return }
+        var keys = clearedDeletedKeys
+        for item in deleted {
+            keys.insert(identityKey(for: item))
+            selectedIDs.remove(item.id)
+            modelContext.delete(item)
+        }
+        clearedDeletedKeys = keys
+        persistClearedDeletedKeys()
+        try? modelContext.save()
+        items.removeAll { $0.removed }
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -940,11 +1023,13 @@ final class AppModel {
             if receiveDirectory != nil {
                 status = .stopped
             }
-        case let .uploadStarted(id, filename, expectedSize):
+        case let .uploadStarted(id, filename, expectedSize, batchIndex, batchTotal):
             activeUploads[id] = ActiveUpload(
                 id: id,
                 filename: filename,
-                expectedSize: expectedSize
+                expectedSize: expectedSize,
+                batchIndex: batchIndex,
+                batchTotal: batchTotal
             )
             transferLingerTask?.cancel()
             transferLingerTask = nil
@@ -952,7 +1037,16 @@ final class AppModel {
                 burstCompletedCount = 0
                 burstBytesReceived = 0
                 burstSawProgress = false
+                burstExpectedCount = 0
                 transferSamples.removeAll()
+            }
+            if let batchTotal, batchTotal > 0 {
+                burstExpectedCount = max(burstExpectedCount, batchTotal)
+            } else {
+                burstExpectedCount = max(
+                    burstExpectedCount,
+                    burstCompletedCount + activeUploads.count
+                )
             }
             transferCardState = .receiving
         case let .uploadProgress(id, bytesReceived, _):
@@ -1031,6 +1125,7 @@ final class AppModel {
             self.burstCompletedCount = 0
             self.burstBytesReceived = 0
             self.burstSawProgress = false
+            self.burstExpectedCount = 0
             self.transferSamples.removeAll()
         }
     }
@@ -1042,6 +1137,7 @@ final class AppModel {
         burstCompletedCount = 0
         burstBytesReceived = 0
         burstSawProgress = false
+        burstExpectedCount = 0
         transferSamples.removeAll()
     }
 
@@ -1096,8 +1192,17 @@ final class AppModel {
         var retained = Set<PersistentIdentifier>()
         var result: [MediaItemEntity] = []
 
+        var clearedKeys = clearedDeletedKeys
+        var clearedKeysChanged = false
+
         for record in records {
             let key = record.stableID ?? record.fileURL.path
+            if record.deleted && clearedKeys.contains(key) {
+                continue
+            }
+            if !record.deleted && clearedKeys.remove(key) != nil {
+                clearedKeysChanged = true
+            }
             let entity: MediaItemEntity
             if let current = existingByKey[key] {
                 current.update(from: record)
@@ -1109,6 +1214,10 @@ final class AppModel {
             retained.insert(entity.persistentModelID)
             result.append(entity)
         }
+        if clearedKeysChanged {
+            clearedDeletedKeys = clearedKeys
+            persistClearedDeletedKeys()
+        }
         for entity in existing where !retained.contains(entity.persistentModelID) {
             modelContext.delete(entity)
         }
@@ -1118,5 +1227,12 @@ final class AppModel {
 
     private func identityKey(for item: MediaItemEntity) -> String {
         item.stableID ?? item.filePath
+    }
+
+    private func persistClearedDeletedKeys() {
+        userDefaults.set(
+            Array(clearedDeletedKeys).sorted(),
+            forKey: Self.clearedDeletedKeysDefaultsKey
+        )
     }
 }

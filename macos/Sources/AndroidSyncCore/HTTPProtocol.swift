@@ -158,7 +158,9 @@ public enum ReceiverRouter {
                 dateModifiedMillis: int64Header(request.header("x-android-sync-date-modified")),
                 dateTakenMillis: int64Header(request.header("x-android-sync-date-taken")),
                 dateAddedMillis: int64Header(request.header("x-android-sync-date-added")),
-                sourceIP: sourceIP
+                sourceIP: sourceIP,
+                batchIndex: intHeader(request.header("x-android-sync-batch-index")),
+                batchTotal: intHeader(request.header("x-android-sync-batch-total"))
             )
         )
     }
@@ -168,6 +170,13 @@ public enum ReceiverRouter {
             return nil
         }
         return Int64(value)
+    }
+
+    private static func intHeader(_ value: String?) -> Int? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+        return Int(value)
     }
 }
 

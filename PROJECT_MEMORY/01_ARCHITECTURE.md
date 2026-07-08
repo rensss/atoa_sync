@@ -61,8 +61,8 @@ macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 - `GET /manifest.json`
 - `PUT /uploads/<filename>`
 
-上传 header 包含稳定 ID、尺寸、MIME 类型和可用的 Android 媒体时间戳。接收端按
-原始内容存储，不进行转码。
+上传 header 包含稳定 ID、尺寸、MIME 类型、可用的 Android 媒体时间戳，以及可选的
+批次序号/批次总数（用于接收端进度显示）。接收端按原始内容存储，不进行转码。
 
 ## 存储模型
 
@@ -76,7 +76,8 @@ macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 ```
 
 每个已存储文件可拥有一个 `.metadata.json` sidecar。`uploads.jsonl` 是追加式事件
-历史，用于构建当前 manifest，包括删除 tombstone。
+历史，用于构建当前 manifest，包括删除 tombstone。macOS “清空已删除”只在应用侧
+隐藏已删除 tombstone，不擦除 `uploads.jsonl` 历史，避免 Android 重新上传已删除媒体。
 
 ## 并发模型
 

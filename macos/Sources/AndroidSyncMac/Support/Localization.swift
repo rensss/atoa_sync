@@ -84,6 +84,7 @@ enum AppStringKey: String, CaseIterable {
     case showInFinder
     case finder
     case moveToTrash
+    case clearDeleted
     case noSelection
     case selectionDescription
     case rename
@@ -126,6 +127,7 @@ enum AppStringKey: String, CaseIterable {
     case inspector
     case layout
     case receivingSummaryFormat
+    case receivingProgressFormat
     case todayReceived
     case itemsCountFormat
     case completedLingerFormat
@@ -182,6 +184,7 @@ enum AppStrings {
             .showInFinder: "在访达中显示",
             .finder: "访达",
             .moveToTrash: "移到废纸篓",
+            .clearDeleted: "清空已删除",
             .noSelection: "未选择项目",
             .selectionDescription: "选择一个项目以查看其元数据。",
             .rename: "重命名",
@@ -224,6 +227,7 @@ enum AppStrings {
             .inspector: "检查器",
             .layout: "布局",
             .receivingSummaryFormat: "接收中 %d 个文件 · 预计 %@",
+            .receivingProgressFormat: "同步进度 %d/%d · 接收中 %d 个 · 剩余 %@",
             .todayReceived: "今天已接收",
             .itemsCountFormat: "%d 项",
             .completedLingerFormat: "已完成 %d 项",
@@ -277,6 +281,7 @@ enum AppStrings {
             .showInFinder: "Show in Finder",
             .finder: "Finder",
             .moveToTrash: "Move to Trash",
+            .clearDeleted: "Clear Deleted",
             .noSelection: "No Selection",
             .selectionDescription: "Select one item to see its metadata.",
             .rename: "Rename",
@@ -319,6 +324,7 @@ enum AppStrings {
             .inspector: "Inspector",
             .layout: "Layout",
             .receivingSummaryFormat: "Receiving %d files · about %@",
+            .receivingProgressFormat: "Progress %d/%d · %d receiving · %@ left",
             .todayReceived: "Received today",
             .itemsCountFormat: "%d items",
             .completedLingerFormat: "Completed %d items",

@@ -11,8 +11,9 @@ public final class Theme {
     public static final String BG_RAISED = "#2B2B31";
     public static final String BG_SIDEBAR = "#1C1C21";
     public static final String STROKE = "#38383F";
-    public static final String TEXT_PRIMARY = "#EEEEF0";
-    public static final String TEXT_SECONDARY = "#9A9AA3";
+    public static final String TEXT_PRIMARY = "#F6F7FA";
+    public static final String TEXT_SECONDARY = "#C7C7D0";
+    public static final String TEXT_MUTED = "#A9A9B4";
     public static final String ACCENT = "#E8A33D";
     public static final String GRADIENT_START = "#4F7CF0";
     public static final String GRADIENT_END = "#6A5CD8";

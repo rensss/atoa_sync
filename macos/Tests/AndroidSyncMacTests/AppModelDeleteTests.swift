@@ -99,5 +99,23 @@ final class AppModelDeleteTests: XCTestCase {
             .split(whereSeparator: \.isNewline).count
         XCTAssertEqual(linesBefore, linesAfter)
         XCTAssertEqual(linesAfter, 2)
+
+        model.clearDeletedItems()
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertTrue(
+            try ModelContext(container).fetch(FetchDescriptor<MediaItemEntity>()).isEmpty
+        )
+        XCTAssertEqual(
+            try String(contentsOf: logURL, encoding: .utf8)
+                .split(whereSeparator: \.isNewline).count,
+            2,
+            "清空已删除只隐藏 tombstone，不擦除 manifest 历史"
+        )
+
+        await model.configureDirectory(
+            directory,
+            startReceiverAfterConfiguration: false
+        ).value
+        XCTAssertTrue(model.items.isEmpty)
     }
 }

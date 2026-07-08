@@ -26,6 +26,7 @@ final class TransferCardStateTests: XCTestCase {
         model.handle(.uploadStarted(id: id, filename: "a.jpg", expectedSize: 100))
         XCTAssertEqual(model.transferCardState, .receiving)
         XCTAssertEqual(model.activeUploadsExpectedBytes, 100)
+        XCTAssertEqual(model.transferTotalCount, 1)
 
         model.handle(.uploadStored(id: id, record: TestItems.record()))
         XCTAssertEqual(model.transferCardState, .completed(1))
@@ -71,5 +72,24 @@ final class TransferCardStateTests: XCTestCase {
             calendar: calendar
         )
         XCTAssertEqual(stats, AppModel.TodayStats(count: 1, bytes: 10))
+    }
+
+    func testBatchHeadersExposeTotalTaskCount() throws {
+        let model = try makeModel()
+        let id = UUID()
+
+        model.handle(
+            .uploadStarted(
+                id: id,
+                filename: "a.jpg",
+                expectedSize: 100,
+                batchIndex: 2,
+                batchTotal: 5
+            )
+        )
+
+        XCTAssertEqual(model.transferTotalCount, 5)
+        XCTAssertEqual(model.transferCompletedCount, 1)
+        XCTAssertEqual(model.activeUploadsRemainingBytes, 100)
     }
 }

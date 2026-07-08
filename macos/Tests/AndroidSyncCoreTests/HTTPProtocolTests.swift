@@ -25,7 +25,9 @@ final class HTTPProtocolTests: XCTestCase {
                 "content-length": "3",
                 "content-type": "image/jpeg",
                 "x-android-sync-id": "image:42",
-                "x-android-sync-date-modified": "1780482600000"
+                "x-android-sync-date-modified": "1780482600000",
+                "x-android-sync-batch-index": "2",
+                "x-android-sync-batch-total": "5"
             ]
         )
 
@@ -39,6 +41,8 @@ final class HTTPProtocolTests: XCTestCase {
         XCTAssertEqual(metadata.stableID, "image:42")
         XCTAssertEqual(metadata.dateModifiedMillis, 1_780_482_600_000)
         XCTAssertEqual(metadata.sourceIP, "192.168.1.20")
+        XCTAssertEqual(metadata.batchIndex, 2)
+        XCTAssertEqual(metadata.batchTotal, 5)
     }
 
     func testRouterRequiresLengthAndTrustedSource() {

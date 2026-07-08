@@ -46,6 +46,19 @@ final class MediaItemEntity {
         URL(fileURLWithPath: filePath)
     }
 
+    var mediaDate: Date {
+        if let dateTakenMillis {
+            return Self.date(milliseconds: dateTakenMillis)
+        }
+        if let dateModifiedMillis {
+            return Self.date(milliseconds: dateModifiedMillis)
+        }
+        if let dateAddedMillis {
+            return Self.date(milliseconds: dateAddedMillis)
+        }
+        return receivedAt
+    }
+
     var uploadRecord: UploadRecord {
         UploadRecord(
             id: id,
@@ -79,5 +92,9 @@ final class MediaItemEntity {
         receivedAt = record.receivedAt
         filePath = record.fileURL.path
         removed = record.deleted
+    }
+
+    private static func date(milliseconds: Int64) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
     }
 }

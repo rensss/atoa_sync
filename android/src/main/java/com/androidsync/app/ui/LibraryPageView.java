@@ -15,6 +15,7 @@ import android.widget.TextView;
 
 import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.core.MediaItem;
+import com.androidsync.app.core.SyncStatus;
 
 import java.util.List;
 import java.util.Set;
@@ -29,6 +30,7 @@ public final class LibraryPageView {
         void toggleChip(String bucketId);
         void openAlbumPicker();
         List<MediaItem> visibleItems();
+        SyncStatus statusFor(MediaItem item);
         void openPreview(MediaItem item);
         void startConfirm();
         View transferCard();
@@ -119,8 +121,11 @@ public final class LibraryPageView {
             image.setBackgroundColor(widgets.color(Theme.BG_RAISED));
             TextView placeholder = widgets.label(item.isVideo() ? "▶" : "…", 12, Theme.TEXT_SECONDARY);
             placeholder.setGravity(Gravity.CENTER);
-            cell.addView(image);
-            cell.addView(placeholder);
+            cell.addView(image, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            cell.addView(placeholder, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            cell.addView(statusBadge(host.statusFor(item)));
             thumbnails.loadThumbnailInto(image, placeholder, item.uri(), cellSize);
             cell.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -149,5 +154,44 @@ public final class LibraryPageView {
         fabParams.setMargins(0, 0, widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_L));
         frame.addView(fab, fabParams);
         return frame;
+    }
+
+    private View statusBadge(SyncStatus status) {
+        String text;
+        String fill;
+        String stroke;
+        switch (status) {
+            case DONE:
+                text = "已同步";
+                fill = "#CC1E4F35";
+                stroke = Theme.STATUS_RUNNING;
+                break;
+            case UPLOADING:
+                text = "上传中";
+                fill = "#CC2C3D73";
+                stroke = Theme.GRADIENT_START;
+                break;
+            case FAILED:
+                text = "失败";
+                fill = "#CC542528";
+                stroke = Theme.STATUS_FAILED;
+                break;
+            case WAITING:
+            default:
+                text = "未同步";
+                fill = "#CC1C1C21";
+                stroke = Theme.STROKE;
+                break;
+        }
+        TextView badge = widgets.label(text, 11, Theme.TEXT_PRIMARY);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(widgets.dp(6), widgets.dp(2), widgets.dp(6), widgets.dp(2));
+        badge.setBackground(widgets.rounded(fill, stroke, 1, 8));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, widgets.dp(24));
+        params.gravity = Gravity.TOP | Gravity.END;
+        params.setMargins(0, widgets.dp(6), widgets.dp(6), 0);
+        badge.setLayoutParams(params);
+        return badge;
     }
 }

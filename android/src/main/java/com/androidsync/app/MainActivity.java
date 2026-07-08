@@ -20,6 +20,8 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -98,6 +100,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        configureSystemBars();
         scanner = new MediaStoreScanner(getContentResolver());
         widgets = new Widgets(this);
         thumbnailLoader = new ThumbnailLoader(this, getContentResolver());
@@ -283,7 +286,16 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 List<SyncTask> snapshot = queue.tasks();
+                List<SyncTask> uploadPlan = new ArrayList<>();
                 for (SyncTask task : snapshot) {
+                    if ((task.status() == SyncStatus.WAITING || task.status() == SyncStatus.FAILED)
+                            && !confirmExcluded.contains(task.media().stableId())) {
+                        uploadPlan.add(task);
+                    }
+                }
+                int batchIndex = 0;
+                int batchTotal = uploadPlan.size();
+                for (SyncTask task : uploadPlan) {
                     if (destroyed || !syncRuns.isActive(syncRun)) {
                         break;
                     }
@@ -293,15 +305,13 @@ public final class MainActivity extends Activity {
                             && currentTask.status() != SyncStatus.FAILED)) {
                         continue;
                     }
-                    if (confirmExcluded.contains(currentTask.media().stableId())) {
-                        continue;
-                    }
+                    batchIndex++;
                     final SyncStatus previousStatus = currentTask.status();
                     queue.markUploading(currentTask.id());
                     postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
                     Exception uploadError = null;
                     try {
-                        uploader.upload(getContentResolver(), currentTask.media(), targetUrl);
+                        uploader.upload(getContentResolver(), currentTask.media(), targetUrl, batchIndex, batchTotal);
                     } catch (Exception error) {
                         uploadError = error;
                     }
@@ -364,6 +374,9 @@ public final class MainActivity extends Activity {
         postTask(new Runnable() {
             @Override
             public void run() {
+                if ("library".equals(screen)) {
+                    render();
+                }
                 if (transferCard == null || !"library".equals(screen)) {
                     return;
                 }
@@ -459,6 +472,7 @@ public final class MainActivity extends Activity {
 
     private View libraryView() {
         final View transferRoot = transferCard.build();
+        final Map<String, SyncStatus> statusByStableId = taskStatusByStableId();
         LibraryPageView.LibraryHost host = new LibraryPageView.LibraryHost() {
             @Override
             public List<MediaStoreScanner.Album> whitelistAlbums() {
@@ -488,6 +502,12 @@ public final class MainActivity extends Activity {
             @Override
             public List<MediaItem> visibleItems() {
                 return computeVisibleItems();
+            }
+
+            @Override
+            public SyncStatus statusFor(MediaItem item) {
+                SyncStatus status = statusByStableId.get(item.stableId());
+                return status == null ? SyncStatus.WAITING : status;
             }
 
             @Override
@@ -564,6 +584,14 @@ public final class MainActivity extends Activity {
         return out;
     }
 
+    private Map<String, SyncStatus> taskStatusByStableId() {
+        Map<String, SyncStatus> out = new LinkedHashMap<>();
+        for (SyncTask task : queue.tasks()) {
+            out.put(task.media().stableId(), task.status());
+        }
+        return out;
+    }
+
     private View albumPickerView() {
         LinearLayout page = widgets.pageLayout();
         page.setBackgroundColor(widgets.color(Theme.BG));
@@ -605,8 +633,15 @@ public final class MainActivity extends Activity {
     private List<MediaItem> pendingMedia() {
         List<MediaItem> all = new ArrayList<>();
         Set<String> synced = new HashSet<>();
+        Map<String, SyncStatus> statuses = taskStatusByStableId();
+        for (MediaItem item : scannedMedia) {
+            all.add(item);
+            SyncStatus status = statuses.get(item.stableId());
+            if (status == SyncStatus.DONE) {
+                synced.add(item.stableId());
+            }
+        }
         for (SyncTask task : queue.tasks()) {
-            all.add(task.media());
             if (task.status() == SyncStatus.DONE) {
                 synced.add(task.media().stableId());
             }
@@ -682,7 +717,6 @@ public final class MainActivity extends Activity {
         preview.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         preview.addView(loading, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         page.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        thumbnailLoader.loadPreviewAsync(image, loading, item.uri());
 
         page.addView(widgets.label(item.displayName(), 16, Theme.TEXT_PRIMARY));
         page.addView(widgets.label(Widgets.formatBytes(item.sizeBytes()) + " · " + formatDate(item.dateModifiedMillis()), 13, Theme.TEXT_SECONDARY));
@@ -696,10 +730,11 @@ public final class MainActivity extends Activity {
         }
 
         dialog.setContentView(page);
+        dialog.show();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         }
-        dialog.show();
+        thumbnailLoader.loadPreviewAsync(image, loading, item.uri());
     }
 
     private View navBar() {
@@ -811,5 +846,26 @@ public final class MainActivity extends Activity {
 
     private SharedPreferences prefs() {
         return getSharedPreferences(PREFS, MODE_PRIVATE);
+    }
+
+    private void configureSystemBars() {
+        Window window = getWindow();
+        window.setStatusBarColor(widgets == null ? android.graphics.Color.parseColor(Theme.BG) : widgets.color(Theme.BG));
+        window.setNavigationBarColor(widgets == null ? android.graphics.Color.parseColor(Theme.BG_SIDEBAR) : widgets.color(Theme.BG_SIDEBAR));
+        View decor = window.getDecorView();
+        int flags = decor.getSystemUiVisibility();
+        if (Build.VERSION.SDK_INT >= 23) {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        }
+        if (Build.VERSION.SDK_INT >= 26) {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        decor.setSystemUiVisibility(flags);
+        if (Build.VERSION.SDK_INT >= 30 && window.getInsetsController() != null) {
+            window.getInsetsController().setSystemBarsAppearance(
+                    0,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+        }
     }
 }

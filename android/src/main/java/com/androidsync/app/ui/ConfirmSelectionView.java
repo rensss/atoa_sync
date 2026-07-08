@@ -38,6 +38,8 @@ public final class ConfirmSelectionView {
         LinearLayout page = new LinearLayout(activity);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setBackgroundColor(widgets.color(Theme.BG));
+        page.setPadding(widgets.dp(Theme.SPACE_L), widgets.statusBarHeight() + widgets.dp(Theme.SPACE_M),
+                widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_M));
 
         page.addView(widgets.label("待传 " + pending.size() + " 项 · 点击排除", 13, Theme.TEXT_SECONDARY));
 
@@ -57,8 +59,11 @@ public final class ConfirmSelectionView {
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
             image.setBackgroundColor(widgets.color(Theme.BG_RAISED));
             TextView placeholder = widgets.label("…", 12, Theme.TEXT_SECONDARY);
-            cell.addView(image);
-            cell.addView(placeholder);
+            placeholder.setGravity(Gravity.CENTER);
+            cell.addView(image, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            cell.addView(placeholder, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             final TextView mark = widgets.label("✕", 18, Theme.TEXT_PRIMARY);
             mark.setGravity(Gravity.CENTER);
             boolean off = excluded.contains(item.stableId());

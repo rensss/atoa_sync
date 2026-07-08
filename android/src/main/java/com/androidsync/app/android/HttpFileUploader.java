@@ -15,6 +15,16 @@ import java.net.URLEncoder;
 
 public final class HttpFileUploader {
     public void upload(ContentResolver resolver, MediaItem item, String targetBaseUrl) throws IOException {
+        upload(resolver, item, targetBaseUrl, 0, 0);
+    }
+
+    public void upload(
+            ContentResolver resolver,
+            MediaItem item,
+            String targetBaseUrl,
+            int batchIndex,
+            int batchTotal
+    ) throws IOException {
         String normalizedBase = targetBaseUrl.endsWith("/") ? targetBaseUrl : targetBaseUrl + "/";
         String encodedName = URLEncoder.encode(item.displayName(), "UTF-8").replace("+", "%20");
         HttpURLConnection connection = (HttpURLConnection) new URL(normalizedBase + encodedName).openConnection();
@@ -31,6 +41,10 @@ public final class HttpFileUploader {
         connection.setRequestProperty("X-Android-Sync-Id", item.stableId());
         connection.setRequestProperty("X-Android-Sync-Size", String.valueOf(item.sizeBytes()));
         connection.setRequestProperty("X-Android-Sync-Device", android.os.Build.MODEL);
+        if (batchIndex > 0 && batchTotal > 0) {
+            connection.setRequestProperty("X-Android-Sync-Batch-Index", String.valueOf(batchIndex));
+            connection.setRequestProperty("X-Android-Sync-Batch-Total", String.valueOf(batchTotal));
+        }
         if (item.dateModifiedMillis() > 0L) {
             connection.setRequestProperty("X-Android-Sync-Date-Modified", String.valueOf(item.dateModifiedMillis()));
         }
