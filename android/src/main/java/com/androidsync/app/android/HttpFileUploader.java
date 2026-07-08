@@ -30,6 +30,7 @@ public final class HttpFileUploader {
         connection.setRequestProperty("Content-Type", item.mimeType());
         connection.setRequestProperty("X-Android-Sync-Id", item.stableId());
         connection.setRequestProperty("X-Android-Sync-Size", String.valueOf(item.sizeBytes()));
+        connection.setRequestProperty("X-Android-Sync-Device", android.os.Build.MODEL);
         if (item.dateModifiedMillis() > 0L) {
             connection.setRequestProperty("X-Android-Sync-Date-Modified", String.valueOf(item.dateModifiedMillis()));
         }
