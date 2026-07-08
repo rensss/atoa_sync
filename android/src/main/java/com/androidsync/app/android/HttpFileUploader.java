@@ -22,6 +22,11 @@ public final class HttpFileUploader {
         connection.setConnectTimeout(8000);
         connection.setReadTimeout(15000);
         connection.setDoOutput(true);
+        if (item.sizeBytes() > 0L) {
+            // 定长流式模式：不设置时 HttpURLConnection 会把整个请求体缓冲在内存里
+            // 计算 Content-Length，大文件（如视频）必然 OutOfMemoryError。
+            connection.setFixedLengthStreamingMode(item.sizeBytes());
+        }
         connection.setRequestProperty("Content-Type", item.mimeType());
         connection.setRequestProperty("X-Android-Sync-Id", item.stableId());
         connection.setRequestProperty("X-Android-Sync-Size", String.valueOf(item.sizeBytes()));

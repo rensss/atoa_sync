@@ -29,6 +29,20 @@ swift test --package-path macos
 
 ## 最新本地工作
 
+B16 Android 大文件上传 OOM 修复已完成（`main`，提交待回填）：根因为
+`HttpFileUploader` 未设流式模式、请求体整体缓冲内存；已加
+`setFixedLengthStreamingMode(long)`。Android 测试/构建通过，真机大文件回归
+未执行。详见 `batches/2026-07-08-B16-android-large-file-oom.md`。
+
+macOS UI 重设计位于分支 `codex/macos-ui-redesign`（tip `0296cf6`）：B10–B15
+六批次完成、全分支终审通过（92 个 macOS 测试），待 GUI 手工 QA 后合回 `main`。
+2026-07-08 已用限速 curl 实测传输态：状态胶囊、卡片行进度/速度、今日统计正常
+（含 880pt 最小宽度）。用户报告的"传输时胶囊不可见"在新构建上未复现，疑为
+旧安装包（v0.1.2 无胶囊），待用户确认。
+
+Android 端新需求（2026-07-08）：文件/目录选择，避免同步下载目录中的电影等
+非目标媒体——留给 Android 端重设计 spec（brainstorm 未开始）。
+
 B09 macOS 删除标记修复已完成（提交 `039af65`）：用户报告“删除的 item 还在列表
 显示”。根因是 `MediaItemEntity` 的 SwiftData 属性名 `deleted` 与 NSManagedObject
 保留名冲突，`ModelContext.save()` 静默丢弃写入值，导致已删除条目在会话内和每次

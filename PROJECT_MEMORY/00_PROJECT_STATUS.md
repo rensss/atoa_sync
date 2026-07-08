@@ -17,6 +17,8 @@
 - 治理分支：`codex/agent-governance`，tip 位于 `a07593a`；其上的集成合并提交为 `23b09d5`
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 最新发布标签：`v0.1.2`
+- macOS UI 重设计分支：`codex/macos-ui-redesign`（tip `0296cf6`，B10–B15 全部
+  完成并经全分支终审，待 GUI 手工 QA 后合回 `main`）
 - 仓库布局：Android 代码在 `android/`，macOS 代码在 `macos/`
 - 受支持接收端：原生 macOS `ReceiverService`
 
@@ -62,6 +64,11 @@
   真实 store 副本轻量迁移验证通过。详见
   `PROJECT_MEMORY/batches/2026-07-07-B09-macos-swiftdata-deleted-flag.md`
   和风险 R-011。
+- B16（提交待回填）修复 Android 大文件上传 OOM 崩溃：`HttpFileUploader` 的
+  `setDoOutput(true)` 未配流式模式导致整个请求体缓冲进内存，GB 级视频必崩；
+  已加 `setFixedLengthStreamingMode(long)`。Android 测试与 APK 构建通过；
+  接收端定长流式兼容性经 curl 实测；真机大文件回归未执行。详见
+  `PROJECT_MEMORY/batches/2026-07-08-B16-android-large-file-oom.md`。
 
 ## 开放工作
 
@@ -71,6 +78,11 @@
    缩略图和 Quick Look（退出标准见 `milestones/M3_macos_ux.md`；接收端正确性收尾见
    `milestones/M2_macos_receiver_correctness.md`）。
 3. 在可信私有网络之外使用前，重新评估局域网认证和传输安全。
+4. macOS UI 重设计分支 `codex/macos-ui-redesign` 的 GUI 手工 QA（五状态胶囊、
+   空闲无卡片占位、真机进度/速度、并发上传进度观感）与合并决策。
+5. Android 端需求（用户 2026-07-08 提出，进 Android 端重设计 spec）：支持
+   文件/目录选择，避免把下载目录里的电影等非目标媒体纳入同步；同 spec 一并
+   覆盖 B16 遗留的真机大文件回归。
 
 ## 当前验证记录
 
