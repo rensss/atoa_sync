@@ -41,7 +41,8 @@ macOS UI 重设计位于分支 `codex/macos-ui-redesign`（tip `0296cf6`）：B1
 旧安装包（v0.1.2 无胶囊），待用户确认。
 
 Android 端重设计已在分支 `codex/android-ui-redesign` 全部实现（2026-07-08，
-B17–B21，tip 见 git log）：依 spec `12090ab` + 计划 `804c732` 逐任务执行。
+B17–B21，tip `1b87d89`——其后仅本回填 doc 提交，git log 为准）：依 spec
+`12090ab` + 计划 `804c732` 逐任务执行。
 每批 `./android/run_tests.sh`（含新增 `AlbumFilterTest`）+ `./android/build.sh`
 通过。新增 `ui/` 包：`Theme`（深色 token）、`Widgets`（14 View 工厂 +
 `formatBytes`）、`ThumbnailLoader`（缩略图/预览管线）、`AlbumPickerView`、

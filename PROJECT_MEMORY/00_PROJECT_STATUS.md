@@ -81,7 +81,8 @@
 4. macOS UI 重设计分支 `codex/macos-ui-redesign` 的 GUI 手工 QA（五状态胶囊、
    空闲无卡片占位、真机进度/速度、并发上传进度观感）与合并决策。
 5. Android 端重设计实施计划（spec `12090ab`、计划 `804c732`）8 任务 B17–B21
-   已在分支 `codex/android-ui-redesign` 全部实现，`./android/run_tests.sh`
+   已在分支 `codex/android-ui-redesign`（tip `1b87d89`，其后仅回填 doc 提交，
+   git log 为准）全部实现，`./android/run_tests.sh`
    （含新增 `AlbumFilterTest`）与 `./android/build.sh` 每批通过。范围：深色
    媒体库首页（`ui/LibraryPageView`）、相册白名单 + 确认态临时排除两层文件
    选择、MainActivity 拆巨石（14 View 工厂入 `ui/Widgets`、缩略图管线入
