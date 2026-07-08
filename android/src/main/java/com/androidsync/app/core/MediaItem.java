@@ -12,6 +12,8 @@ public final class MediaItem {
     private final long dateAddedMillis;
     private final boolean video;
     private final String mimeType;
+    private final String bucketId;
+    private final String bucketName;
 
     public MediaItem(String stableId, String uri, String displayName, long sizeBytes, long dateModifiedMillis, boolean video) {
         this(stableId, uri, displayName, sizeBytes, dateModifiedMillis, 0L, 0L, video, video ? "video/mp4" : "image/jpeg");
@@ -28,6 +30,22 @@ public final class MediaItem {
             boolean video,
             String mimeType
     ) {
+        this(stableId, uri, displayName, sizeBytes, dateModifiedMillis, dateTakenMillis, dateAddedMillis, video, mimeType, null, null);
+    }
+
+    public MediaItem(
+            String stableId,
+            String uri,
+            String displayName,
+            long sizeBytes,
+            long dateModifiedMillis,
+            long dateTakenMillis,
+            long dateAddedMillis,
+            boolean video,
+            String mimeType,
+            String bucketId,
+            String bucketName
+    ) {
         this.stableId = requireText(stableId, "stableId");
         this.uri = requireText(uri, "uri");
         this.displayName = requireText(displayName, "displayName");
@@ -37,6 +55,8 @@ public final class MediaItem {
         this.dateAddedMillis = dateAddedMillis;
         this.video = video;
         this.mimeType = mimeType == null || mimeType.trim().isEmpty() ? (video ? "video/mp4" : "image/jpeg") : mimeType;
+        this.bucketId = bucketId;
+        this.bucketName = bucketName;
     }
 
     public String stableId() {
@@ -73,6 +93,14 @@ public final class MediaItem {
 
     public String mimeType() {
         return mimeType;
+    }
+
+    public String bucketId() {
+        return bucketId;
+    }
+
+    public String bucketName() {
+        return bucketName;
     }
 
     public String fingerprint() {
