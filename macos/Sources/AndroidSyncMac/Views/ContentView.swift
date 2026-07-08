@@ -14,8 +14,7 @@ struct ContentView: View {
                     OnboardingView(model: model)
                 } else {
                     VStack(spacing: 0) {
-                        ReceiverStatusView(model: model)
-                        Divider()
+                        TransferCardRow(model: model)
                         LibraryView(
                             model: model,
                             quickLookBlocked: renamePresented
@@ -87,7 +86,8 @@ private struct RenameSheet: View {
                     .disabled(filename.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .padding(20)
+        .padding(Theme.spacingL + Theme.spacingXS)
         .frame(width: 380)
+        .background(Theme.bgRaised)
     }
 }

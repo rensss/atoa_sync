@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 struct LibraryView: View {
@@ -51,13 +52,13 @@ struct LibraryView: View {
                 columns: [
                     GridItem(
                         .adaptive(
-                            minimum: ThumbnailMetrics.gridCardWidth,
-                            maximum: ThumbnailMetrics.gridCardWidth
+                            minimum: Theme.Thumb.gridCell,
+                            maximum: Theme.Thumb.gridCell
                         ),
-                        spacing: 14
+                        spacing: Theme.Thumb.gridGap
                     )
                 ],
-                spacing: 16
+                spacing: Theme.Thumb.gridGap
             ) {
                 ForEach(model.filteredItems) { item in
                     MediaGridItem(
@@ -76,14 +77,15 @@ struct LibraryView: View {
                     )
                 }
             }
-            .padding(18)
+            .padding(Theme.spacingS)
         }
+        .background(Theme.bg)
     }
 
     private var list: some View {
         List(model.filteredItems) { item in
             HStack(spacing: 12) {
-                ThumbnailView(item: item, size: ThumbnailMetrics.listSize)
+                ThumbnailView(item: item, size: Theme.Thumb.listSize)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.filename)
                         .lineLimit(1)
@@ -96,7 +98,7 @@ struct LibraryView: View {
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 3)
-            .background(model.selectedIDs.contains(item.id) ? Color.accentColor.opacity(0.12) : .clear)
+            .background(model.selectedIDs.contains(item.id) ? Theme.accent.opacity(0.15) : .clear)
             .contentShape(Rectangle())
             .onTapGesture {
                 model.select(item.id, additive: NSEvent.modifierFlags.contains(.command))
@@ -106,6 +108,8 @@ struct LibraryView: View {
             .contextMenu { itemMenu(item) }
         }
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
     }
 
     @ViewBuilder
@@ -139,36 +143,62 @@ private struct MediaGridItem: View {
     let onReveal: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ThumbnailView(item: item, size: ThumbnailMetrics.gridSize)
-                .clipShape(RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: ThumbnailMetrics.cornerRadius)
-                        .stroke(selected ? Color.accentColor : .clear, lineWidth: 3)
+        ThumbnailView(item: item, size: Theme.Thumb.gridSize)
+            .overlay(alignment: .bottomTrailing) {
+                if item.kind == .video {
+                    DurationBadge(item: item)
                 }
-                .opacity(item.removed ? 0.45 : 1)
-            Text(item.filename)
-                .lineLimit(1)
-                .font(.callout.weight(.medium))
-                .frame(width: ThumbnailMetrics.gridCardWidth, alignment: .leading)
-            HStack {
-                Text(model.formatByteCount(item.sizeBytes))
-                Spacer()
-                Text(model.formatDateOnly(item.receivedAt))
             }
-            .frame(width: ThumbnailMetrics.gridCardWidth)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .clipShape(
+                RoundedRectangle(cornerRadius: Theme.Thumb.cornerRadius)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Thumb.cornerRadius)
+                    .stroke(
+                        selected ? Theme.accent : .clear,
+                        lineWidth: 2
+                    )
+            }
+            .opacity(item.removed ? 0.45 : 1)
+            .help(item.filename)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onSelect)
+            .onTapGesture(count: 2, perform: onPreview)
+            .contextMenu {
+                Button(model.text(.quickLook), action: onPreview)
+                    .disabled(item.removed)
+                Button(model.text(.showInFinder), action: onReveal)
+                    .disabled(item.removed)
+            }
+    }
+}
+
+private struct DurationBadge: View {
+    let item: MediaItemEntity
+    @State private var duration: String?
+
+    var body: some View {
+        Group {
+            if let duration {
+                Text(duration)
+                    .font(.caption2.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Theme.spacingXS + 1)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(Color.black.opacity(0.6))
+                    )
+                    .padding(Theme.spacingXS)
+            }
         }
-        .frame(width: ThumbnailMetrics.gridCardWidth, alignment: .leading)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .onTapGesture(count: 2, perform: onPreview)
-        .contextMenu {
-            Button(model.text(.quickLook), action: onPreview)
-                .disabled(item.removed)
-            Button(model.text(.showInFinder), action: onReveal)
-                .disabled(item.removed)
+        .task(id: item.filePath) {
+            guard !item.removed else { return }
+            let asset = AVURLAsset(url: item.fileURL)
+            guard let time = try? await asset.load(.duration) else { return }
+            let seconds = Int(time.seconds.rounded())
+            guard seconds > 0 else { return }
+            duration = String(format: "%d:%02d", seconds / 60, seconds % 60)
         }
     }
 }

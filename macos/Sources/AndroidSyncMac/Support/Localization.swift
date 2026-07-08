@@ -125,6 +125,11 @@ enum AppStringKey: String, CaseIterable {
     case sort
     case inspector
     case layout
+    case receivingSummaryFormat
+    case todayReceived
+    case itemsCountFormat
+    case completedLingerFormat
+    case speedFormat
 }
 
 enum AppStrings {
@@ -218,6 +223,11 @@ enum AppStrings {
             .sort: "排序",
             .inspector: "检查器",
             .layout: "布局",
+            .receivingSummaryFormat: "接收中 %d 个文件 · 预计 %@",
+            .todayReceived: "今天已接收",
+            .itemsCountFormat: "%d 项",
+            .completedLingerFormat: "已完成 %d 项",
+            .speedFormat: "%@/秒",
         ],
         .english: [
             .settings: "Settings",
@@ -308,6 +318,11 @@ enum AppStrings {
             .sort: "Sort",
             .inspector: "Inspector",
             .layout: "Layout",
+            .receivingSummaryFormat: "Receiving %d files · about %@",
+            .todayReceived: "Received today",
+            .itemsCountFormat: "%d items",
+            .completedLingerFormat: "Completed %d items",
+            .speedFormat: "%@/s",
         ],
     ]
 

@@ -30,6 +30,7 @@ struct AndroidSyncMacApp: App {
             ContentView(model: appModel)
                 .frame(minWidth: 860, minHeight: 560)
                 .environment(\.locale, appModel.language.locale)
+                .preferredColorScheme(.dark)
                 .task { await appModel.launchIfNeeded() }
         }
         .modelContainer(modelContainer)
@@ -45,11 +46,13 @@ struct AndroidSyncMacApp: App {
         MenuBarExtra("Android Sync", systemImage: appModel.menuBarSystemImage) {
             MenuBarView(model: appModel)
                 .environment(\.locale, appModel.language.locale)
+                .preferredColorScheme(.dark)
         }
 
         Settings {
             SettingsView(model: appModel)
                 .environment(\.locale, appModel.language.locale)
+                .preferredColorScheme(.dark)
         }
     }
 }

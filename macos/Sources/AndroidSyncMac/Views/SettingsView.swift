@@ -11,7 +11,7 @@ struct SettingsView: View {
                     HStack {
                         Text(model.receiveDirectory?.path ?? model.text(.notSelected))
                             .lineLimit(1)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.textSecondary)
                         Button(model.text(.chooseEllipsis)) { model.chooseDirectory() }
                     }
                 }
@@ -22,7 +22,7 @@ struct SettingsView: View {
                 }
                 Text(model.text(.portRestartDescription))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
             }
             Section(model.text(.general)) {
                 Picker(model.text(.language), selection: $model.language) {
@@ -46,7 +46,7 @@ struct SettingsView: View {
                     systemImage: "lock.shield"
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
             }
             Section(model.text(.about)) {
                 LabeledContent(
@@ -60,6 +60,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .tint(Theme.accent)
         .frame(width: 540, height: 480)
         .onAppear { portText = String(model.port) }
     }

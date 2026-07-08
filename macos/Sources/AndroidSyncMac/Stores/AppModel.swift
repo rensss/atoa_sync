@@ -97,6 +97,13 @@ struct ActiveUpload: Equatable, Identifiable {
     let id: UUID
     let filename: String
     let expectedSize: Int64
+    var bytesReceived: Int64 = 0
+}
+
+enum TransferCardState: Equatable {
+    case idle
+    case receiving
+    case completed(Int)
 }
 
 protocol ReceiverServiceControlling: AnyObject, Sendable {
@@ -201,6 +208,18 @@ final class AppModel {
     var lastError: String?
     var activeUploads: [UUID: ActiveUpload] = [:]
     var transientUploadMessage: String?
+    private(set) var transferCardState: TransferCardState = .idle
+    var transferCompletionLinger: Duration = .seconds(3)
+    private(set) var transferLingerTask: Task<Void, Never>?
+    private var burstCompletedCount = 0
+    private var burstBytesReceived: Int64 = 0
+    private var burstSawProgress = false
+    private var transferSamples: [TransferSample] = []
+
+    struct TransferSample: Equatable {
+        let time: Date
+        let totalBytes: Int64
+    }
 
     init(
         modelContainer: ModelContainer,
@@ -268,6 +287,54 @@ final class AppModel {
             now: Date(),
             calendar: Calendar.current
         )
+    }
+
+    struct TodayStats: Equatable {
+        let count: Int
+        let bytes: Int64
+    }
+
+    static func todayStats(
+        _ items: [MediaItemEntity],
+        now: Date,
+        calendar: Calendar
+    ) -> TodayStats {
+        let startOfToday = calendar.startOfDay(for: now)
+        let todays = items.filter {
+            !$0.removed && $0.receivedAt >= startOfToday && $0.receivedAt <= now
+        }
+        return TodayStats(
+            count: todays.count,
+            bytes: todays.reduce(0) { $0 + $1.sizeBytes }
+        )
+    }
+
+    var todayStats: TodayStats {
+        Self.todayStats(items, now: Date(), calendar: .current)
+    }
+
+    var activeUploadsExpectedBytes: Int64 {
+        activeUploads.values.reduce(0) { $0 + $1.expectedSize }
+    }
+
+    var transferProgress: Double? {
+        guard burstSawProgress else { return nil }
+        let expected = activeUploadsExpectedBytes
+        guard expected > 0 else { return nil }
+        let received = activeUploads.values.reduce(0) { $0 + $1.bytesReceived }
+        return min(1, Double(received) / Double(expected))
+    }
+
+    static func transferSpeed(samples: [TransferSample]) -> Int64? {
+        guard let first = samples.first, let last = samples.last,
+              last.time > first.time
+        else { return nil }
+        let dt = last.time.timeIntervalSince(first.time)
+        return Int64(Double(last.totalBytes - first.totalBytes) / dt)
+    }
+
+    var transferSpeedBytesPerSecond: Int64? {
+        Self.transferSpeed(samples: transferSamples)
     }
 
     static func filterItems(
@@ -340,6 +407,18 @@ final class AppModel {
         }
     }
 
+    func categoryCount(_ category: LibraryCategory) -> Int {
+        Self.filterItems(
+            items,
+            category: category,
+            dateFilter: .all,
+            sort: .newest,
+            searchText: "",
+            now: Date(),
+            calendar: .current
+        ).count
+    }
+
     var selectedItem: MediaItemEntity? {
         guard selectedIDs.count == 1, let id = selectedIDs.first else {
             return nil
@@ -360,6 +439,23 @@ final class AppModel {
         case .needsDirectory: "folder.badge.questionmark"
         case .stopped: "arrow.down.circle"
         }
+    }
+
+    var statusCapsuleTitle: String {
+        if isRunning, !activeUploads.isEmpty {
+            return format(.receivingFilesFormat, activeUploads.count)
+        }
+        return switch status {
+        case .needsDirectory: text(.receiveFolderRequired)
+        case .stopped: text(.receiverPaused)
+        case .starting: text(.startingReceiver)
+        case .running: text(.readyToReceive)
+        case .failed: text(.receiverUnavailable)
+        }
+    }
+
+    var statusCapsuleDetail: String {
+        uploadURL.isEmpty ? format(.portFormat, Int(port)) : uploadURL
     }
 
     func launchIfNeeded() async {
@@ -840,6 +936,7 @@ final class AppModel {
         case .stopped:
             activeUploads.removeAll()
             clearTransientUploadFailure()
+            resetTransferCard()
             if receiveDirectory != nil {
                 status = .stopped
             }
@@ -849,8 +946,36 @@ final class AppModel {
                 filename: filename,
                 expectedSize: expectedSize
             )
+            transferLingerTask?.cancel()
+            transferLingerTask = nil
+            if transferCardState != .receiving {
+                burstCompletedCount = 0
+                burstBytesReceived = 0
+                burstSawProgress = false
+                transferSamples.removeAll()
+            }
+            transferCardState = .receiving
+        case let .uploadProgress(id, bytesReceived, _):
+            guard var upload = activeUploads[id] else { return }
+            let delta = bytesReceived - upload.bytesReceived
+            guard delta > 0 else { return }
+            upload.bytesReceived = bytesReceived
+            activeUploads[id] = upload
+            burstSawProgress = true
+            burstBytesReceived += delta
+            let now = Date()
+            transferSamples.append(
+                TransferSample(time: now, totalBytes: burstBytesReceived)
+            )
+            transferSamples.removeAll {
+                now.timeIntervalSince($0.time) > 3
+            }
         case let .uploadStored(id, _):
             activeUploads.removeValue(forKey: id)
+            burstCompletedCount += 1
+            if activeUploads.isEmpty {
+                beginTransferLinger()
+            }
             guard let repository else { return }
             let directoryGeneration = directoryConfigurationGeneration
             Task {
@@ -863,9 +988,17 @@ final class AppModel {
         case let .uploadFailed(id, filename, message):
             activeUploads.removeValue(forKey: id)
             showTransientUploadFailure(filename: filename, message: message)
+            if activeUploads.isEmpty {
+                if burstCompletedCount > 0 {
+                    beginTransferLinger()
+                } else {
+                    resetTransferCard()
+                }
+            }
         case let .receiverFailed(message):
             activeUploads.removeAll()
             clearTransientUploadFailure()
+            resetTransferCard()
             status = .failed(message)
             lastError = message
         }
@@ -885,6 +1018,31 @@ final class AppModel {
         transientUploadMessageTask?.cancel()
         transientUploadMessageTask = nil
         transientUploadMessage = nil
+    }
+
+    private func beginTransferLinger() {
+        transferCardState = .completed(burstCompletedCount)
+        transferLingerTask?.cancel()
+        transferLingerTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: transferCompletionLinger)
+            guard !Task.isCancelled else { return }
+            self.transferCardState = .idle
+            self.burstCompletedCount = 0
+            self.burstBytesReceived = 0
+            self.burstSawProgress = false
+            self.transferSamples.removeAll()
+        }
+    }
+
+    private func resetTransferCard() {
+        transferLingerTask?.cancel()
+        transferLingerTask = nil
+        transferCardState = .idle
+        burstCompletedCount = 0
+        burstBytesReceived = 0
+        burstSawProgress = false
+        transferSamples.removeAll()
     }
 
     private func reloadLibrary(

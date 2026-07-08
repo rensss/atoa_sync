@@ -18,7 +18,7 @@
 - 候选实现分支：`codex/stability-macos-ux`，位于 `cbf31db`
 - 最新发布标签：`v0.1.2`
 - macOS UI 重设计分支：`codex/macos-ui-redesign`（tip `0296cf6`，B10–B15 全部
-  完成并经全分支终审，待 GUI 手工 QA 后合回 `main`）
+  完成并经全分支终审；合入 `main` 后仍需 GUI 手工 QA）
 - 仓库布局：Android 代码在 `android/`，macOS 代码在 `macos/`
 - 受支持接收端：原生 macOS `ReceiverService`
 
@@ -69,6 +69,37 @@
   已加 `setFixedLengthStreamingMode(long)`。Android 测试与 APK 构建通过；
   接收端定长流式兼容性经 curl 实测；真机大文件回归未执行。详见
   `PROJECT_MEMORY/batches/2026-07-08-B16-android-large-file-oom.md`。
+- B10（分支 `codex/macos-ui-redesign`，提交 `83205c2`/`a3acab4`/`e6a0f18`）为
+  macOS UI 重设计批次 1/6：深色主题 token、三 Scene 强制深色、工具栏状态胶囊
+  替代顶部状态条。83 个测试全绿；GUI 手工核对留分支终验。spec 与实施计划见
+  `docs/superpowers/specs/2026-07-07-macos-ui-redesign-design.md`、
+  `docs/superpowers/plans/2026-07-07-macos-ui-redesign.md`，批次详情见
+  `PROJECT_MEMORY/batches/2026-07-07-B10-macos-dark-theme-status-capsule.md`。
+- B11（同分支，提交 `45c101c`/`78a55a4`）为 UI 重设计批次 2/6：侧栏分类计数
+  （不受搜索/日期过滤影响）与深色侧栏样式。84 个测试全绿。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B11-macos-sidebar-counts.md`。
+- B12（同分支，提交 `d803856`/`f845190`/`1d5c4a0`）为 UI 重设计批次 3/6：
+  传输卡片状态机（含跨 burst 计数泄漏修复）、今日统计、网格上方传输卡片行，
+  `transientUploadMessage` 横幅展示位在此闭合。88 个测试全绿。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B12-macos-transfer-card-row.md`。
+- B13（同分支，提交 `9f92e4a`/`aef49e6`）为 UI 重设计批次 4/6：ThumbnailMetrics
+  并入 `Theme.Thumb`、高密度网格（150pt/3pt/无标签/时长角标）、列表与
+  Inspector/RenameSheet 深色化。87 个测试全绿（度量测试 2 合 1）。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B13-macos-dense-grid-inspector.md`。
+- B14（同分支，提交 `8d06185`）为 UI 重设计批次 5/6：Onboarding 重做与
+  设置深色化，MenuBarView 按计划豁免。87 个测试全绿。详见
+  `PROJECT_MEMORY/batches/2026-07-07-B14-macos-onboarding-settings-dark.md`。
+- B15（同分支，提交 `ffbfacf`）为 UI 重设计批次 6/6：ReceiverService 上传进度
+  事件（512 KB 节流）、传输卡片确定进度条与速度显示。90 个测试全绿。已知限制
+  与风险复核（R-004/R-005/R-007 不受影响）见
+  `PROJECT_MEMORY/batches/2026-07-07-B15-macos-upload-progress-events.md`。
+- 全分支终审（fable 级审查）判定 With fixes，唯一 Important（跨 burst 进度/
+  速度状态泄漏）已修复于 `9884b01` 并经独立复审确认；92 个测试全绿。分支已合入
+  `main`，GUI 手工 QA 仍为 M3 口径未闭合项。
+- B17-B21 Android UI 重设计已在 `codex/android-ui-redesign` 完成并快进合入
+  `main`（tip `2eb0889`）。范围包括深色媒体库首页、相册白名单、同步前确认态、
+  临时排除、传输卡片、设备名上传头、MainActivity 拆分和缩略图管线搬移。
+  每批 `./android/run_tests.sh` 与 `./android/build.sh` 通过；真机 QA 未执行。
 
 ## 开放工作
 
@@ -78,17 +109,10 @@
    缩略图和 Quick Look（退出标准见 `milestones/M3_macos_ux.md`；接收端正确性收尾见
    `milestones/M2_macos_receiver_correctness.md`）。
 3. 在可信私有网络之外使用前，重新评估局域网认证和传输安全。
-4. macOS UI 重设计分支 `codex/macos-ui-redesign` 的 GUI 手工 QA（五状态胶囊、
-   空闲无卡片占位、真机进度/速度、并发上传进度观感）与合并决策。
-5. Android 端重设计实施计划（spec `12090ab`、计划 `804c732`）8 任务 B17–B21
-   已在分支 `codex/android-ui-redesign`（tip `1b87d89`，其后仅回填 doc 提交，
-   git log 为准）全部实现，`./android/run_tests.sh`
-   （含新增 `AlbumFilterTest`）与 `./android/build.sh` 每批通过。范围：深色
-   媒体库首页（`ui/LibraryPageView`）、相册白名单 + 确认态临时排除两层文件
-   选择、MainActivity 拆巨石（14 View 工厂入 `ui/Widgets`、缩略图管线入
-   `ui/ThumbnailLoader`、`ui/Theme` token）、传输卡片行（`ui/TransferCardView`）、
-   设备名 header。**待办**：真机 QA（B21 记录的 8 项验收清单，均未执行——无设备）
-   与合回 `main` 的决策；B16 真机大文件回归仍未做。
+4. 完成 Android UI 重设计真机 QA（B21 记录的 8 项验收清单均未执行，含 B16
+   GB 级视频回归）。
+5. 完成 macOS UI 重设计 GUI 手工 QA（五状态胶囊、空闲无卡片占位、真机进度/速度、
+   并发上传进度观感）。
 
 ## 当前验证记录
 
