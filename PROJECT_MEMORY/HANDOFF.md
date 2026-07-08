@@ -29,7 +29,7 @@ swift test --package-path macos
 
 ## 最新本地工作
 
-B16 Android 大文件上传 OOM 修复已完成（`main`，提交待回填）：根因为
+B16 Android 大文件上传 OOM 修复已完成（`main`，提交 `fbec5bc`）：根因为
 `HttpFileUploader` 未设流式模式、请求体整体缓冲内存；已加
 `setFixedLengthStreamingMode(long)`。Android 测试/构建通过，真机大文件回归
 未执行。详见 `batches/2026-07-08-B16-android-large-file-oom.md`。

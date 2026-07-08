@@ -64,7 +64,7 @@
   真实 store 副本轻量迁移验证通过。详见
   `PROJECT_MEMORY/batches/2026-07-07-B09-macos-swiftdata-deleted-flag.md`
   和风险 R-011。
-- B16（提交待回填）修复 Android 大文件上传 OOM 崩溃：`HttpFileUploader` 的
+- B16（提交 `fbec5bc`）修复 Android 大文件上传 OOM 崩溃：`HttpFileUploader` 的
   `setDoOutput(true)` 未配流式模式导致整个请求体缓冲进内存，GB 级视频必崩；
   已加 `setFixedLengthStreamingMode(long)`。Android 测试与 APK 构建通过；
   接收端定长流式兼容性经 curl 实测；真机大文件回归未执行。详见
