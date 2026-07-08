@@ -40,8 +40,14 @@ macOS UI 重设计位于分支 `codex/macos-ui-redesign`（tip `0296cf6`）：B1
 （含 880pt 最小宽度）。用户报告的"传输时胶囊不可见"在新构建上未复现，疑为
 旧安装包（v0.1.2 无胶囊），待用户确认。
 
-Android 端新需求（2026-07-08）：文件/目录选择，避免同步下载目录中的电影等
-非目标媒体——留给 Android 端重设计 spec（brainstorm 未开始）。
+Android 端重设计已完成设计与规划、待执行（2026-07-08）：spec
+`docs/superpowers/specs/2026-07-08-android-ui-redesign-design.md`（提交
+`12090ab`）+ 实施计划
+`docs/superpowers/plans/2026-07-08-android-ui-redesign.md`（提交 `804c732`，
+8 任务对应批次 B17–B21）。执行方式：自 `main` 拉 `codex/android-ui-redesign`
+分支，用 superpowers:subagent-driven-development 逐任务执行；批次记录由控制器
+统一写。范围含文件/目录选择（相册白名单 + 确认态临时排除）、深色媒体库首页、
+MainActivity 拆巨石、设备名 header、B16 真机大文件回归验收。
 
 B09 macOS 删除标记修复已完成（提交 `039af65`）：用户报告“删除的 item 还在列表
 显示”。根因是 `MediaItemEntity` 的 SwiftData 属性名 `deleted` 与 NSManagedObject
