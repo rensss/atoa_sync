@@ -1,6 +1,6 @@
 # 项目状态
 
-最后复核：2026-07-07
+最后复核：2026-07-08
 
 ## 基线
 
@@ -80,10 +80,14 @@
 3. 在可信私有网络之外使用前，重新评估局域网认证和传输安全。
 4. macOS UI 重设计分支 `codex/macos-ui-redesign` 的 GUI 手工 QA（五状态胶囊、
    空闲无卡片占位、真机进度/速度、并发上传进度观感）与合并决策。
-5. 执行 Android 端重设计实施计划（spec `12090ab`、计划 `804c732` 已在
-   `main`）：8 任务对应 B17–B21，含文件/目录选择、深色媒体库首页、
-   MainActivity 拆巨石、设备名 header 与 B16 真机大文件回归验收。
-   在 `codex/android-ui-redesign` 分支执行，尚未开始。
+5. Android 端重设计实施计划（spec `12090ab`、计划 `804c732`）8 任务 B17–B21
+   已在分支 `codex/android-ui-redesign` 全部实现，`./android/run_tests.sh`
+   （含新增 `AlbumFilterTest`）与 `./android/build.sh` 每批通过。范围：深色
+   媒体库首页（`ui/LibraryPageView`）、相册白名单 + 确认态临时排除两层文件
+   选择、MainActivity 拆巨石（14 View 工厂入 `ui/Widgets`、缩略图管线入
+   `ui/ThumbnailLoader`、`ui/Theme` token）、传输卡片行（`ui/TransferCardView`）、
+   设备名 header。**待办**：真机 QA（B21 记录的 8 项验收清单，均未执行——无设备）
+   与合回 `main` 的决策；B16 真机大文件回归仍未做。
 
 ## 当前验证记录
 

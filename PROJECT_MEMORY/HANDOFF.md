@@ -1,6 +1,6 @@
 # 交接
 
-最后更新：2026-07-07
+最后更新：2026-07-08
 
 ## 从这里开始
 
@@ -40,14 +40,19 @@ macOS UI 重设计位于分支 `codex/macos-ui-redesign`（tip `0296cf6`）：B1
 （含 880pt 最小宽度）。用户报告的"传输时胶囊不可见"在新构建上未复现，疑为
 旧安装包（v0.1.2 无胶囊），待用户确认。
 
-Android 端重设计已完成设计与规划、待执行（2026-07-08）：spec
-`docs/superpowers/specs/2026-07-08-android-ui-redesign-design.md`（提交
-`12090ab`）+ 实施计划
-`docs/superpowers/plans/2026-07-08-android-ui-redesign.md`（提交 `804c732`，
-8 任务对应批次 B17–B21）。执行方式：自 `main` 拉 `codex/android-ui-redesign`
-分支，用 superpowers:subagent-driven-development 逐任务执行；批次记录由控制器
-统一写。范围含文件/目录选择（相册白名单 + 确认态临时排除）、深色媒体库首页、
-MainActivity 拆巨石、设备名 header、B16 真机大文件回归验收。
+Android 端重设计已在分支 `codex/android-ui-redesign` 全部实现（2026-07-08，
+B17–B21，tip 见 git log）：依 spec `12090ab` + 计划 `804c732` 逐任务执行。
+每批 `./android/run_tests.sh`（含新增 `AlbumFilterTest`）+ `./android/build.sh`
+通过。新增 `ui/` 包：`Theme`（深色 token）、`Widgets`（14 View 工厂 +
+`formatBytes`）、`ThumbnailLoader`（缩略图/预览管线）、`AlbumPickerView`、
+`SettingsPageView`、`ConfirmSelectionView`、`TransferCardView`、`LibraryPageView`；
+`core/AlbumFilter`（+JVM 测试）；`android/AlbumPrefs`（相册白名单持久化）；
+`MediaStoreScanner` 加 bucket 过滤/`listAlbums`；`MediaItem` 加 bucket 字段；
+`HttpFileUploader` 加 `X-Android-Sync-Device` 头。MainActivity 由 1914 行降至
+815 行，收敛为 library/settings/albumPicker/confirm 四屏。批次记录见
+`batches/2026-07-08-B17..B21`。**待办**：真机 QA（B21 的 8 项验收清单均未执行——
+无设备，含 B16 GB 级视频回归）与合回 `main` 的决策；提交后把分支 tip SHA
+回填进本文件与 `00_PROJECT_STATUS.md`。合并前不得把该分支当作已验收。
 
 B09 macOS 删除标记修复已完成（提交 `039af65`）：用户报告“删除的 item 还在列表
 显示”。根因是 `MediaItemEntity` 的 SwiftData 属性名 `deleted` 与 NSManagedObject
