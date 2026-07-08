@@ -47,6 +47,7 @@ import com.androidsync.app.android.AlbumPrefs;
 import com.androidsync.app.android.HttpFileUploader;
 import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.android.RemoteManifestClient;
+import com.androidsync.app.core.AlbumFilter;
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncRunGate;
@@ -55,6 +56,7 @@ import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
 import com.androidsync.app.core.ThumbnailPolicy;
 import com.androidsync.app.ui.AlbumPickerView;
+import com.androidsync.app.ui.ConfirmSelectionView;
 import com.androidsync.app.ui.SettingsPageView;
 import com.androidsync.app.ui.Theme;
 import com.androidsync.app.ui.ThumbnailLoader;
@@ -117,6 +119,7 @@ public final class MainActivity extends Activity {
     private Widgets widgets;
     private ThumbnailLoader thumbnailLoader;
     private final Set<String> albumSelection = new HashSet<>();
+    private final Set<String> confirmExcluded = new HashSet<>();
     private List<MediaStoreScanner.Album> albums = Collections.emptyList();
     private Button albumDoneButton;
     private String albumPickerReturn = "home";
@@ -314,6 +317,9 @@ public final class MainActivity extends Activity {
                             && currentTask.status() != SyncStatus.FAILED)) {
                         continue;
                     }
+                    if (confirmExcluded.contains(currentTask.media().stableId())) {
+                        continue;
+                    }
                     final SyncStatus previousStatus = currentTask.status();
                     queue.markUploading(currentTask.id());
                     postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
@@ -436,6 +442,8 @@ public final class MainActivity extends Activity {
             content.addView(detailView());
         } else if ("albumPicker".equals(screen)) {
             content.addView(albumPickerView());
+        } else if ("confirm".equals(screen)) {
+            content.addView(confirmView());
         } else if ("settings".equals(screen)) {
             content.addView(settingsView());
         } else if ("queue".equals(screen)) {
@@ -467,6 +475,11 @@ public final class MainActivity extends Activity {
         }
         if ("albumPicker".equals(screen)) {
             screen = albumPickerReturn;
+            render();
+            return;
+        }
+        if ("confirm".equals(screen)) {
+            screen = "home";
             render();
             return;
         }
@@ -521,7 +534,13 @@ public final class MainActivity extends Activity {
         homeSyncButton = widgets.actionButton(syncRuns.isActive() ? "暂停" : "开始同步", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                startSync();
+                if (syncRuns.isActive()) {
+                    startSync();
+                } else {
+                    confirmExcluded.clear();
+                    screen = "confirm";
+                    render();
+                }
             }
         });
         actions.addView(homeSyncButton, widgets.weightParams());
@@ -689,7 +708,7 @@ public final class MainActivity extends Activity {
         meta.addView(widgets.title("文件信息", 20));
         meta.addView(metaRow("类型", media.isVideo() ? "视频" : "照片"));
         meta.addView(metaRow("MIME", media.mimeType()));
-        meta.addView(metaRow("大小", formatBytes(media.sizeBytes())));
+        meta.addView(metaRow("大小", Widgets.formatBytes(media.sizeBytes())));
         detailMetadataStatusView = widgets.label(statusText(task), 13, "#182B28");
         meta.addView(metaRow("同步状态", detailMetadataStatusView));
         meta.addView(metaRow("拍摄时间", formatDate(media.dateTakenMillis())));
@@ -780,6 +799,40 @@ public final class MainActivity extends Activity {
         albumDoneButton.setEnabled(!albumSelection.isEmpty());
         page.addView(albumDoneButton);
         return page;
+    }
+
+    private List<MediaItem> pendingMedia() {
+        List<MediaItem> all = new ArrayList<>();
+        Set<String> synced = new HashSet<>();
+        for (SyncTask task : queue.tasks()) {
+            all.add(task.media());
+            if (task.status() == SyncStatus.DONE) {
+                synced.add(task.media().stableId());
+            }
+        }
+        return AlbumFilter.pending(all, synced, Collections.<String>emptySet()).pending;
+    }
+
+    private View confirmView() {
+        List<MediaItem> pending = pendingMedia();
+        return new ConfirmSelectionView(this, widgets, thumbnailLoader).build(pending, confirmExcluded, new ConfirmSelectionView.ConfirmHost() {
+            @Override
+            public void onConfirm() {
+                screen = "home";
+                render();
+                startSync();
+            }
+
+            @Override
+            public void onCancel() {
+                screen = "home";
+                render();
+            }
+
+            @Override
+            public void onSelectionChanged(int count, long bytes) {
+            }
+        });
     }
 
     private View homeHeader() {
@@ -930,7 +983,7 @@ public final class MainActivity extends Activity {
         SyncQueue.Summary summary = queue.summary();
         queueSummaryTotalView.setText(String.valueOf(summary.total()));
         queueSummaryDoneView.setText(String.valueOf(summary.done()));
-        queueSummaryCapacityView.setText(formatBytes(summary.totalBytes()));
+        queueSummaryCapacityView.setText(Widgets.formatBytes(summary.totalBytes()));
         queueRetryFailedButton.setVisibility(summary.failed() > 0 ? View.VISIBLE : View.GONE);
     }
 
@@ -1158,7 +1211,7 @@ public final class MainActivity extends Activity {
         stats.setPadding(0, widgets.dp(12), 0, 0);
         queueSummaryTotalView = widgets.label(String.valueOf(summary.total()), 18, "#182B28");
         queueSummaryDoneView = widgets.label(String.valueOf(summary.done()), 18, "#182B28");
-        queueSummaryCapacityView = widgets.label(formatBytes(summary.totalBytes()), 18, "#182B28");
+        queueSummaryCapacityView = widgets.label(Widgets.formatBytes(summary.totalBytes()), 18, "#182B28");
         stats.addView(stat("总数", queueSummaryTotalView), widgets.weightParams());
         stats.addView(stat("完成", queueSummaryDoneView), widgets.weightParams());
         stats.addView(stat("容量", queueSummaryCapacityView), widgets.weightParams());
@@ -1288,7 +1341,7 @@ public final class MainActivity extends Activity {
 
     private void bindQueueRow(SyncTask task, QueueRowViews views) {
         views.fileName.setText(task.media().displayName());
-        views.statusCapacity.setText(formatBytes(task.media().sizeBytes()) + " · " + statusText(task));
+        views.statusCapacity.setText(Widgets.formatBytes(task.media().sizeBytes()) + " · " + statusText(task));
         views.statusCapacity.setTextColor(widgets.color(statusColor(task.status())));
 
         boolean uploading = task.status() == SyncStatus.UPLOADING;
@@ -1520,20 +1573,6 @@ public final class MainActivity extends Activity {
 
     private String percent(float progress) {
         return String.valueOf(Math.round(progress * 100f)) + "%";
-    }
-
-    private String formatBytes(long bytes) {
-        DecimalFormat df = new DecimalFormat("0.#");
-        if (bytes >= 1024L * 1024L * 1024L) {
-            return df.format(bytes / 1024f / 1024f / 1024f) + " GB";
-        }
-        if (bytes >= 1024L * 1024L) {
-            return df.format(bytes / 1024f / 1024f) + " MB";
-        }
-        if (bytes >= 1024L) {
-            return df.format(bytes / 1024f) + " KB";
-        }
-        return bytes + " B";
     }
 
     private String formatDate(long millis) {

@@ -11,6 +11,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import java.text.DecimalFormat;
+
 /**
  * 程序化 View 工厂，B17 自 MainActivity 原样搬移（行为零变化）。
  * 各方法体逐字保留，仅把对 Activity 的隐式引用改为字段 {@code activity}。
@@ -131,5 +133,19 @@ public final class Widgets {
             return 0;
         }
         return activity.getResources().getDimensionPixelSize(resourceId);
+    }
+
+    public static String formatBytes(long bytes) {
+        DecimalFormat df = new DecimalFormat("0.#");
+        if (bytes >= 1024L * 1024L * 1024L) {
+            return df.format(bytes / 1024f / 1024f / 1024f) + " GB";
+        }
+        if (bytes >= 1024L * 1024L) {
+            return df.format(bytes / 1024f / 1024f) + " MB";
+        }
+        if (bytes >= 1024L) {
+            return df.format(bytes / 1024f) + " KB";
+        }
+        return bytes + " B";
     }
 }
