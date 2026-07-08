@@ -53,6 +53,8 @@ import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
 import com.androidsync.app.core.ThumbnailPolicy;
+import com.androidsync.app.ui.ThumbnailLoader;
+import com.androidsync.app.ui.Widgets;
 
 import java.lang.ref.WeakReference;
 import java.text.DateFormat;
@@ -74,31 +76,13 @@ public final class MainActivity extends Activity {
     private static final int RECENT_GRID_LIMIT = 50;
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
-    private static final long MIN_THUMBNAIL_CACHE_BYTES = 4L * 1024L * 1024L;
-    private static final int FAILED_THUMBNAIL_CACHE_ENTRIES = 256;
-    private static final int FAILED_PREVIEW_CACHE_ENTRIES = 64;
 
     private final SyncQueue queue = new SyncQueue();
     private final SyncRunGate syncRuns = new SyncRunGate();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final ExecutorService thumbnailExecutor = Executors.newFixedThreadPool(2);
     private final HttpFileUploader uploader = new HttpFileUploader();
     private final RemoteManifestClient manifestClient = new RemoteManifestClient();
-    private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(thumbnailCacheBytes()) {
-        @Override
-        protected int sizeOf(String key, Bitmap bitmap) {
-            return bitmap.getAllocationByteCount();
-        }
-    };
-    private final LruCache<String, Boolean> failedThumbnailCache =
-            new LruCache<>(FAILED_THUMBNAIL_CACHE_ENTRIES);
-    private final LruCache<String, Boolean> failedPreviewCache =
-            new LruCache<>(FAILED_PREVIEW_CACHE_ENTRIES);
-    private final Object thumbnailRequestsLock = new Object();
-    private final Map<String, List<ThumbnailTarget>> thumbnailRequests = new HashMap<>();
-    private final Object previewRequestsLock = new Object();
-    private final Map<String, PreviewTarget> previewInFlight = new HashMap<>();
     private final Map<String, QueueRowViews> queueRows = new HashMap<>();
     private final Map<String, RecentTaskTileViews> homeRecentTaskTiles = new HashMap<>();
 
@@ -123,6 +107,8 @@ public final class MainActivity extends Activity {
     private TextView detailErrorView;
     private View detailErrorRow;
     private MediaStoreScanner scanner;
+    private Widgets widgets;
+    private ThumbnailLoader thumbnailLoader;
     private String screen = "home";
     private String filter = "all";
     private String targetUrl;
@@ -132,13 +118,14 @@ public final class MainActivity extends Activity {
     private String scanMessage = "等待扫描";
     private int queueVisibleLimit = QUEUE_PAGE_SIZE;
     private int queueScrollY;
-    private int renderGeneration;
     private volatile boolean destroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         scanner = new MediaStoreScanner(getContentResolver());
+        widgets = new Widgets(this);
+        thumbnailLoader = new ThumbnailLoader(this, getContentResolver());
         targetUrl = prefs().getString(KEY_TARGET_URL, "http://192.168.1.20:8765/uploads/");
         render();
         ensureMediaPermissionThenScan();
@@ -149,17 +136,8 @@ public final class MainActivity extends Activity {
         destroyed = true;
         syncRuns.cancel();
         mainHandler.removeCallbacksAndMessages(null);
-        synchronized (thumbnailRequestsLock) {
-            for (List<ThumbnailTarget> targets : thumbnailRequests.values()) {
-                targets.clear();
-            }
-            thumbnailRequests.clear();
-        }
-        synchronized (previewRequestsLock) {
-            previewInFlight.clear();
-        }
+        thumbnailLoader.shutdown();
         executor.shutdownNow();
-        thumbnailExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -383,10 +361,10 @@ public final class MainActivity extends Activity {
             return;
         }
         clearScreenViewReferences();
-        renderGeneration++;
+        thumbnailLoader.bumpGeneration();
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(color("#F4F1EA"));
+        root.setBackgroundColor(widgets.color("#F4F1EA"));
         setContentView(root);
 
         FrameLayout content = new FrameLayout(this);
@@ -401,7 +379,7 @@ public final class MainActivity extends Activity {
             content.addView(homeView());
         }
         if (showsBottomNav()) {
-            root.addView(navBar(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(76)));
+            root.addView(navBar(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(76)));
         }
     }
 
@@ -427,66 +405,66 @@ public final class MainActivity extends Activity {
 
     private View homeView() {
         ScrollView scroll = new ScrollView(this);
-        LinearLayout page = pageLayout();
+        LinearLayout page = widgets.pageLayout();
         scroll.addView(page);
 
         page.addView(homeHeader());
         page.addView(targetCard());
 
         if (scanning) {
-            LinearLayout scanningCard = card();
-            scanningCard.addView(title("正在扫描相册", 20));
-            scanningCard.addView(label(scanMessage, 13, "#6B6257"));
+            LinearLayout scanningCard = widgets.card();
+            scanningCard.addView(widgets.title("正在扫描相册", 20));
+            scanningCard.addView(widgets.label(scanMessage, 13, "#6B6257"));
             page.addView(scanningCard);
             return scroll;
         }
 
         SyncQueue.Summary summary = queue.summary();
         float progress = summary.total() == 0 ? 0f : (float) summary.done() / (float) summary.total();
-        LinearLayout hero = card();
+        LinearLayout hero = widgets.card();
         hero.setGravity(Gravity.CENTER_HORIZONTAL);
         homeProgressRing = new ProgressRing(this);
         homeProgressRing.setProgress(progress);
-        LinearLayout.LayoutParams ringParams = new LinearLayout.LayoutParams(dp(176), dp(176));
-        ringParams.topMargin = dp(10);
+        LinearLayout.LayoutParams ringParams = new LinearLayout.LayoutParams(widgets.dp(176), widgets.dp(176));
+        ringParams.topMargin = widgets.dp(10);
         hero.addView(homeProgressRing, ringParams);
-        homePercentView = label(percent(progress), 34, "#182B28");
+        homePercentView = widgets.label(percent(progress), 34, "#182B28");
         homePercentView.setGravity(Gravity.CENTER);
         hero.addView(homePercentView);
-        homeSyncedView = label("已同步 " + summary.done() + " / " + summary.total() + " 个文件", 14, "#6B6257");
+        homeSyncedView = widgets.label("已同步 " + summary.done() + " / " + summary.total() + " 个文件", 14, "#6B6257");
         hero.addView(homeSyncedView);
         LinearLayout stats = new LinearLayout(this);
         stats.setOrientation(LinearLayout.HORIZONTAL);
-        stats.setPadding(0, dp(12), 0, 0);
-        homeWaitingView = label(String.valueOf(summary.waiting()), 18, "#182B28");
-        homeUploadingView = label(String.valueOf(summary.uploading()), 18, "#182B28");
-        homeFailedView = label(String.valueOf(summary.failed()), 18, "#182B28");
-        stats.addView(stat("待传", homeWaitingView), weightParams());
-        stats.addView(stat("上传中", homeUploadingView), weightParams());
-        stats.addView(stat("失败", homeFailedView), weightParams());
+        stats.setPadding(0, widgets.dp(12), 0, 0);
+        homeWaitingView = widgets.label(String.valueOf(summary.waiting()), 18, "#182B28");
+        homeUploadingView = widgets.label(String.valueOf(summary.uploading()), 18, "#182B28");
+        homeFailedView = widgets.label(String.valueOf(summary.failed()), 18, "#182B28");
+        stats.addView(stat("待传", homeWaitingView), widgets.weightParams());
+        stats.addView(stat("上传中", homeUploadingView), widgets.weightParams());
+        stats.addView(stat("失败", homeFailedView), widgets.weightParams());
         hero.addView(stats);
         page.addView(hero);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER);
-        homeSyncButton = actionButton(syncRuns.isActive() ? "暂停" : "开始同步", new View.OnClickListener() {
+        homeSyncButton = widgets.actionButton(syncRuns.isActive() ? "暂停" : "开始同步", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 startSync();
             }
         });
-        actions.addView(homeSyncButton, weightParams());
-        actions.addView(actionButton("重新扫描", new View.OnClickListener() {
+        actions.addView(homeSyncButton, widgets.weightParams());
+        actions.addView(widgets.actionButton("重新扫描", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 scanMedia();
             }
-        }), weightParams());
+        }), widgets.weightParams());
         page.addView(actions);
-        page.addView(label(scanning ? "扫描中..." : scanMessage, 12, "#7C7367"));
+        page.addView(widgets.label(scanning ? "扫描中..." : scanMessage, 12, "#7C7367"));
 
-        page.addView(sectionHeader("最近任务"));
+        page.addView(widgets.sectionHeader("最近任务"));
         page.addView(recentGrid(queue.recentWindow(RECENT_GRID_LIMIT).visibleTasks()));
         return scroll;
     }
@@ -497,14 +475,14 @@ public final class MainActivity extends Activity {
         queueScrollView = scroll;
         scroll.setVerticalScrollBarEnabled(true);
         scroll.setScrollbarFadingEnabled(false);
-        LinearLayout page = pageLayout();
+        LinearLayout page = widgets.pageLayout();
         scroll.addView(page);
-        page.addView(label("任务队列", 12, "#7E7565"));
-        page.addView(title("同步明细", 30));
+        page.addView(widgets.label("任务队列", 12, "#7E7565"));
+        page.addView(widgets.title("同步明细", 30));
         if (scanning) {
-            LinearLayout scanningCard = card();
-            scanningCard.addView(title("正在扫描相册", 20));
-            scanningCard.addView(label("扫描完成后会自动显示队列", 13, "#6B6257"));
+            LinearLayout scanningCard = widgets.card();
+            scanningCard.addView(widgets.title("正在扫描相册", 20));
+            scanningCard.addView(widgets.label("扫描完成后会自动显示队列", 13, "#6B6257"));
             page.addView(scanningCard);
             frame.addView(scroll);
             return frame;
@@ -514,11 +492,11 @@ public final class MainActivity extends Activity {
         page.addView(queueTaskList(queue.window(filter, queueVisibleLimit)));
         frame.addView(scroll);
 
-        final Button backTop = smallButton("回顶部");
+        final Button backTop = widgets.smallButton("回顶部");
         queueBackTopButton = backTop;
         backTop.setTextColor(Color.WHITE);
-        backTop.setBackground(rounded("#182B28", "#182B28", 0, 22));
-        backTop.setVisibility(queueScrollY > dp(240) ? View.VISIBLE : View.GONE);
+        backTop.setBackground(widgets.rounded("#182B28", "#182B28", 0, 22));
+        backTop.setVisibility(queueScrollY > widgets.dp(240) ? View.VISIBLE : View.GONE);
         backTop.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -527,9 +505,9 @@ public final class MainActivity extends Activity {
                 backTop.setVisibility(View.GONE);
             }
         });
-        FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44));
+        FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, widgets.dp(44));
         topParams.gravity = Gravity.BOTTOM | Gravity.RIGHT;
-        topParams.setMargins(0, 0, dp(18), dp(18));
+        topParams.setMargins(0, 0, widgets.dp(18), widgets.dp(18));
         frame.addView(backTop, topParams);
 
         scroll.setOnScrollChangeListener(new View.OnScrollChangeListener() {
@@ -539,7 +517,7 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 queueScrollY = scrollY;
-                backTop.setVisibility(scrollY > dp(240) ? View.VISIBLE : View.GONE);
+                backTop.setVisibility(scrollY > widgets.dp(240) ? View.VISIBLE : View.GONE);
                 if (shouldLoadMore(scroll)) {
                     loadMoreQueueRows();
                 }
@@ -560,22 +538,22 @@ public final class MainActivity extends Activity {
 
     private View detailView() {
         ScrollView scroll = new ScrollView(this);
-        LinearLayout page = pageLayout();
+        LinearLayout page = widgets.pageLayout();
         scroll.addView(page);
 
         SyncTask task = selectedTaskId == null ? null : queue.findById(selectedTaskId);
         page.addView(backHeader("任务详情", "同步详情", "queue"));
         if (task == null) {
-            LinearLayout missing = card();
-            missing.addView(title("任务不存在", 20));
-            missing.addView(label("这个任务可能已经从队列里移除，请返回队列重新选择。", 13, "#6B6257"));
+            LinearLayout missing = widgets.card();
+            missing.addView(widgets.title("任务不存在", 20));
+            missing.addView(widgets.label("这个任务可能已经从队列里移除，请返回队列重新选择。", 13, "#6B6257"));
             page.addView(missing);
             return scroll;
         }
 
         MediaItem media = task.media();
-        LinearLayout previewCard = card();
-        previewCard.setPadding(0, 0, 0, dp(12));
+        LinearLayout previewCard = widgets.card();
+        previewCard.setPadding(0, 0, 0, widgets.dp(12));
         if (media.isVideo()) {
             FrameLayout videoFrame = new FrameLayout(this);
             videoFrame.setBackgroundColor(Color.BLACK);
@@ -588,7 +566,7 @@ public final class MainActivity extends Activity {
             FrameLayout.LayoutParams videoParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             videoParams.gravity = Gravity.CENTER;
             videoFrame.addView(video, videoParams);
-            final TextView playToggle = textButton("播放 / 暂停", "#182B28", "#EFE8DA");
+            final TextView playToggle = widgets.textButton("播放 / 暂停", "#182B28", "#EFE8DA");
             playToggle.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
@@ -616,44 +594,44 @@ public final class MainActivity extends Activity {
                     return true;
                 }
             });
-            previewCard.addView(videoFrame, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)));
-            LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
-            playParams.setMargins(dp(16), dp(12), dp(16), 0);
+            previewCard.addView(videoFrame, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(340)));
+            LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(42));
+            playParams.setMargins(widgets.dp(16), widgets.dp(12), widgets.dp(16), 0);
             previewCard.addView(playToggle, playParams);
         } else {
             final FrameLayout preview = new FrameLayout(this);
             preview.setBackgroundColor(Color.BLACK);
             final ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            final TextView loading = label("加载预览...", 14, "#FFFFFF");
+            final TextView loading = widgets.label("加载预览...", 14, "#FFFFFF");
             loading.setGravity(Gravity.CENTER);
             preview.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             preview.addView(loading, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            previewCard.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(340)));
-            loadPreviewAsync(image, loading, media.uri());
+            previewCard.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(340)));
+            thumbnailLoader.loadPreviewAsync(image, loading, media.uri());
         }
-        previewCard.addView(label(media.displayName(), 18, "#182B28"), paddedTextParams());
-        detailStatusView = label(statusText(task), 13, statusColor(task.status()));
+        previewCard.addView(widgets.label(media.displayName(), 18, "#182B28"), paddedTextParams());
+        detailStatusView = widgets.label(statusText(task), 13, statusColor(task.status()));
         previewCard.addView(detailStatusView, paddedTextParams());
         page.addView(previewCard);
 
-        LinearLayout meta = card();
-        meta.addView(title("文件信息", 20));
+        LinearLayout meta = widgets.card();
+        meta.addView(widgets.title("文件信息", 20));
         meta.addView(metaRow("类型", media.isVideo() ? "视频" : "照片"));
         meta.addView(metaRow("MIME", media.mimeType()));
         meta.addView(metaRow("大小", formatBytes(media.sizeBytes())));
-        detailMetadataStatusView = label(statusText(task), 13, "#182B28");
+        detailMetadataStatusView = widgets.label(statusText(task), 13, "#182B28");
         meta.addView(metaRow("同步状态", detailMetadataStatusView));
         meta.addView(metaRow("拍摄时间", formatDate(media.dateTakenMillis())));
         meta.addView(metaRow("添加时间", formatDate(media.dateAddedMillis())));
         meta.addView(metaRow("修改时间", formatDate(media.dateModifiedMillis())));
-        detailErrorView = label(task.errorMessage(), 13, "#182B28");
+        detailErrorView = widgets.label(task.errorMessage(), 13, "#182B28");
         detailErrorRow = metaRow("错误", detailErrorView);
         detailErrorRow.setVisibility(task.errorMessage() == null ? View.GONE : View.VISIBLE);
         meta.addView(detailErrorRow);
         page.addView(meta);
 
-        Button external = actionButton("用其他应用打开", new View.OnClickListener() {
+        Button external = widgets.actionButton("用其他应用打开", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 SyncTask current = selectedTaskId == null ? null : queue.findById(selectedTaskId);
@@ -668,15 +646,15 @@ public final class MainActivity extends Activity {
 
     private View settingsView() {
         ScrollView scroll = new ScrollView(this);
-        LinearLayout page = pageLayout();
+        LinearLayout page = widgets.pageLayout();
         scroll.addView(page);
         page.addView(backHeader("设置", "同步设置", "home"));
 
-        LinearLayout target = card();
-        target.addView(title("接收端服务", 20));
-        target.addView(label(networkLabel(), 13, "#6E665A"));
-        target.addView(label(targetUrl, 14, "#1F332F"));
-        Button edit = smallButton("修改接收端地址");
+        LinearLayout target = widgets.card();
+        target.addView(widgets.title("接收端服务", 20));
+        target.addView(widgets.label(networkLabel(), 13, "#6E665A"));
+        target.addView(widgets.label(targetUrl, 14, "#1F332F"));
+        Button edit = widgets.smallButton("修改接收端地址");
         edit.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -686,10 +664,10 @@ public final class MainActivity extends Activity {
         target.addView(edit);
         page.addView(target);
 
-        LinearLayout maintenance = card();
-        maintenance.addView(title("本机相册", 20));
-        maintenance.addView(label(scanMessage, 13, "#6B6257"));
-        Button rescan = actionButton(scanning ? "扫描中..." : "重新扫描", new View.OnClickListener() {
+        LinearLayout maintenance = widgets.card();
+        maintenance.addView(widgets.title("本机相册", 20));
+        maintenance.addView(widgets.label(scanMessage, 13, "#6B6257"));
+        Button rescan = widgets.actionButton(scanning ? "扫描中..." : "重新扫描", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 scanMedia();
@@ -699,9 +677,9 @@ public final class MainActivity extends Activity {
         maintenance.addView(rescan);
         page.addView(maintenance);
 
-        LinearLayout about = card();
-        about.addView(title("版本", 20));
-        about.addView(label(appVersionText(), 13, "#6B6257"));
+        LinearLayout about = widgets.card();
+        about.addView(widgets.title("版本", 20));
+        about.addView(widgets.label(appVersionText(), 13, "#6B6257"));
         page.addView(about);
         return scroll;
     }
@@ -712,10 +690,10 @@ public final class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.addView(label("图库自动同步", 12, "#7E7565"));
-        copy.addView(title("Android Sync", 30));
+        copy.addView(widgets.label("图库自动同步", 12, "#7E7565"));
+        copy.addView(widgets.title("Android Sync", 30));
         header.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button settings = smallButton("设置");
+        Button settings = widgets.smallButton("设置");
         settings.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -731,7 +709,7 @@ public final class MainActivity extends Activity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView back = textButton("‹", "#FFFFFF", "#182B28");
+        TextView back = widgets.textButton("‹", "#FFFFFF", "#182B28");
         back.setTextSize(28);
         back.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -743,28 +721,28 @@ public final class MainActivity extends Activity {
                 render();
             }
         });
-        header.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        header.addView(back, new LinearLayout.LayoutParams(widgets.dp(44), widgets.dp(44)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(12), 0, 0, 0);
-        copy.addView(label(labelText, 12, "#7E7565"));
-        copy.addView(title(titleText, 28));
+        copy.setPadding(widgets.dp(12), 0, 0, 0);
+        copy.addView(widgets.label(labelText, 12, "#7E7565"));
+        copy.addView(widgets.title(titleText, 28));
         header.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return header;
     }
 
     private View recentGrid(List<SyncTask> tasks) {
         homeRecentTaskTiles.clear();
-        LinearLayout grid = card();
-        grid.setPadding(dp(10), dp(10), dp(10), dp(10));
+        LinearLayout grid = widgets.card();
+        grid.setPadding(widgets.dp(10), widgets.dp(10), widgets.dp(10), widgets.dp(10));
         if (tasks.isEmpty()) {
-            grid.addView(label("还没有任务", 14, "#6B6257"));
+            grid.addView(widgets.label("还没有任务", 14, "#6B6257"));
             return grid;
         }
         int width = getResources().getDisplayMetrics().widthPixels;
         final int columns = 10;
-        final int gap = dp(4);
-        final int cellSize = Math.max(dp(24), (width - dp(40) - dp(20) - gap * (columns - 1)) / columns);
+        final int gap = widgets.dp(4);
+        final int cellSize = Math.max(widgets.dp(24), (width - widgets.dp(40) - widgets.dp(20) - gap * (columns - 1)) / columns);
         LinearLayout row = null;
         for (int index = 0; index < tasks.size(); index++) {
             if (index % columns == 0) {
@@ -786,12 +764,12 @@ public final class MainActivity extends Activity {
     private View recentTaskTile(SyncTask task) {
         FrameLayout tile = new FrameLayout(this);
         GradientDrawable border = new GradientDrawable();
-        border.setColor(color("#F7F5EF"));
-        border.setCornerRadius(dp(8));
-        border.setStroke(dp(2), statusBorderColor(task.status()));
+        border.setColor(widgets.color("#F7F5EF"));
+        border.setCornerRadius(widgets.dp(8));
+        border.setStroke(widgets.dp(2), statusBorderColor(task.status()));
         tile.setBackground(border);
         tile.setClipToOutline(true);
-        tile.setPadding(dp(2), dp(2), dp(2), dp(2));
+        tile.setPadding(widgets.dp(2), widgets.dp(2), widgets.dp(2), widgets.dp(2));
         tile.addView(thumbnail(task), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         TextView strip = new TextView(this);
@@ -800,7 +778,7 @@ public final class MainActivity extends Activity {
         strip.setTextColor(Color.WHITE);
         strip.setGravity(Gravity.CENTER);
         strip.setTextSize(8);
-        FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5));
+        FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(5));
         stripParams.gravity = Gravity.BOTTOM;
         strip.setVisibility(View.VISIBLE);
         tile.addView(strip, stripParams);
@@ -818,7 +796,7 @@ public final class MainActivity extends Activity {
         }
         View child = scroll.getChildAt(0);
         int distanceToBottom = child.getBottom() - (scroll.getHeight() + scroll.getScrollY());
-        return distanceToBottom < dp(220);
+        return distanceToBottom < widgets.dp(220);
     }
 
     private void loadMoreQueueRows() {
@@ -891,9 +869,9 @@ public final class MainActivity extends Activity {
         }
         int statusColor = statusBorderColor(task.status());
         GradientDrawable border = new GradientDrawable();
-        border.setColor(color("#F7F5EF"));
-        border.setCornerRadius(dp(8));
-        border.setStroke(dp(2), statusColor);
+        border.setColor(widgets.color("#F7F5EF"));
+        border.setCornerRadius(widgets.dp(8));
+        border.setStroke(widgets.dp(2), statusColor);
         views.root.setBackground(border);
         views.strip.setBackgroundColor(statusColor);
         views.strip.setText(task.status() == SyncStatus.UPLOADING ? "..." : "");
@@ -914,7 +892,7 @@ public final class MainActivity extends Activity {
             return;
         }
         detailStatusView.setText(statusText(task));
-        detailStatusView.setTextColor(color(statusColor(task.status())));
+        detailStatusView.setTextColor(widgets.color(statusColor(task.status())));
         detailMetadataStatusView.setText(statusText(task));
         String errorMessage = task.errorMessage();
         detailErrorView.setText(errorMessage == null ? "" : errorMessage);
@@ -978,8 +956,8 @@ public final class MainActivity extends Activity {
 
     private void populateQueueTaskContainer(List<SyncTask> tasks) {
         if (tasks.isEmpty()) {
-            LinearLayout empty = card();
-            empty.addView(label("当前筛选没有任务", 15, "#6B6257"));
+            LinearLayout empty = widgets.card();
+            empty.addView(widgets.label("当前筛选没有任务", 15, "#6B6257"));
             queueTaskContainer.addView(empty);
             return;
         }
@@ -1026,148 +1004,42 @@ public final class MainActivity extends Activity {
         detailErrorRow = null;
     }
 
-    private void loadPreviewAsync(final ImageView image, final TextView loading, final String mediaUri) {
-        if (destroyed) {
-            return;
-        }
-        image.setTag(mediaUri);
-        final int availableWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
-        final int requestPixels = ThumbnailPolicy.previewRequestPixels(availableWidth);
-        final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
-        if (failedPreviewCache.get(cacheKey) != null) {
-            loading.setText("无法加载预览");
-            return;
-        }
-
-        final PreviewTarget target = new PreviewTarget(image, loading);
-        boolean shouldSubmit = false;
-        boolean failed = false;
-        synchronized (previewRequestsLock) {
-            if (destroyed) {
-                return;
-            }
-            if (failedPreviewCache.get(cacheKey) != null) {
-                failed = true;
-            } else if (previewInFlight.containsKey(cacheKey)) {
-                previewInFlight.put(cacheKey, target);
-            } else {
-                previewInFlight.put(cacheKey, target);
-                shouldSubmit = true;
-            }
-        }
-        if (failed) {
-            loading.setText("无法加载预览");
-            return;
-        }
-        if (!shouldSubmit) {
-            return;
-        }
-
-        try {
-            thumbnailExecutor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    Bitmap loadedBitmap = null;
-                    try {
-                        loadedBitmap = loadPreviewBitmap(mediaUri, requestPixels);
-                        if (loadedBitmap == null) {
-                            failedPreviewCache.put(cacheKey, Boolean.TRUE);
-                        }
-                    } finally {
-                        final PreviewTarget completedTarget;
-                        synchronized (previewRequestsLock) {
-                            completedTarget = previewInFlight.remove(cacheKey);
-                        }
-                        if (completedTarget != null && !destroyed) {
-                            final Bitmap bitmap = loadedBitmap;
-                            postTask(new Runnable() {
-                                @Override
-                                public void run() {
-                                    completePreviewRequest(mediaUri, bitmap, completedTarget);
-                                }
-                            });
-                        }
-                    }
-                }
-            });
-        } catch (RejectedExecutionException error) {
-            synchronized (previewRequestsLock) {
-                previewInFlight.remove(cacheKey);
-            }
-        }
-    }
-
-    private void completePreviewRequest(String mediaUri, Bitmap bitmap, PreviewTarget target) {
-        if (destroyed) {
-            return;
-        }
-        ImageView image = target.image.get();
-        TextView loading = target.loading.get();
-        if (image == null || loading == null
-                || !mediaUri.equals(image.getTag())
-                || !image.isAttachedToWindow()
-                || !loading.isAttachedToWindow()) {
-            return;
-        }
-        if (bitmap == null) {
-            loading.setText("无法加载预览");
-            return;
-        }
-        image.setImageBitmap(bitmap);
-        loading.setVisibility(View.GONE);
-    }
-
-    private Bitmap loadPreviewBitmap(String mediaUri, int requestPixels) {
-        if (Build.VERSION.SDK_INT < 29) {
-            return null;
-        }
-        try {
-            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
-        } catch (OutOfMemoryError error) {
-            Log.w(TAG, "Unable to load preview " + mediaUri, error);
-            return null;
-        } catch (Exception error) {
-            Log.w(TAG, "Unable to load preview " + mediaUri, error);
-            return null;
-        }
-    }
-
     private View metaRow(String name, String value) {
-        return metaRow(name, label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28"));
+        return metaRow(name, widgets.label(value == null || value.length() == 0 ? "-" : value, 13, "#182B28"));
     }
 
     private View metaRow(String name, TextView valueView) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(8), 0, 0);
-        TextView key = label(name, 13, "#7C7367");
+        row.setPadding(0, widgets.dp(8), 0, 0);
+        TextView key = widgets.label(name, 13, "#7C7367");
         valueView.setGravity(Gravity.RIGHT);
-        row.addView(key, new LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(key, new LinearLayout.LayoutParams(widgets.dp(86), ViewGroup.LayoutParams.WRAP_CONTENT));
         row.addView(valueView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return row;
     }
 
     private LinearLayout.LayoutParams paddedTextParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(dp(16), dp(10), dp(16), 0);
+        params.setMargins(widgets.dp(16), widgets.dp(10), widgets.dp(16), 0);
         return params;
     }
 
     private View targetCard() {
-        LinearLayout card = card();
+        LinearLayout card = widgets.card();
         card.setOrientation(LinearLayout.VERTICAL);
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView icon = icon("NAS");
-        row.addView(icon, new LinearLayout.LayoutParams(dp(54), dp(54)));
+        TextView icon = widgets.icon("NAS");
+        row.addView(icon, new LinearLayout.LayoutParams(widgets.dp(54), widgets.dp(54)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(12), 0, 0, 0);
-        copy.addView(label(networkLabel(), 13, "#6E665A"));
-        copy.addView(label(targetUrl, 14, "#1F332F"));
+        copy.setPadding(widgets.dp(12), 0, 0, 0);
+        copy.addView(widgets.label(networkLabel(), 13, "#6E665A"));
+        copy.addView(widgets.label(targetUrl, 14, "#1F332F"));
         row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        Button edit = smallButton("编辑");
+        Button edit = widgets.smallButton("编辑");
         edit.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -1181,19 +1053,19 @@ public final class MainActivity extends Activity {
 
     private View queueSummary() {
         SyncQueue.Summary summary = queue.summary();
-        LinearLayout card = card();
+        LinearLayout card = widgets.card();
         LinearLayout stats = new LinearLayout(this);
         stats.setOrientation(LinearLayout.HORIZONTAL);
-        stats.setPadding(0, dp(12), 0, 0);
-        queueSummaryTotalView = label(String.valueOf(summary.total()), 18, "#182B28");
-        queueSummaryDoneView = label(String.valueOf(summary.done()), 18, "#182B28");
-        queueSummaryCapacityView = label(formatBytes(summary.totalBytes()), 18, "#182B28");
-        stats.addView(stat("总数", queueSummaryTotalView), weightParams());
-        stats.addView(stat("完成", queueSummaryDoneView), weightParams());
-        stats.addView(stat("容量", queueSummaryCapacityView), weightParams());
+        stats.setPadding(0, widgets.dp(12), 0, 0);
+        queueSummaryTotalView = widgets.label(String.valueOf(summary.total()), 18, "#182B28");
+        queueSummaryDoneView = widgets.label(String.valueOf(summary.done()), 18, "#182B28");
+        queueSummaryCapacityView = widgets.label(formatBytes(summary.totalBytes()), 18, "#182B28");
+        stats.addView(stat("总数", queueSummaryTotalView), widgets.weightParams());
+        stats.addView(stat("完成", queueSummaryDoneView), widgets.weightParams());
+        stats.addView(stat("容量", queueSummaryCapacityView), widgets.weightParams());
         card.addView(stats);
 
-        queueRetryFailedButton = smallButton("重试失败项");
+        queueRetryFailedButton = widgets.smallButton("重试失败项");
         queueRetryFailedButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -1208,19 +1080,19 @@ public final class MainActivity extends Activity {
     private View filterStrip() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(filterButton("all", "全部"), weightParams());
-        row.addView(filterButton("photo", "照片"), weightParams());
-        row.addView(filterButton("video", "视频"), weightParams());
-        row.addView(filterButton("failed", "失败"), weightParams());
+        row.addView(filterButton("all", "全部"), widgets.weightParams());
+        row.addView(filterButton("photo", "照片"), widgets.weightParams());
+        row.addView(filterButton("video", "视频"), widgets.weightParams());
+        row.addView(filterButton("failed", "失败"), widgets.weightParams());
         return row;
     }
 
     private Button filterButton(final String value, String text) {
-        Button button = smallButton(text);
-        button.setTextColor(value.equals(filter) ? Color.WHITE : color("#2F3D38"));
+        Button button = widgets.smallButton(text);
+        button.setTextColor(value.equals(filter) ? Color.WHITE : widgets.color("#2F3D38"));
         button.setBackground(value.equals(filter)
-                ? rounded("#2F6B5F", "#2F6B5F", 0, 12)
-                : rounded("#E9E2D5", "#DDD3C4", 1, 12));
+                ? widgets.rounded("#2F6B5F", "#2F6B5F", 0, 12)
+                : widgets.rounded("#E9E2D5", "#DDD3C4", 1, 12));
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -1241,9 +1113,9 @@ public final class MainActivity extends Activity {
         populateQueueTaskContainer(window.visibleTasks());
         container.addView(queueTaskContainer);
 
-        queueLoadMoreHint = label("", 12, "#7C7367");
+        queueLoadMoreHint = widgets.label("", 12, "#7C7367");
         queueLoadMoreHint.setGravity(Gravity.CENTER);
-        queueLoadMoreHint.setPadding(0, dp(10), 0, dp(18));
+        queueLoadMoreHint.setPadding(0, widgets.dp(10), 0, widgets.dp(18));
         container.addView(queueLoadMoreHint);
         updateQueueLoadMoreHint(window);
         return container;
@@ -1253,8 +1125,8 @@ public final class MainActivity extends Activity {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         if (tasks.isEmpty() && showEmpty) {
-            LinearLayout empty = card();
-            empty.addView(label("当前筛选没有任务", 15, "#6B6257"));
+            LinearLayout empty = widgets.card();
+            empty.addView(widgets.label("当前筛选没有任务", 15, "#6B6257"));
             list.addView(empty);
             return list;
         }
@@ -1265,27 +1137,27 @@ public final class MainActivity extends Activity {
     }
 
     private View taskRow(final SyncTask task) {
-        LinearLayout row = card();
+        LinearLayout row = widgets.card();
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
 
-        row.addView(thumbnail(task), new LinearLayout.LayoutParams(dp(54), dp(54)));
+        row.addView(thumbnail(task), new LinearLayout.LayoutParams(widgets.dp(54), widgets.dp(54)));
 
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(12), 0, 0, 0);
-        TextView fileName = label(task.media().displayName(), 15, "#182B28");
-        TextView statusCapacity = label("", 12, "#786F63");
+        copy.setPadding(widgets.dp(12), 0, 0, 0);
+        TextView fileName = widgets.label(task.media().displayName(), 15, "#182B28");
+        TextView statusCapacity = widgets.label("", 12, "#786F63");
         ProgressBar progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setIndeterminate(true);
-        TextView error = label("", 12, "#A54135");
+        TextView error = widgets.label("", 12, "#A54135");
         copy.addView(fileName);
         copy.addView(statusCapacity);
-        copy.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)));
+        copy.addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(18)));
         copy.addView(error);
         row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button retry = smallButton("重试");
+        Button retry = widgets.smallButton("重试");
         retry.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -1318,7 +1190,7 @@ public final class MainActivity extends Activity {
     private void bindQueueRow(SyncTask task, QueueRowViews views) {
         views.fileName.setText(task.media().displayName());
         views.statusCapacity.setText(formatBytes(task.media().sizeBytes()) + " · " + statusText(task));
-        views.statusCapacity.setTextColor(color(statusColor(task.status())));
+        views.statusCapacity.setTextColor(widgets.color(statusColor(task.status())));
 
         boolean uploading = task.status() == SyncStatus.UPLOADING;
         views.progress.setVisibility(uploading ? View.VISIBLE : View.GONE);
@@ -1332,194 +1204,21 @@ public final class MainActivity extends Activity {
 
     private View thumbnail(SyncTask task) {
         final FrameLayout frame = new FrameLayout(this);
-        frame.setBackgroundColor(color("#D9D0C2"));
+        frame.setBackgroundColor(widgets.color("#D9D0C2"));
 
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setContentDescription(task.media().displayName());
         frame.addView(image, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        final TextView placeholder = icon(task.media().isVideo() ? "VID" : "IMG");
+        final TextView placeholder = widgets.icon(task.media().isVideo() ? "VID" : "IMG");
         frame.addView(placeholder, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         final String mediaUri = task.media().uri();
         image.setTag(mediaUri);
         final int requestPixels = ThumbnailPolicy.gridRequestPixels(96);
-        loadThumbnailAsync(image, placeholder, mediaUri, requestPixels);
+        thumbnailLoader.loadThumbnailInto(image, placeholder, mediaUri, requestPixels);
         return frame;
-    }
-
-    private void loadThumbnailAsync(
-        final ImageView image,
-        final TextView placeholder,
-        final String mediaUri,
-        final int requestPixels
-    ) {
-        if (destroyed) {
-            return;
-        }
-        final String cacheKey = thumbnailCacheKey(mediaUri, requestPixels);
-        Bitmap cached = thumbnailCache.get(cacheKey);
-        if (cached != null) {
-            image.setImageBitmap(cached);
-            placeholder.setVisibility(View.GONE);
-            return;
-        }
-        if (failedThumbnailCache.get(cacheKey) != null) {
-            return;
-        }
-
-        final ThumbnailTarget target = new ThumbnailTarget(image, placeholder, renderGeneration);
-        boolean shouldSubmit = false;
-        synchronized (thumbnailRequestsLock) {
-            if (destroyed) {
-                return;
-            }
-            cached = thumbnailCache.get(cacheKey);
-            if (cached == null && failedThumbnailCache.get(cacheKey) == null) {
-                List<ThumbnailTarget> targets = thumbnailRequests.get(cacheKey);
-                if (targets == null) {
-                    targets = new ArrayList<>();
-                    thumbnailRequests.put(cacheKey, targets);
-                    shouldSubmit = true;
-                }
-                pruneThumbnailTargets(targets, image);
-                targets.add(target);
-            }
-        }
-
-        if (cached != null) {
-            image.setImageBitmap(cached);
-            placeholder.setVisibility(View.GONE);
-            return;
-        }
-        if (!shouldSubmit) {
-            return;
-        }
-
-        try {
-            thumbnailExecutor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    Bitmap loadedBitmap = null;
-                    try {
-                        loadedBitmap = loadThumbnailBitmap(mediaUri, requestPixels);
-                        if (loadedBitmap == null) {
-                            failedThumbnailCache.put(cacheKey, Boolean.TRUE);
-                        } else {
-                            thumbnailCache.put(cacheKey, loadedBitmap);
-                        }
-                    } finally {
-                        final List<ThumbnailTarget> targets;
-                        synchronized (thumbnailRequestsLock) {
-                            List<ThumbnailTarget> inFlightTargets = thumbnailRequests.remove(cacheKey);
-                            targets = inFlightTargets == null
-                                    ? null
-                                    : new ArrayList<>(inFlightTargets);
-                            if (inFlightTargets != null) {
-                                inFlightTargets.clear();
-                            }
-                        }
-                        if (targets != null && !destroyed) {
-                            final Bitmap bitmap = loadedBitmap;
-                            postTask(new Runnable() {
-                                @Override
-                                public void run() {
-                                    completeThumbnailRequest(mediaUri, bitmap, targets);
-                                }
-                            });
-                        }
-                    }
-                }
-            });
-        } catch (RejectedExecutionException error) {
-            synchronized (thumbnailRequestsLock) {
-                List<ThumbnailTarget> targets = thumbnailRequests.remove(cacheKey);
-                if (targets != null) {
-                    targets.clear();
-                }
-            }
-        }
-    }
-
-    private void pruneThumbnailTargets(List<ThumbnailTarget> targets, ImageView currentImage) {
-        for (int index = targets.size() - 1; index >= 0; index--) {
-            ThumbnailTarget target = targets.get(index);
-            ImageView targetImage = target.image.get();
-            if (targetImage == null
-                    || targetImage == currentImage
-                    || (!targetImage.isAttachedToWindow()
-                    && target.renderGeneration != renderGeneration)) {
-                targets.remove(index);
-            }
-        }
-    }
-
-    private void completeThumbnailRequest(
-        String mediaUri,
-        Bitmap bitmap,
-        List<ThumbnailTarget> targets
-    ) {
-        if (destroyed || bitmap == null) {
-            return;
-        }
-        for (ThumbnailTarget target : targets) {
-            ImageView image = target.image.get();
-            if (image == null || !mediaUri.equals(image.getTag()) || !image.isAttachedToWindow()) {
-                continue;
-            }
-            image.setImageBitmap(bitmap);
-            TextView placeholder = target.placeholder.get();
-            if (placeholder != null && placeholder.isAttachedToWindow()) {
-                placeholder.setVisibility(View.GONE);
-            }
-        }
-    }
-
-    private Bitmap loadThumbnailBitmap(String mediaUri, int requestPixels) {
-        if (Build.VERSION.SDK_INT < 29) {
-            return null;
-        }
-        try {
-            return getContentResolver().loadThumbnail(Uri.parse(mediaUri), new Size(requestPixels, requestPixels), null);
-        } catch (OutOfMemoryError error) {
-            Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
-            return null;
-        } catch (Exception error) {
-            Log.w(TAG, "Unable to load thumbnail " + mediaUri, error);
-            return null;
-        }
-    }
-
-    private static int thumbnailCacheBytes() {
-        long requestedBytes = Math.max(MIN_THUMBNAIL_CACHE_BYTES, Runtime.getRuntime().maxMemory() / 16L);
-        return (int) Math.min((long) Integer.MAX_VALUE, requestedBytes);
-    }
-
-    private static String thumbnailCacheKey(String mediaUri, int requestPixels) {
-        return mediaUri + "#" + requestPixels + "x" + requestPixels;
-    }
-
-    private static final class ThumbnailTarget {
-        private final WeakReference<ImageView> image;
-        private final WeakReference<TextView> placeholder;
-        private final int renderGeneration;
-
-        private ThumbnailTarget(ImageView image, TextView placeholder, int renderGeneration) {
-            this.image = new WeakReference<>(image);
-            this.placeholder = new WeakReference<>(placeholder);
-            this.renderGeneration = renderGeneration;
-        }
-    }
-
-    private static final class PreviewTarget {
-        private final WeakReference<ImageView> image;
-        private final WeakReference<TextView> loading;
-
-        private PreviewTarget(ImageView image, TextView loading) {
-            this.image = new WeakReference<>(image);
-            this.loading = new WeakReference<>(loading);
-        }
     }
 
     private static final class QueueRowViews {
@@ -1583,20 +1282,20 @@ public final class MainActivity extends Activity {
     private View navBar() {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setPadding(dp(18), dp(8), dp(18), dp(12));
+        nav.setPadding(widgets.dp(18), widgets.dp(8), widgets.dp(18), widgets.dp(12));
         nav.setGravity(Gravity.CENTER);
-        nav.setBackgroundColor(color("#EFE8DA"));
-        nav.addView(navButton("首页", "home"), weightParams());
-        nav.addView(navButton("队列", "queue"), weightParams());
+        nav.setBackgroundColor(widgets.color("#EFE8DA"));
+        nav.addView(navButton("首页", "home"), widgets.weightParams());
+        nav.addView(navButton("队列", "queue"), widgets.weightParams());
         return nav;
     }
 
     private Button navButton(String text, final String nextScreen) {
-        Button button = smallButton(text);
-        button.setTextColor(nextScreen.equals(navSelection()) ? Color.WHITE : color("#2E3B37"));
+        Button button = widgets.smallButton(text);
+        button.setTextColor(nextScreen.equals(navSelection()) ? Color.WHITE : widgets.color("#2E3B37"));
         button.setBackground(nextScreen.equals(navSelection())
-                ? rounded("#182B28", "#182B28", 0, 14)
-                : rounded("#E4DAC9", "#D8CCB9", 1, 14));
+                ? widgets.rounded("#182B28", "#182B28", 0, 14)
+                : widgets.rounded("#E4DAC9", "#D8CCB9", 1, 14));
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -1640,97 +1339,18 @@ public final class MainActivity extends Activity {
                 .show();
     }
 
-    private LinearLayout pageLayout() {
-        LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), statusBarHeight() + dp(18), dp(20), dp(28));
-        return page;
-    }
-
-    private LinearLayout card() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackground(rounded("#FFFFFF", "#E8E0D4", 1, 12));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, dp(8), 0, dp(8));
-        card.setLayoutParams(params);
-        return card;
-    }
-
-    private TextView title(String text, int sp) {
-        TextView view = label(text, sp, "#182B28");
-        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        return view;
-    }
-
-    private TextView sectionHeader(String text) {
-        TextView view = label(text, 16, "#2F3D38");
-        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setPadding(0, dp(12), 0, dp(2));
-        return view;
-    }
-
-    private TextView label(String text, int sp, String color) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextSize(sp);
-        view.setTextColor(color(color));
-        view.setIncludeFontPadding(true);
-        return view;
-    }
-
-    private TextView icon(String text) {
-        TextView view = label(text, 13, "#FFFFFF");
-        view.setGravity(Gravity.CENTER);
-        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setBackground(rounded("#2F6B5F", "#2F6B5F", 0, 12));
-        return view;
-    }
-
-    private Button actionButton(String text, View.OnClickListener listener) {
-        Button button = smallButton(text);
-        button.setTextColor(Color.WHITE);
-        button.setBackground(rounded("#182B28", "#182B28", 0, 12));
-        button.setOnClickListener(listener);
-        return button;
-    }
-
-    private Button smallButton(String text) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextSize(13);
-        button.setTextColor(color("#2E3B37"));
-        button.setAllCaps(false);
-        button.setMinHeight(dp(40));
-        button.setPadding(dp(10), 0, dp(10), 0);
-        button.setBackground(rounded("#EEE7DB", "#DDD3C4", 1, 12));
-        return button;
-    }
-
-    private TextView textButton(String text, String textColor, String backgroundColor) {
-        TextView view = label(text, 14, textColor);
-        view.setGravity(Gravity.CENTER);
-        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setPadding(dp(14), 0, dp(14), 0);
-        view.setBackground(rounded(backgroundColor, backgroundColor, 0, 21));
-        view.setClickable(true);
-        view.setFocusable(true);
-        return view;
-    }
-
     private View statRow(String aLabel, String aValue, String bLabel, String bValue, String cLabel, String cValue) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, dp(12), 0, 0);
-        row.addView(stat(aLabel, aValue), weightParams());
-        row.addView(stat(bLabel, bValue), weightParams());
-        row.addView(stat(cLabel, cValue), weightParams());
+        row.setPadding(0, widgets.dp(12), 0, 0);
+        row.addView(stat(aLabel, aValue), widgets.weightParams());
+        row.addView(stat(bLabel, bValue), widgets.weightParams());
+        row.addView(stat(cLabel, cValue), widgets.weightParams());
         return row;
     }
 
     private View stat(String label, String value) {
-        return stat(label, label(value, 18, "#182B28"));
+        return stat(label, widgets.label(value, 18, "#182B28"));
     }
 
     private View stat(String labelText, TextView valueView) {
@@ -1738,14 +1358,8 @@ public final class MainActivity extends Activity {
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
         item.addView(valueView);
-        item.addView(label(labelText, 11, "#7C7367"));
+        item.addView(widgets.label(labelText, 11, "#7C7367"));
         return item;
-    }
-
-    private LinearLayout.LayoutParams weightParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        params.setMargins(dp(4), 0, dp(4), 0);
-        return params;
     }
 
     private String networkLabel() {
@@ -1778,15 +1392,15 @@ public final class MainActivity extends Activity {
     private int statusBorderColor(SyncStatus status) {
         switch (status) {
             case WAITING:
-                return color("#B8AEA1");
+                return widgets.color("#B8AEA1");
             case UPLOADING:
-                return color("#2F6B5F");
+                return widgets.color("#2F6B5F");
             case DONE:
-                return color("#3D7A46");
+                return widgets.color("#3D7A46");
             case FAILED:
-                return color("#A54135");
+                return widgets.color("#A54135");
             default:
-                return color("#B8AEA1");
+                return widgets.color("#B8AEA1");
         }
     }
 
@@ -1848,32 +1462,6 @@ public final class MainActivity extends Activity {
             return error.getClass().getSimpleName();
         }
         return message.length() > 80 ? message.substring(0, 80) : message;
-    }
-
-    private int color(String value) {
-        return Color.parseColor(value);
-    }
-
-    private GradientDrawable rounded(String fillColor, String strokeColor, int strokeDp, int radiusDp) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color(fillColor));
-        drawable.setCornerRadius(dp(radiusDp));
-        if (strokeDp > 0) {
-            drawable.setStroke(dp(strokeDp), color(strokeColor));
-        }
-        return drawable;
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private int statusBarHeight() {
-        int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        if (resourceId <= 0) {
-            return 0;
-        }
-        return getResources().getDimensionPixelSize(resourceId);
     }
 
     private SharedPreferences prefs() {
