@@ -6,7 +6,7 @@
 
 - 产品版本：`0.1.2`
 - 主分支：`main`
-- 当前工作基线：`b0092d1`；B24–B28 为工作区未提交实现。
+- B24–B28 实现提交：`54ff01b`。
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
 - `main` 最近治理批次提交：`49ffee0`（B08 里程碑）
 - 主线集成合并提交：`8a09aa0`（B03 集成合并）
@@ -118,10 +118,9 @@
   `androidsync://configure` 深链，用系统相机扫码打开后校验并保存 HTTP/HTTPS 目标。
   Android JVM 测试、APK 构建、macOS 组合套件最终 101 个测试和应用 verify 通过；
   无线 ADB 真机上的冷启动与前台 `onNewIntent` 深链路径均通过并已恢复原地址。实现
-  尚未提交，系统
-  相机扫描真实二维码仍待手工确认，详见
+  已提交为 `54ff01b`；系统相机扫描真实二维码仍待手工确认，详见
   `PROJECT_MEMORY/batches/2026-07-14-B24-address-qr-configuration.md`。
-- B25 同步范围与双端停止控制正在同一工作基线上进行本地验证：Android 队列随最新
+- B25 同步范围与双端停止控制已在同一工作基线上完成并提交为 `54ff01b`：Android 队列随最新
   相册白名单 reconcile，一次同步只上传确认页 stable ID；传输卡折叠更新保持有界，
   错误提示自动收起并新增可取消上传。macOS 主窗口新增暂停接收入口，接收端补齐对端
   `.cancelled` 清理，避免 Android 停止后活动项和 `.part` 残留。Android 测试/构建、
@@ -130,20 +129,20 @@
 - B26 macOS 侧边栏媒体库概览已在同一工作基线上完成本地实现：底部脚视图展示未删除
   照片、视频、其他文件数量和媒体总占用，并保留接收目录入口；统计不受搜索、日期和
   当前分类影响。macOS 103 个测试与应用 verify 通过，真实窗口已确认 185pt 侧栏内
-  统计和目录入口完整可见。实现尚未提交，详见
+  统计和目录入口完整可见。实现已提交为 `54ff01b`，详见
   `PROJECT_MEMORY/batches/2026-07-14-B26-macos-sidebar-library-summary.md`。
 - B27 macOS Quick Look 连续预览与键盘删除已在同一工作基线上完成本地实现：预览
   一次持有当前筛选结果，左右方向键只更新系统面板索引而不重复 present/reload；
   Quick Look 与媒体库均支持 Delete，继续复用 repository/tombstone 删除路径。定向
   11 个测试和完整 108 个测试通过，应用 verify 通过；真实窗口已确认空格打开/关闭
   Quick Look 及右方向键连续切换。Delete 由临时仓库/tombstone 集成测试覆盖，未删除
-  真实媒体。实现尚未提交，详见
+  真实媒体。实现已提交为 `54ff01b`，详见
   `PROJECT_MEMORY/batches/2026-07-20-B27-macos-quick-look-navigation-delete.md`。
 - B28 macOS 标题栏重设计已在同一工作基线上完成本地实现：隐藏重复窗口标题，把分类、
   数量和接收状态合成左侧状态菜单，把接收、二维码、上下文删除、筛选/排序、布局、
   设置和 Inspector 收进统一控制条；日期与排序改为同一个单层分区菜单。macOS 108 个
   测试、应用 verify 和 diff 检查通过；真实窗口已检查标题栏、状态/二维码菜单和日期
-  筛选往返，接收服务最终恢复运行。实现尚未提交，详见
+  筛选往返，接收服务最终恢复运行。实现已提交为 `54ff01b`，详见
   `PROJECT_MEMORY/batches/2026-07-20-B28-macos-titlebar-redesign.md`。
 
 ## 开放工作
