@@ -132,6 +132,68 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertTrue(libraryRecords.isEmpty)
     }
 
+    func testCancelledPeerRemovesTemporaryFileAndEmitsUploadFailure() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let uploadStarted = expectation(description: "upload started")
+        let uploadFailed = expectation(description: "upload failed")
+        let eventRecorder = ReceiverEventRecorder()
+        let repository = LibraryRepository(rootURL: root)
+        let service = ReceiverService(repository: repository, port: 0) { event in
+            eventRecorder.append(event)
+            if case .uploadStarted = event {
+                uploadStarted.fulfill()
+            }
+            if case .uploadFailed = event {
+                uploadFailed.fulfill()
+            }
+        }
+        let port = try await service.start()
+        defer { service.stop() }
+
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: try XCTUnwrap(NWEndpoint.Port(rawValue: port)),
+            using: .tcp
+        )
+        let connected = expectation(description: "connected")
+        connection.stateUpdateHandler = { state in
+            if case .ready = state {
+                connected.fulfill()
+            }
+        }
+        connection.start(queue: DispatchQueue(label: "ReceiverServiceTests.cancel-client"))
+        await fulfillment(of: [connected], timeout: 2)
+
+        let body = Data("partial".utf8)
+        let requestHead = [
+            "PUT /uploads/Cancelled.jpg HTTP/1.1",
+            "Host: 127.0.0.1",
+            "Content-Type: image/jpeg",
+            "Content-Length: \(body.count + 1_024)",
+            "X-Android-Sync-Id: image:cancelled",
+            "Connection: close",
+        ].joined(separator: "\r\n") + "\r\n\r\n"
+        connection.send(
+            content: Data(requestHead.utf8) + body,
+            completion: .contentProcessed { _ in }
+        )
+
+        await fulfillment(of: [uploadStarted], timeout: 2)
+        try await waitForIncomingFile(at: root)
+        connection.cancel()
+
+        await fulfillment(of: [uploadFailed], timeout: 2)
+        XCTAssertEqual(eventRecorder.uploadFailures.count, 1)
+        XCTAssertEqual(eventRecorder.uploadFailures.first?.filename, "Cancelled.jpg")
+        XCTAssertTrue(try incomingContents(at: root).isEmpty)
+        let manifest = try await repository.manifest()
+        XCTAssertTrue(manifest.isEmpty)
+    }
+
     func testRepositoryCommitFailureCleansTemporaryFileAndEmitsOneUploadFailure() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

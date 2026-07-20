@@ -1,11 +1,12 @@
 # 项目状态
 
-最后复核：2026-07-08
+最后复核：2026-07-20
 
 ## 基线
 
 - 产品版本：`0.1.2`
 - 主分支：`main`
+- 当前工作基线：`b0092d1`；B24–B28 为工作区未提交实现。
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
 - `main` 最近治理批次提交：`49ffee0`（B08 里程碑）
 - 主线集成合并提交：`8a09aa0`（B03 集成合并）
@@ -112,6 +113,38 @@
   batch 总数进度、媒体原始时间排序/显示和 sidecar 时间 fallback。Android 测试/构建、
   macOS 96 个测试、macOS verify、ADB 安装启动和截图检查通过；真实端到端大文件传输
   仍待用户真机验证。
+- B24 地址二维码配置已在 `main` 的 `b0092d1` 工作基线上完成本地代码与单元测试：
+  macOS 工具栏可用 Core Image 显示当前上传地址二维码；Android 注册
+  `androidsync://configure` 深链，用系统相机扫码打开后校验并保存 HTTP/HTTPS 目标。
+  Android JVM 测试、APK 构建、macOS 组合套件最终 101 个测试和应用 verify 通过；
+  无线 ADB 真机上的冷启动与前台 `onNewIntent` 深链路径均通过并已恢复原地址。实现
+  尚未提交，系统
+  相机扫描真实二维码仍待手工确认，详见
+  `PROJECT_MEMORY/batches/2026-07-14-B24-address-qr-configuration.md`。
+- B25 同步范围与双端停止控制正在同一工作基线上进行本地验证：Android 队列随最新
+  相册白名单 reconcile，一次同步只上传确认页 stable ID；传输卡折叠更新保持有界，
+  错误提示自动收起并新增可取消上传。macOS 主窗口新增暂停接收入口，接收端补齐对端
+  `.cancelled` 清理，避免 Android 停止后活动项和 `.part` 残留。Android 测试/构建、
+  macOS 101 个测试、应用 verify、最终 APK 安装/启动和双端真机停止链路已通过，
+  详见 `PROJECT_MEMORY/batches/2026-07-14-B25-sync-scope-stop-controls.md`。
+- B26 macOS 侧边栏媒体库概览已在同一工作基线上完成本地实现：底部脚视图展示未删除
+  照片、视频、其他文件数量和媒体总占用，并保留接收目录入口；统计不受搜索、日期和
+  当前分类影响。macOS 103 个测试与应用 verify 通过，真实窗口已确认 185pt 侧栏内
+  统计和目录入口完整可见。实现尚未提交，详见
+  `PROJECT_MEMORY/batches/2026-07-14-B26-macos-sidebar-library-summary.md`。
+- B27 macOS Quick Look 连续预览与键盘删除已在同一工作基线上完成本地实现：预览
+  一次持有当前筛选结果，左右方向键只更新系统面板索引而不重复 present/reload；
+  Quick Look 与媒体库均支持 Delete，继续复用 repository/tombstone 删除路径。定向
+  11 个测试和完整 108 个测试通过，应用 verify 通过；真实窗口已确认空格打开/关闭
+  Quick Look 及右方向键连续切换。Delete 由临时仓库/tombstone 集成测试覆盖，未删除
+  真实媒体。实现尚未提交，详见
+  `PROJECT_MEMORY/batches/2026-07-20-B27-macos-quick-look-navigation-delete.md`。
+- B28 macOS 标题栏重设计已在同一工作基线上完成本地实现：隐藏重复窗口标题，把分类、
+  数量和接收状态合成左侧状态菜单，把接收、二维码、上下文删除、筛选/排序、布局、
+  设置和 Inspector 收进统一控制条；日期与排序改为同一个单层分区菜单。macOS 108 个
+  测试、应用 verify 和 diff 检查通过；真实窗口已检查标题栏、状态/二维码菜单和日期
+  筛选往返，接收服务最终恢复运行。实现尚未提交，详见
+  `PROJECT_MEMORY/batches/2026-07-20-B28-macos-titlebar-redesign.md`。
 
 ## 开放工作
 
@@ -125,6 +158,10 @@
    GB 级视频回归）。
 5. 完成 macOS UI 重设计 GUI 手工 QA（五状态胶囊、空闲无卡片占位、真机进度/速度、
    并发上传进度观感）。
+6. 完成 B24 真机扫码 QA：覆盖 Android 冷启动和前台 `onNewIntent` 两条路径，并确认
+   地址更新后从设置页可见且实际上传仍指向扫码得到的 Mac。
+7. 对 B25 执行大型媒体库持续滚动、GB 级视频中途停止和重复开始/停止压力测试；当前
+   只完成 269 项 `WeiXin` 相册下的受控真机冒烟，不关闭 M1 压力退出标准。
 
 ## 当前验证记录
 
@@ -276,6 +313,52 @@ git diff --check
 启动到 `com.androidsync.app/.MainActivity`；截图人工检查确认状态栏为亮色文字且缩略图
 首屏显示；接收端 health 返回 `{"status":"ok"}`。未把真实 Android 到 Mac 的大文件
 传输验收标记为完成。
+
+B24 地址二维码配置于 2026-07-14 在 `main` 的 `b0092d1` 工作基线上进行首轮验证：
+
+```bash
+./android/run_tests.sh
+swift test --package-path macos
+```
+
+结果：Android JVM 测试通过并输出 `AddressConfigurationTest passed`，APK 构建/签名
+通过；macOS 组合套件最终运行 101 个测试且全部通过，其中 `AddressQRCodeTests` 4 个
+新增测试通过，应用 verify 通过。APK 已安装到无线 ADB 设备 `22081212C`；冷启动深链显示 8765 地址，
+前台 `onNewIntent` 显示临时 8766 地址后已恢复到 8765。真实系统相机扫码仍待手工确认。
+
+B25 同步范围与双端停止控制于 2026-07-14 在同一组合工作区验证：
+
+```bash
+./android/run_tests.sh
+./android/build.sh
+swift test --package-path macos
+./macos/build_and_run.sh verify
+adb install -r android/build/AndroidSync-debug.apk
+adb shell am start -n com.androidsync.app/.MainActivity
+curl -fsS http://127.0.0.1:8765/health
+git diff --check
+```
+
+结果：Android JVM 测试和 APK 构建通过；macOS 101 个测试全部通过；最终 APK 已安装并
+启动到无线设备 `22081212C`，macOS 应用 verify 和 `/health` 通过。真机确认页显示
+当前 `WeiXin` 白名单的 244 个待传项目；Android 停止后无活跃 TCP 连接，后段任务保持
+未同步，macOS 活动上传清零并回到可接收状态。受控验证有 6 个小文件完成落盘。
+最终从 Android 设置页确认目标已恢复为当前 Mac 的
+`http://192.168.1.23:8765/uploads/`。
+
+B26 macOS 侧边栏媒体库概览于 2026-07-14 在同一组合工作区验证：
+
+```bash
+swift test --package-path macos --filter AppModelSidebarCountTests
+swift test --package-path macos
+./macos/build_and_run.sh verify
+git diff --check
+```
+
+结果：定向 3 个测试和完整 103 个测试均通过，应用打包、签名、启动验证通过，
+`git diff --check` 通过。通过真实应用窗口检查确认 185pt 侧栏底部显示照片 606、视频
+18、其他文件 0、已占用 5.8 GB，且接收目录入口未被裁切。此检查只验收 B26 新增区域，
+不替代 M3 尚未完成的全量视觉/交互 QA。
 
 ## 状态维护
 

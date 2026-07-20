@@ -43,17 +43,31 @@ struct TransferCardRow: View {
 
     private var progressCard: some View {
         VStack(alignment: .leading, spacing: Theme.spacingS) {
-            Text(
-                model.format(
-                    .receivingProgressFormat,
-                    model.transferCompletedCount,
-                    max(1, model.transferTotalCount),
-                    model.activeUploads.count,
-                    model.formatByteCount(model.activeUploadsRemainingBytes)
+            HStack(spacing: Theme.spacingS) {
+                Text(
+                    model.format(
+                        .receivingProgressFormat,
+                        model.transferCompletedCount,
+                        max(1, model.transferTotalCount),
+                        model.activeUploads.count,
+                        model.formatByteCount(model.activeUploadsRemainingBytes)
+                    )
                 )
-            )
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(.white)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.white)
+                Spacer(minLength: Theme.spacingS)
+                Button {
+                    model.toggleReceiver()
+                } label: {
+                    Label(
+                        model.text(.pauseReceiving),
+                        systemImage: "stop.fill"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .foregroundStyle(.white)
+                .help(model.text(.pauseReceiving))
+            }
             if let progress = model.transferProgress {
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)

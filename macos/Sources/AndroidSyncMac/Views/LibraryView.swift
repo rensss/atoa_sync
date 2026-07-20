@@ -32,6 +32,29 @@ struct LibraryView: View {
         .focusable()
         .focused($libraryFocused)
         .focusEffectDisabled()
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: LibraryWidthPreferenceKey.self,
+                    value: proxy.size.width
+                )
+            }
+        }
+        .onPreferenceChange(LibraryWidthPreferenceKey.self) {
+            model.libraryGridColumnCount = Self.gridColumnCount(for: $0)
+        }
+        .onChange(of: libraryFocused) { _, focused in
+            model.libraryKeyboardNavigationEnabled = focused
+        }
+        .onAppear {
+            model.libraryQuickLookBlocked = quickLookBlocked
+        }
+        .onChange(of: quickLookBlocked) { _, blocked in
+            model.libraryQuickLookBlocked = blocked
+        }
+        .onDisappear {
+            model.libraryKeyboardNavigationEnabled = false
+        }
         .onKeyPress(.space, phases: .down) { press in
             guard libraryFocused,
                   !quickLookBlocked,
@@ -44,72 +67,123 @@ struct LibraryView: View {
             model.toggleSelectedPreview()
             return .handled
         }
+        .onKeyPress(.delete, phases: .down) { press in
+            guard libraryFocused,
+                  !quickLookBlocked,
+                  press.modifiers.isEmpty,
+                  !textInputIsFirstResponder,
+                  model.selectedIDs.contains(where: { id in
+                      model.items.contains { $0.id == id && !$0.removed }
+                  })
+            else {
+                return .ignored
+            }
+            Task { await model.deleteSelected() }
+            return .handled
+        }
     }
 
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: [
-                    GridItem(
-                        .adaptive(
-                            minimum: Theme.Thumb.gridCell,
-                            maximum: Theme.Thumb.gridCell
-                        ),
-                        spacing: Theme.Thumb.gridGap
-                    )
-                ],
-                spacing: Theme.Thumb.gridGap
-            ) {
-                ForEach(model.filteredItems) { item in
-                    MediaGridItem(
-                        model: model,
-                        item: item,
-                        selected: model.selectedIDs.contains(item.id),
-                        onSelect: {
-                            model.select(
-                                item.id,
-                                additive: NSEvent.modifierFlags.contains(.command)
-                            )
-                            libraryFocused = true
-                        },
-                        onPreview: { model.preview(item) },
-                        onReveal: { model.reveal(item) }
-                    )
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(
+                    columns: [
+                        GridItem(
+                            .adaptive(
+                                minimum: Theme.Thumb.gridCell,
+                                maximum: Theme.Thumb.gridCell
+                            ),
+                            spacing: Theme.Thumb.gridGap
+                        )
+                    ],
+                    spacing: Theme.Thumb.gridGap
+                ) {
+                    ForEach(model.filteredItems) { item in
+                        MediaGridItem(
+                            model: model,
+                            item: item,
+                            selected: model.selectedIDs.contains(item.id),
+                            onSelect: {
+                                model.select(
+                                    item.id,
+                                    additive: NSEvent.modifierFlags.contains(.command)
+                                )
+                                libraryFocused = true
+                                model.libraryKeyboardNavigationEnabled = true
+                            },
+                            onPreview: { model.preview(item) },
+                            onReveal: { model.reveal(item) }
+                        )
+                        .id(item.id)
+                    }
                 }
+                .padding(Theme.spacingS)
             }
-            .padding(Theme.spacingS)
+            .background(Theme.bg)
+            .onChange(of: model.libraryScrollTargetID) { _, id in
+                scrollToSelection(id, with: proxy)
+            }
         }
-        .background(Theme.bg)
     }
 
     private var list: some View {
-        List(model.filteredItems) { item in
-            HStack(spacing: 12) {
-                ThumbnailView(item: item, size: Theme.Thumb.listSize)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.filename)
-                        .lineLimit(1)
-                    Text(model.formatDate(item.mediaDate))
-                        .font(.caption)
+        ScrollViewReader { proxy in
+            List(model.filteredItems) { item in
+                HStack(spacing: 12) {
+                    ThumbnailView(item: item, size: Theme.Thumb.listSize)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.filename)
+                            .lineLimit(1)
+                        Text(model.formatDate(item.mediaDate))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(model.formatByteCount(item.sizeBytes))
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Text(model.formatByteCount(item.sizeBytes))
-                    .foregroundStyle(.secondary)
+                .padding(.vertical, 3)
+                .background(
+                    model.selectedIDs.contains(item.id)
+                        ? Theme.accent.opacity(0.15)
+                        : .clear
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    model.select(item.id, additive: NSEvent.modifierFlags.contains(.command))
+                    libraryFocused = true
+                    model.libraryKeyboardNavigationEnabled = true
+                }
+                .onTapGesture(count: 2) { model.preview(item) }
+                .contextMenu { itemMenu(item) }
+                .id(item.id)
             }
-            .padding(.vertical, 3)
-            .background(model.selectedIDs.contains(item.id) ? Theme.accent.opacity(0.15) : .clear)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                model.select(item.id, additive: NSEvent.modifierFlags.contains(.command))
-                libraryFocused = true
+            .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .onChange(of: model.libraryScrollTargetID) { _, id in
+                scrollToSelection(id, with: proxy)
             }
-            .onTapGesture(count: 2) { model.preview(item) }
-            .contextMenu { itemMenu(item) }
         }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg)
+    }
+
+    private static func gridColumnCount(for libraryWidth: CGFloat) -> Int {
+        let contentWidth = max(0, libraryWidth - (Theme.spacingS * 2))
+        return max(
+            1,
+            Int(
+                (contentWidth + Theme.Thumb.gridGap)
+                    / (Theme.Thumb.gridCell + Theme.Thumb.gridGap)
+            )
+        )
+    }
+
+    private func scrollToSelection(
+        _ id: UUID?,
+        with proxy: ScrollViewProxy
+    ) {
+        guard let id else { return }
+        proxy.scrollTo(id, anchor: .center)
     }
 
     @ViewBuilder
@@ -131,6 +205,14 @@ struct LibraryView: View {
             return false
         }
         return responder is NSTextView || responder is NSTextField
+    }
+}
+
+private struct LibraryWidthPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

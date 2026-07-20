@@ -183,6 +183,7 @@ final class AppModel {
     private let modelContext: ModelContext
     private let userDefaults: UserDefaults
     private let quickLookPreview: QuickLookPreview
+    private let libraryKeyMonitor: (any LibraryKeyMonitoring)?
     private let receiverServiceFactory: ReceiverServiceFactory
     private let bookmarkClient: DirectoryBookmarkClient
     private let directoryAccessClient: DirectoryAccessClient
@@ -208,6 +209,10 @@ final class AppModel {
     var sort: LibrarySort = .newest
     var searchText = ""
     var selectedIDs: Set<UUID> = []
+    var libraryKeyboardNavigationEnabled = false
+    var libraryQuickLookBlocked = false
+    var libraryGridColumnCount = 1
+    var libraryScrollTargetID: UUID?
     var inspectorPresented = false
     var status: ReceiverStatus = .needsDirectory
     var receiveDirectory: URL?
@@ -246,6 +251,7 @@ final class AppModel {
         modelContainer: ModelContainer,
         userDefaults: UserDefaults = .standard,
         quickLookPreview: QuickLookPreview = .shared,
+        libraryKeyMonitor: (any LibraryKeyMonitoring)? = nil,
         receiverServiceFactory: @escaping ReceiverServiceFactory = {
             repository,
             port,
@@ -265,6 +271,7 @@ final class AppModel {
         modelContext = ModelContext(modelContainer)
         self.userDefaults = userDefaults
         self.quickLookPreview = quickLookPreview
+        self.libraryKeyMonitor = libraryKeyMonitor
         self.receiverServiceFactory = receiverServiceFactory
         self.bookmarkClient = bookmarkClient
         self.directoryAccessClient = directoryAccessClient
@@ -276,6 +283,9 @@ final class AppModel {
         clearedDeletedKeys = Set(
             userDefaults.stringArray(forKey: Self.clearedDeletedKeysDefaultsKey) ?? []
         )
+        libraryKeyMonitor?.start { [weak self] command in
+            self?.handleLibraryNavigation(command) ?? false
+        }
     }
 
     func text(_ key: AppStringKey) -> String {
@@ -335,6 +345,47 @@ final class AppModel {
 
     var todayStats: TodayStats {
         Self.todayStats(items, now: Date(), calendar: .current)
+    }
+
+    struct SidebarLibraryStats: Equatable {
+        let photoCount: Int
+        let videoCount: Int
+        let fileCount: Int
+        let totalBytes: Int64
+    }
+
+    static func sidebarLibraryStats(
+        _ items: [MediaItemEntity]
+    ) -> SidebarLibraryStats {
+        var photoCount = 0
+        var videoCount = 0
+        var fileCount = 0
+        var totalBytes: Int64 = 0
+
+        for item in items where !item.removed {
+            switch item.kind {
+            case .photo:
+                photoCount += 1
+            case .video:
+                videoCount += 1
+            case .file:
+                fileCount += 1
+            }
+            let size = max(0, item.sizeBytes)
+            let addition = totalBytes.addingReportingOverflow(size)
+            totalBytes = addition.overflow ? .max : addition.partialValue
+        }
+
+        return SidebarLibraryStats(
+            photoCount: photoCount,
+            videoCount: videoCount,
+            fileCount: fileCount,
+            totalBytes: totalBytes
+        )
+    }
+
+    var sidebarLibraryStats: SidebarLibraryStats {
+        Self.sidebarLibraryStats(items)
     }
 
     var activeUploadsExpectedBytes: Int64 {
@@ -584,14 +635,65 @@ final class AppModel {
         }
     }
 
+    @discardableResult
+    func selectAdjacentItem(offset: Int) -> UUID? {
+        guard offset != 0 else { return selectedItem?.id }
+        let visibleItems = filteredItems
+        guard !visibleItems.isEmpty else { return nil }
+
+        let destination: Int
+        if let selectedIndex = visibleItems.firstIndex(
+            where: { selectedIDs.contains($0.id) }
+        ) {
+            destination = min(
+                max(selectedIndex + offset, visibleItems.startIndex),
+                visibleItems.index(before: visibleItems.endIndex)
+            )
+        } else {
+            destination = offset > 0
+                ? visibleItems.startIndex
+                : visibleItems.index(before: visibleItems.endIndex)
+        }
+
+        let id = visibleItems[destination].id
+        selectedIDs = [id]
+        return id
+    }
+
+    private func handleLibraryNavigation(
+        _ command: LibraryNavigationCommand
+    ) -> Bool {
+        guard libraryKeyboardNavigationEnabled,
+              !libraryQuickLookBlocked
+        else {
+            return false
+        }
+
+        let offset: Int
+        switch command {
+        case .left:
+            offset = -1
+        case .right:
+            offset = 1
+        case .up:
+            offset = layout == .grid ? -libraryGridColumnCount : -1
+        case .down:
+            offset = layout == .grid ? libraryGridColumnCount : 1
+        }
+        guard let selectedID = selectAdjacentItem(offset: offset) else {
+            return false
+        }
+        libraryScrollTargetID = selectedID
+        return true
+    }
+
     func preview(_ item: MediaItemEntity) {
-        guard !item.removed else { return }
-        quickLookPreview.show(item.fileURL)
+        presentPreview(startingWith: item, toggling: false)
     }
 
     func toggleSelectedPreview() {
         guard let item = selectedItem, !item.removed else { return }
-        quickLookPreview.toggle(item.fileURL)
+        presentPreview(startingWith: item, toggling: true)
     }
 
     func reveal(_ item: MediaItemEntity) {
@@ -613,22 +715,76 @@ final class AppModel {
     }
 
     func deleteSelected() async {
-        guard let repository else { return }
-        let directoryGeneration = directoryConfigurationGeneration
         let selected = items.filter { selectedIDs.contains($0.id) && !$0.removed }
+        _ = await deleteItems(selected)
+    }
+
+    private func presentPreview(
+        startingWith item: MediaItemEntity,
+        toggling: Bool
+    ) {
+        guard !item.removed else { return }
+        let previewItems = filteredItems.filter { !$0.removed }
+        guard let selectedIndex = previewItems.firstIndex(where: { $0.id == item.id }) else {
+            return
+        }
+
+        selectedIDs = [item.id]
+        let urls = previewItems.map(\.fileURL)
+        let idsByURL = Dictionary(
+            uniqueKeysWithValues: previewItems.map { ($0.fileURL, $0.id) }
+        )
+        let onSelectionChange: @MainActor (URL) -> Void = { [weak self] url in
+            guard let id = idsByURL[url] else { return }
+            self?.selectedIDs = [id]
+        }
+        let onDelete: @MainActor (URL) async -> Bool = { [weak self] url in
+            guard let self, let id = idsByURL[url] else { return false }
+            return await self.deletePreviewItem(id: id)
+        }
+
+        if toggling {
+            quickLookPreview.toggle(
+                urls,
+                selectedIndex: selectedIndex,
+                onSelectionChange: onSelectionChange,
+                onDelete: onDelete
+            )
+        } else {
+            quickLookPreview.show(
+                urls,
+                selectedIndex: selectedIndex,
+                onSelectionChange: onSelectionChange,
+                onDelete: onDelete
+            )
+        }
+    }
+
+    private func deletePreviewItem(id: UUID) async -> Bool {
+        guard let item = items.first(where: { $0.id == id && !$0.removed }) else {
+            return false
+        }
+        return await deleteItems([item])
+    }
+
+    private func deleteItems(_ selected: [MediaItemEntity]) async -> Bool {
+        guard let repository, !selected.isEmpty else { return false }
+        let directoryGeneration = directoryConfigurationGeneration
         do {
             for item in selected {
                 try await repository.delete(item.uploadRecord) { url in
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
                 }
             }
-            selectedIDs.removeAll()
+            selectedIDs.subtract(selected.map(\.id))
             await reloadLibrary(
                 from: repository,
                 directoryGeneration: directoryGeneration
             )
+            return true
         } catch {
             lastError = error.localizedDescription
+            return false
         }
     }
 

@@ -28,6 +28,8 @@ MediaStoreScanner -> SyncQueue -> HttpFileUploader
 Android 应用使用 Java 编写，不引入第三方依赖，通过本地 Android SDK 工具直接构建。
 
 - `MainActivity`：UI 组合、导航、扫描/上传编排和异步缩略图展示。
+- `AddressConfiguration`：解析 macOS 地址二维码中的应用深链，并只接受带有效 host
+  的 HTTP/HTTPS 上传目标。
 - `MediaStoreScanner`：从 Android `MediaStore` 读取照片和视频。
 - `SyncQueue`：同步内存中的任务归属、状态转换、筛选、汇总和有界可见窗口。
 - `RemoteManifestClient`：读取接收端历史并识别远端已经存储的媒体。
@@ -35,6 +37,11 @@ Android 应用使用 Java 编写，不引入第三方依赖，通过本地 Andro
 
 在进程生命周期内，队列是权威任务状态。UI 代码必须消费队列快照或有界窗口，不得
 创建第二套可独立变更的任务模型。
+
+相册白名单重新扫描后，`SyncQueue` 必须与最新扫描结果 reconcile：保留仍在范围内的
+任务状态，移除已离开白名单的任务。一次上传运行只消费确认页捕获的 stable ID 快照，
+不能重新遍历并上传历史队列的其他等待/失败任务。传输详情折叠时不创建逐文件 View，
+展开窗口保持有界。
 
 ## macOS 边界
 
@@ -52,6 +59,13 @@ macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 选择存储路径、原子移动已完成临时文件、写入 sidecar 元数据，并追加 manifest
 历史。
 
+Quick Look 一次持有当前筛选结果的文件 URL 快照和选中索引。左右方向键只更新系统
+预览面板索引与 `AppModel.selectedIDs`，不重建面板；Delete 删除仍由 `AppModel`
+转交 `LibraryRepository`，成功后才从预览数据源移除项目并选择相邻项。
+主媒体库方向键由应用级单一 AppKit 本地事件监听器路由到 `AppModel`：网格上下按
+当前可见列数跨行，列表逐项移动；搜索/重命名输入和 Quick Look key window 会跳过
+该监听器。
+
 ## 协议
 
 受支持的原生接收端端点：
@@ -63,6 +77,12 @@ macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 
 上传 header 包含稳定 ID、尺寸、MIME 类型、可用的 Android 媒体时间戳，以及可选的
 批次序号/批次总数（用于接收端进度显示）。接收端按原始内容存储，不进行转码。
+
+地址配置不属于上传 HTTP 协议。macOS 用系统 Core Image 把
+`androidsync://configure?url=<percent-encoded-upload-url>` 生成二维码；Android 系统
+相机识别后通过 `VIEW`/`BROWSABLE` Intent 打开 `MainActivity`。Android 校验深链
+scheme、host 和目标 URL 后写入现有 `target_url` 偏好。二维码不包含凭据，接收端端口、
+上传端点和存储行为均不改变。
 
 ## 存储模型
 
@@ -86,6 +106,10 @@ macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 - macOS listener 和连接状态运行在一个串行 dispatch queue 上。
 - macOS 存储变更通过 `LibraryRepository` actor 执行。
 - SwiftUI 状态通过 `AppModel` 归属 main actor；接收端事件必须显式切换到 UI 状态。
+- Android 停止同步通过代次失效和上传流内取消检查协作完成；当前请求断开后，被中断
+  任务恢复为等待态，后续计划不再启动。
+- macOS 接收端必须把对端取消视为上传终止：清理临时文件、关闭 session 并移除对应
+  活动上传；用户主动暂停接收则继续走串行 `stop/stopAndWait` 生命周期。
 
 ## 所有权规则
 

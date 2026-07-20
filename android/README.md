@@ -22,6 +22,10 @@ android/build/AndroidSync-debug.apk
 - 使用稳定去重逻辑把照片和视频加入同步队列。
 - 通过 HTTP/WebDAV 风格的 `PUT` 上传等待或失败的任务。
 - 允许用户在应用内编辑局域网/NAS 目标 URL。
+- 支持用系统相机扫描 macOS 应用显示的地址二维码；打开 Android Sync 后会校验并
+  自动保存新的 HTTP/HTTPS 目标 URL。
+- 相册白名单变更会替换本次同步范围；确认页只上传明确保留的媒体。
+- 同步期间可继续滚动媒体库，并可从传输卡点击“停止”中断当前上传和后续任务。
 - 显示原生首页仪表盘和队列详情页。
 
 如需在本机接收文件，请运行原生 macOS 应用：
@@ -35,6 +39,10 @@ android/build/AndroidSync-debug.apk
 ```text
 http://192.168.1.10:8765/uploads/
 ```
+
+也可以点击 macOS 工具栏中的二维码按钮，再用 Android 手机的系统相机扫码并选择
+打开 Android Sync。应用会切换到设置页并提示“接收地址已更新”，无需手工输入。
+只扫描可信电脑显示的二维码。
 
 如需使用 Synology、QNAP 或其他 NAS，请启用 WebDAV，或运行任何能在配置目标 URL
 接受 HTTP `PUT` 的接收端。

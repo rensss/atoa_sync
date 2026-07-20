@@ -377,12 +377,30 @@ private final class ReceiverConnection: @unchecked Sendable {
 
     func start() {
         connection.stateUpdateHandler = { [weak self] state in
-            if case let .failed(error) = state {
+            switch state {
+            case let .failed(error):
                 self?.fail(status: 500, reason: "Connection Failed", message: error.localizedDescription)
+            case .cancelled:
+                self?.handleRemoteCancellation()
+            default:
+                break
             }
         }
         connection.start(queue: queue)
         receiveHeaders()
+    }
+
+    private func handleRemoteCancellation() {
+        guard lifecycle.acceptsNetworkCallbacks,
+              lifecycle.beginTerminal() else {
+            return
+        }
+        completeUploadFailure(
+            status: 400,
+            reason: "Upload Cancelled",
+            message: "upload connection was cancelled",
+            closeWithoutResponse: true
+        )
     }
 
     func requestStop() {

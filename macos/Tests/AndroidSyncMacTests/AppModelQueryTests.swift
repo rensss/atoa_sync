@@ -1,5 +1,6 @@
 import AndroidSyncCore
 import Foundation
+import SwiftData
 import XCTest
 @testable import AndroidSyncMac
 
@@ -156,6 +157,77 @@ final class AppModelQueryTests: XCTestCase {
         XCTAssertEqual(result.map(\.filename), ["boundary.jpg"])
     }
 
+    func testSelectAdjacentItemUsesVisibleSortOrderAndClampsAtEdges() throws {
+        let model = try makeModel()
+        let first = makeItem(filename: "first.jpg", receivedAt: date(2026, 6, 9, 12))
+        let second = makeItem(filename: "second.jpg", receivedAt: date(2026, 6, 10, 12))
+        let third = makeItem(filename: "third.jpg", receivedAt: date(2026, 6, 11, 12))
+        model.items = [third, first, second]
+        model.sort = .oldest
+
+        XCTAssertEqual(model.selectAdjacentItem(offset: 1), first.id)
+        XCTAssertEqual(model.selectedIDs, Set([first.id]))
+        XCTAssertEqual(model.selectAdjacentItem(offset: 1), second.id)
+        XCTAssertEqual(model.selectedIDs, Set([second.id]))
+        XCTAssertEqual(model.selectAdjacentItem(offset: 20), third.id)
+        XCTAssertEqual(model.selectedIDs, Set([third.id]))
+        XCTAssertEqual(model.selectAdjacentItem(offset: 1), third.id)
+
+        model.selectedIDs.removeAll()
+        XCTAssertEqual(model.selectAdjacentItem(offset: -1), third.id)
+        XCTAssertEqual(model.selectAdjacentItem(offset: -20), first.id)
+
+        model.searchText = "second"
+        model.selectedIDs = [first.id]
+        XCTAssertEqual(model.selectAdjacentItem(offset: 1), second.id)
+        XCTAssertEqual(model.selectedIDs, Set([second.id]))
+    }
+
+    func testLibraryKeyMonitorNavigatesGridAndHonorsFocusState() throws {
+        let monitor = FakeLibraryKeyMonitor()
+        let model = try makeModel(libraryKeyMonitor: monitor)
+        let first = makeItem(filename: "first.jpg", receivedAt: date(2026, 6, 9, 12))
+        let second = makeItem(filename: "second.jpg", receivedAt: date(2026, 6, 10, 12))
+        let third = makeItem(filename: "third.jpg", receivedAt: date(2026, 6, 11, 12))
+        model.items = [third, first, second]
+        model.sort = .oldest
+        model.libraryKeyboardNavigationEnabled = true
+        model.libraryGridColumnCount = 2
+
+        XCTAssertTrue(monitor.send(.right))
+        XCTAssertEqual(model.selectedIDs, Set([first.id]))
+        XCTAssertTrue(monitor.send(.right))
+        XCTAssertEqual(model.selectedIDs, Set([second.id]))
+        XCTAssertTrue(monitor.send(.down))
+        XCTAssertEqual(model.selectedIDs, Set([third.id]))
+        XCTAssertTrue(monitor.send(.up))
+        XCTAssertEqual(model.selectedIDs, Set([first.id]))
+
+        model.libraryKeyboardNavigationEnabled = false
+        XCTAssertFalse(monitor.send(.right))
+        XCTAssertEqual(model.selectedIDs, Set([first.id]))
+    }
+
+    private func makeModel(
+        libraryKeyMonitor: (any LibraryKeyMonitoring)? = nil
+    ) throws -> AppModel {
+        let container = try ModelContainer(
+            for: MediaItemEntity.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        if let libraryKeyMonitor {
+            return AppModel(
+                modelContainer: container,
+                userDefaults: UserDefaults(suiteName: UUID().uuidString)!,
+                libraryKeyMonitor: libraryKeyMonitor
+            )
+        }
+        return AppModel(
+            modelContainer: container,
+            userDefaults: UserDefaults(suiteName: UUID().uuidString)!
+        )
+    }
+
     private func makeItem(
         filename: String,
         receivedAt: Date,
@@ -200,5 +272,22 @@ final class AppModelQueryTests: XCTestCase {
                 minute: minute
             )
         )!
+    }
+}
+
+@MainActor
+private final class FakeLibraryKeyMonitor: LibraryKeyMonitoring {
+    private var handler: (@MainActor (LibraryNavigationCommand) -> Bool)?
+
+    func start(handler: @escaping @MainActor (LibraryNavigationCommand) -> Bool) {
+        self.handler = handler
+    }
+
+    func stop() {
+        handler = nil
+    }
+
+    func send(_ command: LibraryNavigationCommand) -> Bool {
+        handler?(command) ?? false
     }
 }

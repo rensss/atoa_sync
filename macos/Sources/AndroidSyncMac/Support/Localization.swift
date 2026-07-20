@@ -45,6 +45,8 @@ enum AppStringKey: String, CaseIterable {
     case categoryFiles
     case categoryRecent
     case categoryDeleted
+    case librarySummary
+    case storageUsedFormat
     case kindPhoto
     case kindVideo
     case kindFile
@@ -72,6 +74,9 @@ enum AppStringKey: String, CaseIterable {
     case pauseReceiving
     case startReceiving
     case copyUploadAddress
+    case showAddressQRCode
+    case scanAddressQRCode
+    case addressQRCodeUnavailable
     case openAndroidSync
     case openReceiveFolder
     case quitAndroidSync
@@ -126,6 +131,8 @@ enum AppStringKey: String, CaseIterable {
     case sort
     case inspector
     case layout
+    case gridView
+    case listView
     case receivingSummaryFormat
     case receivingProgressFormat
     case todayReceived
@@ -145,6 +152,8 @@ enum AppStrings {
             .categoryFiles: "其他文件",
             .categoryRecent: "最近接收",
             .categoryDeleted: "已删除",
+            .librarySummary: "媒体库概览",
+            .storageUsedFormat: "已占用 %@",
             .kindPhoto: "照片",
             .kindVideo: "视频",
             .kindFile: "文件",
@@ -172,6 +181,9 @@ enum AppStrings {
             .pauseReceiving: "暂停接收",
             .startReceiving: "开始接收",
             .copyUploadAddress: "复制上传地址",
+            .showAddressQRCode: "显示地址二维码",
+            .scanAddressQRCode: "使用手机相机扫码，打开 Android Sync 后会自动更新接收地址。",
+            .addressQRCodeUnavailable: "无法生成地址二维码",
             .openAndroidSync: "打开 Android Sync",
             .openReceiveFolder: "打开接收文件夹",
             .quitAndroidSync: "退出 Android Sync",
@@ -226,6 +238,8 @@ enum AppStrings {
             .sort: "排序",
             .inspector: "检查器",
             .layout: "布局",
+            .gridView: "网格视图",
+            .listView: "列表视图",
             .receivingSummaryFormat: "接收中 %d 个文件 · 预计 %@",
             .receivingProgressFormat: "同步进度 %d/%d · 接收中 %d 个 · 剩余 %@",
             .todayReceived: "今天已接收",
@@ -242,6 +256,8 @@ enum AppStrings {
             .categoryFiles: "Other Files",
             .categoryRecent: "Recently Received",
             .categoryDeleted: "Deleted",
+            .librarySummary: "Library Summary",
+            .storageUsedFormat: "%@ used",
             .kindPhoto: "Photo",
             .kindVideo: "Video",
             .kindFile: "File",
@@ -269,6 +285,9 @@ enum AppStrings {
             .pauseReceiving: "Pause Receiving",
             .startReceiving: "Start Receiving",
             .copyUploadAddress: "Copy Upload Address",
+            .showAddressQRCode: "Show Address QR Code",
+            .scanAddressQRCode: "Scan with the phone camera. Android Sync opens and updates the receiver address automatically.",
+            .addressQRCodeUnavailable: "Unable to Generate Address QR Code",
             .openAndroidSync: "Open Android Sync",
             .openReceiveFolder: "Open Receive Folder",
             .quitAndroidSync: "Quit Android Sync",
@@ -323,6 +342,8 @@ enum AppStrings {
             .sort: "Sort",
             .inspector: "Inspector",
             .layout: "Layout",
+            .gridView: "Grid View",
+            .listView: "List View",
             .receivingSummaryFormat: "Receiving %d files · about %@",
             .receivingProgressFormat: "Progress %d/%d · %d receiving · %@ left",
             .todayReceived: "Received today",

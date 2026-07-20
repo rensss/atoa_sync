@@ -34,12 +34,14 @@ import com.androidsync.app.android.AlbumPrefs;
 import com.androidsync.app.android.HttpFileUploader;
 import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.android.RemoteManifestClient;
+import com.androidsync.app.core.AddressConfiguration;
 import com.androidsync.app.core.AlbumFilter;
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncRunGate;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
+import com.androidsync.app.core.TaskWindow;
 import com.androidsync.app.ui.AlbumPickerView;
 import com.androidsync.app.ui.ConfirmSelectionView;
 import com.androidsync.app.ui.LibraryPageView;
@@ -113,14 +115,29 @@ public final class MainActivity extends Activity {
                     if (syncRuns.isActive()) {
                         driveTransferProgress();
                     } else {
-                        startSync();
+                        startSync(Collections.singleton(task.media().stableId()));
                     }
                 }
             }
+        }, new TransferCardView.StopHandler() {
+            @Override
+            public void stop() {
+                stopSync();
+            }
         });
         targetUrl = prefs().getString(KEY_TARGET_URL, "http://192.168.1.20:8765/uploads/");
+        applyAddressConfiguration(getIntent());
         render();
         ensureMediaPermissionThenScan();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (applyAddressConfiguration(intent)) {
+            render();
+        }
     }
 
     @Override
@@ -236,7 +253,7 @@ public final class MainActivity extends Activity {
                 if (destroyed) {
                     return;
                 }
-                queue.enqueueAll(media);
+                queue.reconcile(media);
                 int remoteMatches = 0;
                 String remoteMessage = "";
                 try {
@@ -268,14 +285,20 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void startSync() {
+    private void startSync(Set<String> selectedStableIds) {
         if (destroyed) {
             return;
         }
-        if (syncRuns.isActive()) {
-            syncRuns.cancel();
-            driveTransferProgress();
+        final Set<String> uploadSelection = new HashSet<>(selectedStableIds);
+        if (uploadSelection.isEmpty()) {
             return;
+        }
+        if (syncRuns.isActive()) {
+            stopSync();
+            return;
+        }
+        if (transferCard != null) {
+            transferCard.clearFailure();
         }
         final long syncRun = syncRuns.start();
         driveTransferProgress();
@@ -289,7 +312,7 @@ public final class MainActivity extends Activity {
                 List<SyncTask> uploadPlan = new ArrayList<>();
                 for (SyncTask task : snapshot) {
                     if ((task.status() == SyncStatus.WAITING || task.status() == SyncStatus.FAILED)
-                            && !confirmExcluded.contains(task.media().stableId())) {
+                            && uploadSelection.contains(task.media().stableId())) {
                         uploadPlan.add(task);
                     }
                 }
@@ -311,7 +334,19 @@ public final class MainActivity extends Activity {
                     postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
                     Exception uploadError = null;
                     try {
-                        uploader.upload(getContentResolver(), currentTask.media(), targetUrl, batchIndex, batchTotal);
+                        uploader.upload(
+                                getContentResolver(),
+                                currentTask.media(),
+                                targetUrl,
+                                batchIndex,
+                                batchTotal,
+                                new HttpFileUploader.CancellationSignal() {
+                                    @Override
+                                    public boolean isCancelled() {
+                                        return destroyed || !syncRuns.isActive(syncRun);
+                                    }
+                                }
+                        );
                     } catch (Exception error) {
                         uploadError = error;
                     }
@@ -322,6 +357,8 @@ public final class MainActivity extends Activity {
                     SyncStatus previousTerminalStatus = liveTask.status();
                     if (uploadError == null) {
                         queue.markDone(currentTask.id());
+                    } else if (!syncRuns.isActive(syncRun)) {
+                        queue.retry(currentTask.id());
                     } else {
                         queue.markFailed(currentTask.id(), cleanError(uploadError));
                     }
@@ -330,14 +367,51 @@ public final class MainActivity extends Activity {
                         continue;
                     }
                     postTaskUpdate(currentTask.id(), previousTerminalStatus, finalTask.status());
+                    if (!syncRuns.isActive(syncRun)) {
+                        break;
+                    }
                 }
-                postSyncFinished(syncRun);
+                if (syncRuns.isActive(syncRun)) {
+                    postSyncFinished(syncRun);
+                } else {
+                    postSyncStopped();
+                }
             }
         });
         if (!submitted && !destroyed) {
             syncRuns.finish(syncRun);
             driveTransferProgress();
         }
+    }
+
+    private void stopSync() {
+        if (!syncRuns.isActive()) {
+            return;
+        }
+        syncRuns.cancel();
+        if (transferCard != null) {
+            transferCard.showStopping();
+        }
+        Toast.makeText(this, "同步已停止", Toast.LENGTH_SHORT).show();
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!destroyed && !syncRuns.isActive() && "library".equals(screen)) {
+                    render();
+                }
+            }
+        }, 250L);
+    }
+
+    private void postSyncStopped() {
+        postTask(new Runnable() {
+            @Override
+            public void run() {
+                if (!syncRuns.isActive() && "library".equals(screen)) {
+                    render();
+                }
+            }
+        });
     }
 
     private void postTaskUpdate(
@@ -539,16 +613,10 @@ public final class MainActivity extends Activity {
             return;
         }
         SyncQueue.Summary summary = queue.summary();
-        List<SyncTask> active = new ArrayList<>();
-        long bytesRemaining = 0L;
-        for (SyncTask task : queue.tasks()) {
-            if (task.status() != SyncStatus.DONE) {
-                active.add(task);
-                bytesRemaining += task.media().sizeBytes();
-            }
-        }
+        TaskWindow active = queue.activeWindow(40);
+        long bytesRemaining = Math.max(0L, summary.totalBytes() - summary.syncedBytes());
         transferCard.showProgress(summary.done(), summary.total(), bytesRemaining, null);
-        transferCard.bindTasks(active);
+        transferCard.bindTasks(active.visibleTasks(), active.totalCount());
     }
 
     private List<MediaItem> computeVisibleItems() {
@@ -650,13 +718,19 @@ public final class MainActivity extends Activity {
     }
 
     private View confirmView() {
-        List<MediaItem> pending = pendingMedia();
+        final List<MediaItem> pending = pendingMedia();
         return new ConfirmSelectionView(this, widgets, thumbnailLoader).build(pending, confirmExcluded, new ConfirmSelectionView.ConfirmHost() {
             @Override
             public void onConfirm() {
+                Set<String> selected = new HashSet<>();
+                for (MediaItem item : pending) {
+                    if (!confirmExcluded.contains(item.stableId())) {
+                        selected.add(item.stableId());
+                    }
+                }
                 screen = "library";
                 render();
-                startSync();
+                startSync(selected);
             }
 
             @Override
@@ -788,10 +862,31 @@ public final class MainActivity extends Activity {
                     public void onClick(DialogInterface dialog, int which) {
                         targetUrl = input.getText().toString().trim();
                         prefs().edit().putString(KEY_TARGET_URL, targetUrl).apply();
+                        if (transferCard != null) {
+                            transferCard.clearFailure();
+                        }
                         render();
                     }
                 })
                 .show();
+    }
+
+    private boolean applyAddressConfiguration(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) {
+            return false;
+        }
+        String configuredTarget = AddressConfiguration.targetUrlFromDeepLink(
+                intent.getDataString()
+        );
+        if (configuredTarget == null) {
+            Toast.makeText(this, "二维码中的接收地址无效", Toast.LENGTH_LONG).show();
+            return false;
+        }
+        targetUrl = configuredTarget;
+        prefs().edit().putString(KEY_TARGET_URL, targetUrl).apply();
+        screen = "settings";
+        Toast.makeText(this, "接收地址已更新", Toast.LENGTH_SHORT).show();
+        return true;
     }
 
     private void openMedia(MediaItem media) {

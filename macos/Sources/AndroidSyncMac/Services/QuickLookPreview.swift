@@ -5,11 +5,14 @@ import AppKit
 protocol QuickLookPanel: AnyObject {
     var isVisible: Bool { get }
     var isKeyWindow: Bool { get }
+    var currentPreviewItemIndex: Int { get set }
 
     func present(
         dataSource: any QLPreviewPanelDataSource,
+        selectedIndex: Int,
         onVisibilityLost: @escaping @MainActor () -> Void
     )
+    func reloadData()
     func dismiss()
 }
 
@@ -20,23 +23,46 @@ protocol QuickLookPanelProviding {
 }
 
 @MainActor
-protocol QuickLookSpaceKeyMonitoring: AnyObject {
-    func start(handler: @escaping @MainActor () -> Bool)
+enum QuickLookKeyCommand {
+    case close
+    case previous
+    case next
+    case delete
+}
+
+@MainActor
+protocol QuickLookKeyMonitoring: AnyObject {
+    func start(handler: @escaping @MainActor (QuickLookKeyCommand) -> Bool)
     func stop()
 }
 
 @MainActor
-private final class AppKitQuickLookSpaceKeyMonitor: QuickLookSpaceKeyMonitoring {
+private final class AppKitQuickLookKeyMonitor: QuickLookKeyMonitoring {
     private var monitor: Any?
 
-    func start(handler: @escaping @MainActor () -> Bool) {
+    func start(handler: @escaping @MainActor (QuickLookKeyCommand) -> Bool) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard event.keyCode == 49, modifiers.isEmpty, !event.isARepeat else {
+            guard modifiers.isEmpty else {
                 return event
             }
-            return handler() ? nil : event
+
+            let command: QuickLookKeyCommand
+            switch event.keyCode {
+            case 49 where !event.isARepeat:
+                command = .close
+            case 123:
+                command = .previous
+            case 124:
+                command = .next
+            case 51 where !event.isARepeat,
+                 117 where !event.isARepeat:
+                command = .delete
+            default:
+                return event
+            }
+            return handler(command) ? nil : event
         }
     }
 
@@ -65,8 +91,14 @@ private final class AppKitQuickLookPanel: QuickLookPanel {
         panel.isKeyWindow
     }
 
+    var currentPreviewItemIndex: Int {
+        get { panel.currentPreviewItemIndex }
+        set { panel.currentPreviewItemIndex = newValue }
+    }
+
     func present(
         dataSource: any QLPreviewPanelDataSource,
+        selectedIndex: Int,
         onVisibilityLost: @escaping @MainActor () -> Void
     ) {
         stopObservingVisibility()
@@ -74,8 +106,12 @@ private final class AppKitQuickLookPanel: QuickLookPanel {
         startObservingVisibility()
         panel.dataSource = dataSource
         panel.reloadData()
-        panel.currentPreviewItemIndex = 0
+        panel.currentPreviewItemIndex = selectedIndex
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    func reloadData() {
+        panel.reloadData()
     }
 
     func dismiss() {
@@ -142,21 +178,44 @@ final class QuickLookPreview: NSObject {
     static let shared = QuickLookPreview()
 
     private let panelProvider: any QuickLookPanelProviding
-    private let spaceKeyMonitor: any QuickLookSpaceKeyMonitoring
+    private let keyMonitor: any QuickLookKeyMonitoring
     private var activePanel: (any QuickLookPanel)?
+    private var urls: [URL] = []
+    private var currentIndex = 0
+    private var onSelectionChange: (@MainActor (URL) -> Void)?
+    private var onDelete: (@MainActor (URL) async -> Bool)?
+    private var deletionInProgress = false
     private(set) var url: URL?
 
     init(
         panelProvider: any QuickLookPanelProviding = AppKitQuickLookPanelProvider(),
-        spaceKeyMonitor: any QuickLookSpaceKeyMonitoring = AppKitQuickLookSpaceKeyMonitor()
+        keyMonitor: any QuickLookKeyMonitoring = AppKitQuickLookKeyMonitor()
     ) {
         self.panelProvider = panelProvider
-        self.spaceKeyMonitor = spaceKeyMonitor
+        self.keyMonitor = keyMonitor
         super.init()
     }
 
     func show(_ url: URL) {
-        self.url = url
+        show([url], selectedIndex: 0)
+    }
+
+    func show(
+        _ urls: [URL],
+        selectedIndex: Int,
+        onSelectionChange: @escaping @MainActor (URL) -> Void = { _ in },
+        onDelete: @escaping @MainActor (URL) async -> Bool = { _ in false }
+    ) {
+        guard urls.indices.contains(selectedIndex) else {
+            close()
+            return
+        }
+        self.urls = urls
+        currentIndex = selectedIndex
+        url = urls[selectedIndex]
+        self.onSelectionChange = onSelectionChange
+        self.onDelete = onDelete
+
         let panel: any QuickLookPanel
         if let activePanel {
             panel = activePanel
@@ -168,20 +227,34 @@ final class QuickLookPreview: NSObject {
             panel = sharedPanel
             activePanel = sharedPanel
         }
-        panel.present(dataSource: self) { [weak self] in
+        panel.present(dataSource: self, selectedIndex: selectedIndex) { [weak self] in
             self?.clearPreviewState()
         }
-        installSpaceKeyMonitor()
+        installKeyMonitor()
     }
 
     func toggle(_ url: URL) {
+        toggle([url], selectedIndex: 0)
+    }
+
+    func toggle(
+        _ urls: [URL],
+        selectedIndex: Int,
+        onSelectionChange: @escaping @MainActor (URL) -> Void = { _ in },
+        onDelete: @escaping @MainActor (URL) async -> Bool = { _ in false }
+    ) {
         if let panel = activePanel, panel.isVisible {
             close(panel)
         } else if let panel = panelProvider.existingPanel(), panel.isVisible {
             activePanel = panel
             close(panel)
         } else {
-            show(url)
+            show(
+                urls,
+                selectedIndex: selectedIndex,
+                onSelectionChange: onSelectionChange,
+                onDelete: onDelete
+            )
         }
     }
 
@@ -202,8 +275,8 @@ final class QuickLookPreview: NSObject {
         clearPreviewState()
     }
 
-    private func installSpaceKeyMonitor() {
-        spaceKeyMonitor.start { [weak self] in
+    private func installKeyMonitor() {
+        keyMonitor.start { [weak self] command in
             guard let self,
                   let panel = self.activePanel,
                   panel.isVisible,
@@ -211,24 +284,96 @@ final class QuickLookPreview: NSObject {
             else {
                 return false
             }
-            self.close(panel)
+
+            switch command {
+            case .close:
+                self.close(panel)
+            case .previous:
+                self.move(by: -1, in: panel)
+            case .next:
+                self.move(by: 1, in: panel)
+            case .delete:
+                self.deleteCurrentItem(from: panel)
+            }
             return true
         }
     }
 
+    private func move(by offset: Int, in panel: any QuickLookPanel) {
+        let destination = min(max(currentIndex + offset, 0), urls.count - 1)
+        guard destination != currentIndex else { return }
+        currentIndex = destination
+        url = urls[destination]
+        panel.currentPreviewItemIndex = destination
+        onSelectionChange?(urls[destination])
+    }
+
+    private func deleteCurrentItem(from panel: any QuickLookPanel) {
+        guard !deletionInProgress,
+              urls.indices.contains(currentIndex),
+              let onDelete
+        else {
+            return
+        }
+        deletionInProgress = true
+        let deletingURL = urls[currentIndex]
+
+        Task { @MainActor [weak self, weak panel] in
+            let deleted = await onDelete(deletingURL)
+            guard let self else { return }
+            self.deletionInProgress = false
+            guard deleted,
+                  let panel,
+                  panel.isVisible,
+                  let removedIndex = self.urls.firstIndex(of: deletingURL)
+            else {
+                return
+            }
+            self.removePreview(at: removedIndex, from: panel)
+        }
+    }
+
+    private func removePreview(at removedIndex: Int, from panel: any QuickLookPanel) {
+        let previouslySelectedURL = url
+        let removedURL = urls[removedIndex]
+        urls.remove(at: removedIndex)
+        guard !urls.isEmpty else {
+            close(panel)
+            return
+        }
+
+        if previouslySelectedURL == removedURL {
+            currentIndex = min(removedIndex, urls.count - 1)
+        } else if let previouslySelectedURL,
+                  let retainedIndex = urls.firstIndex(of: previouslySelectedURL) {
+            currentIndex = retainedIndex
+        } else {
+            currentIndex = min(removedIndex, urls.count - 1)
+        }
+        url = urls[currentIndex]
+        panel.reloadData()
+        panel.currentPreviewItemIndex = currentIndex
+        onSelectionChange?(urls[currentIndex])
+    }
+
     private func clearPreviewState() {
-        spaceKeyMonitor.stop()
+        keyMonitor.stop()
         activePanel = nil
+        urls.removeAll()
+        currentIndex = 0
+        onSelectionChange = nil
+        onDelete = nil
+        deletionInProgress = false
         url = nil
     }
 }
 
 extension QuickLookPreview: @preconcurrency QLPreviewPanelDataSource {
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        url == nil ? 0 : 1
+        urls.count
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> any QLPreviewItem {
-        url! as NSURL
+        urls[index] as NSURL
     }
 }

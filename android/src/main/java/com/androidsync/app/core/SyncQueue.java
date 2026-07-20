@@ -20,6 +20,20 @@ public final class SyncQueue {
         }
     }
 
+    /**
+     * 让队列与当前相册白名单的扫描结果保持一致，同时保留仍在范围内任务的状态。
+     * 这样重新选择相册后，旧相册的等待/失败任务不会混入下一次同步。
+     */
+    public synchronized void reconcile(List<MediaItem> mediaItems) {
+        Map<String, SyncTask> next = new LinkedHashMap<>();
+        for (MediaItem item : mediaItems) {
+            SyncTask existing = tasksByMediaId.get(item.stableId());
+            next.put(item.stableId(), existing == null ? SyncTask.waiting(item) : existing);
+        }
+        tasksByMediaId.clear();
+        tasksByMediaId.putAll(next);
+    }
+
     public synchronized List<SyncTask> tasks() {
         return Collections.unmodifiableList(new ArrayList<>(tasksByMediaId.values()));
     }
@@ -53,6 +67,22 @@ public final class SyncQueue {
                 break;
             }
             visible.add(task);
+        }
+        return TaskWindow.of(visible, total);
+    }
+
+    public synchronized TaskWindow activeWindow(int maxVisibleCount) {
+        int safeLimit = Math.max(0, maxVisibleCount);
+        List<SyncTask> visible = new ArrayList<>();
+        int total = 0;
+        for (SyncTask task : tasksByMediaId.values()) {
+            if (task.status() == SyncStatus.DONE) {
+                continue;
+            }
+            total++;
+            if (visible.size() < safeLimit) {
+                visible.add(task);
+            }
         }
         return TaskWindow.of(visible, total);
     }

@@ -19,7 +19,12 @@ struct AndroidSyncMacApp: App {
         do {
             let container = try ModelContainer(for: MediaItemEntity.self)
             modelContainer = container
-            _appModel = State(initialValue: AppModel(modelContainer: container))
+            _appModel = State(
+                initialValue: AppModel(
+                    modelContainer: container,
+                    libraryKeyMonitor: AppKitLibraryKeyMonitor()
+                )
+            )
         } catch {
             fatalError("Unable to create Android Sync database: \(error)")
         }
@@ -34,6 +39,7 @@ struct AndroidSyncMacApp: App {
                 .task { await appModel.launchIfNeeded() }
         }
         .modelContainer(modelContainer)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(after: .newItem) {
                 Button(appModel.text(.chooseReceiveFolderEllipsis)) {

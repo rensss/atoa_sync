@@ -19,7 +19,7 @@
 - [x] `AndroidSyncMacTests` 覆盖应用状态与本地化逻辑。
 - [x] `swift test --package-path macos` 在目标提交通过（75 个测试）。
 - [ ] 最终视觉/交互 QA 覆盖工具栏位置、本地化菜单、Inspector/搜索布局、缩略图与
-      空格 Quick Look（当前自动化会话无法捕获 macOS 显示画面）。
+      空格 Quick Look（已有局部 GUI 证据，完整矩阵仍未执行）。
 - [ ] 未观察到布局、本地化或 Quick Look 交互回归。
 
 ## 证据
@@ -28,7 +28,13 @@
 - 命令与结果：`swift test --package-path macos` 通过（75 个测试）；
   `swift build --package-path macos -c release` 通过；生成签名应用包版本 `0.1.2`、
   构建号 `35`，`codesign --verify --deep --strict` 通过。
-- 人工验证：未完成。当前自动化会话无法捕获 macOS 显示画面进行最终视觉/交互 QA。
+- 人工验证：全量矩阵未完成；下列局部 GUI 证据不能替代最终视觉/交互 QA。
+- 2026-07-20 B28 局部人工证据：真实窗口已确认重设计标题栏、状态/二维码菜单、单层
+  日期/排序菜单与筛选往返，接收服务最终恢复运行；此证据不覆盖双语、Inspector、
+  缩略图和 Quick Look 全量矩阵，因此退出标准仍未关闭。
+- 2026-07-20 B27 局部人工证据：真实 Quick Look 窗口已确认空格打开/关闭及右方向键
+  连续切换；完整 108 个 macOS 测试与应用 verify 通过。为避免破坏真实媒体，GUI
+  Delete 未执行，主媒体库方向键仍建议用实体键盘冒烟，因此退出标准仍未关闭。
 
 ## 风险
 

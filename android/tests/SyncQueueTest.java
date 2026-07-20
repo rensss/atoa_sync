@@ -21,6 +21,8 @@ public final class SyncQueueTest {
         findsTaskByIdForDetailScreens();
         thumbnailPolicyCapsGridAndPreviewRequests();
         recentWindowPreservesScannerNewestFirstOrder();
+        reconcileDropsMediaOutsideCurrentAlbumSelection();
+        activeWindowSkipsCompletedTasksAndStaysBounded();
         staleSyncRunCannotFinishNewRun();
         cancelledSyncRunCannotContinue();
     }
@@ -176,6 +178,37 @@ public final class SyncQueueTest {
         assertEquals(2, window.visibleTasks().size(), "recent window should cap visible rows");
         assertEquals("new.jpg", window.visibleTasks().get(0).media().displayName(), "recent window should preserve scanner newest-first order");
         assertEquals("middle.jpg", window.visibleTasks().get(1).media().displayName(), "recent window should preserve the complete limited order");
+    }
+
+    private static void reconcileDropsMediaOutsideCurrentAlbumSelection() {
+        SyncQueue queue = new SyncQueue();
+        MediaItem camera = item("23", "content://media/23", "camera.jpg", 2300L);
+        MediaItem downloads = item("24", "content://media/24", "downloads.jpg", 2400L);
+        queue.enqueueAll(List.of(camera, downloads));
+        queue.markDone(queue.tasks().get(0).id());
+
+        queue.reconcile(List.of(camera));
+
+        assertEquals(1, queue.tasks().size(), "reconcile should remove tasks outside the latest scan");
+        assertEquals("camera.jpg", queue.tasks().get(0).media().displayName(), "reconcile should keep selected media");
+        assertEquals(SyncStatus.DONE, queue.tasks().get(0).status(), "reconcile should preserve selected task state");
+    }
+
+    private static void activeWindowSkipsCompletedTasksAndStaysBounded() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(List.of(
+                item("25", "content://media/25", "done.jpg", 2500L),
+                item("26", "content://media/26", "waiting.jpg", 2600L),
+                item("27", "content://media/27", "failed.jpg", 2700L)
+        ));
+        queue.markDone(queue.tasks().get(0).id());
+        queue.markFailed(queue.tasks().get(2).id(), "network error");
+
+        TaskWindow window = queue.activeWindow(1);
+
+        assertEquals(1, window.visibleTasks().size(), "active window should cap visible rows");
+        assertEquals(2, window.totalCount(), "active window should count waiting and failed tasks only");
+        assertEquals("waiting.jpg", window.visibleTasks().get(0).media().displayName(), "active window should skip completed tasks");
     }
 
     private static void staleSyncRunCannotFinishNewRun() {

@@ -15,6 +15,9 @@ enum Theme {
     static let statusRunning = Color(red: 0.298, green: 0.851, blue: 0.392) // #4CD964
     static let statusFailed = Color(red: 1.0, green: 0.373, blue: 0.341)    // #FF5F57
     static let statusIdle = textSecondary
+    static let toolbarSurface = Color.white.opacity(0.055)
+    static let toolbarSurfacePressed = Color.white.opacity(0.11)
+    static let toolbarSelection = accent.opacity(0.18)
     static let cardGradient = LinearGradient(
         colors: [
             Color(red: 0.310, green: 0.486, blue: 0.941),                   // #4F7CF0
@@ -33,6 +36,10 @@ enum Theme {
     // 圆角
     static let radiusS: CGFloat = 6
     static let radiusL: CGFloat = 10
+
+    // 标题栏
+    static let toolbarIconSize: CGFloat = 28
+    static let toolbarDividerHeight: CGFloat = 16
 }
 
 extension Theme {

@@ -14,6 +14,8 @@ import android.widget.TextView;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -25,9 +27,14 @@ public final class TransferCardView {
         void retry(String taskId);
     }
 
+    public interface StopHandler {
+        void stop();
+    }
+
     private final Activity activity;
     private final Widgets widgets;
     private final RetryHandler retryHandler;
+    private final StopHandler stopHandler;
 
     private LinearLayout root;
     private TextView failureBanner;
@@ -36,12 +43,17 @@ public final class TransferCardView {
     private ProgressBar progressBar;
     private TextView statsText;
     private LinearLayout expandList;
+    private Button stopButton;
     private boolean expanded;
+    private List<SyncTask> boundTasks = Collections.emptyList();
+    private int boundTaskCount;
+    private int failureGeneration;
 
-    public TransferCardView(Activity activity, Widgets widgets, RetryHandler retryHandler) {
+    public TransferCardView(Activity activity, Widgets widgets, RetryHandler retryHandler, StopHandler stopHandler) {
         this.activity = activity;
         this.widgets = widgets;
         this.retryHandler = retryHandler;
+        this.stopHandler = stopHandler;
     }
 
     public View build() {
@@ -75,8 +87,22 @@ public final class TransferCardView {
                 new int[] { widgets.color(Theme.GRADIENT_START), widgets.color(Theme.GRADIENT_END) });
         gradient.setCornerRadius(widgets.dp(Theme.RADIUS_L));
         progressCard.setBackground(gradient);
+        LinearLayout heading = new LinearLayout(activity);
+        heading.setOrientation(LinearLayout.HORIZONTAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
         progressText = widgets.label("接收中", 14, "#FFFFFF");
-        progressCard.addView(progressText);
+        heading.addView(progressText, widgets.weightParams());
+        stopButton = widgets.smallButton("停止");
+        stopButton.setTextColor(widgets.color("#FFFFFF"));
+        stopButton.setBackground(widgets.rounded("#33404040", "#99FFFFFF", 1, 10));
+        stopButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                stopHandler.stop();
+            }
+        });
+        heading.addView(stopButton);
+        progressCard.addView(heading);
         progressBar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(6));
@@ -86,7 +112,11 @@ public final class TransferCardView {
             @Override
             public void onClick(View view) {
                 expanded = !expanded;
-                expandList.setVisibility(expanded && expandList.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+                if (expanded) {
+                    renderBoundTasks();
+                } else {
+                    expandList.setVisibility(View.GONE);
+                }
             }
         });
         LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -114,6 +144,7 @@ public final class TransferCardView {
 
     public void showProgress(int done, int total, long bytesRemaining, String speedText) {
         root.setVisibility(View.VISIBLE);
+        stopButton.setEnabled(true);
         String text = "接收中 " + done + "/" + total + " · 剩 " + Widgets.formatBytes(bytesRemaining);
         if (speedText != null) {
             text = text + " · " + speedText;
@@ -131,15 +162,39 @@ public final class TransferCardView {
         root.setVisibility(View.VISIBLE);
         failureBanner.setText(message);
         failureBanner.setVisibility(View.VISIBLE);
+        final int generation = ++failureGeneration;
+        failureBanner.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (generation == failureGeneration && failureBanner != null) {
+                    failureBanner.setVisibility(View.GONE);
+                }
+            }
+        }, 5000L);
     }
 
     public void clearFailure() {
+        failureGeneration++;
         failureBanner.setVisibility(View.GONE);
     }
 
-    public void bindTasks(List<SyncTask> active) {
+    public void bindTasks(List<SyncTask> active, int totalCount) {
+        boundTasks = new ArrayList<>(active);
+        boundTaskCount = totalCount;
+        if (expanded) {
+            renderBoundTasks();
+        }
+    }
+
+    public void showStopping() {
+        root.setVisibility(View.VISIBLE);
+        progressText.setText("正在停止…");
+        stopButton.setEnabled(false);
+    }
+
+    private void renderBoundTasks() {
         expandList.removeAllViews();
-        for (final SyncTask task : active) {
+        for (final SyncTask task : boundTasks) {
             LinearLayout item = new LinearLayout(activity);
             item.setOrientation(LinearLayout.HORIZONTAL);
             item.setGravity(Gravity.CENTER_VERTICAL);
@@ -171,14 +226,25 @@ public final class TransferCardView {
             }
             expandList.addView(item);
         }
+        int hiddenCount = Math.max(0, boundTaskCount - boundTasks.size());
+        if (hiddenCount > 0) {
+            TextView more = widgets.label("另有 " + hiddenCount + " 项未展开", 12, Theme.TEXT_SECONDARY);
+            more.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S),
+                    widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S));
+            expandList.addView(more);
+        }
         if (!expanded || expandList.getChildCount() == 0) {
             expandList.setVisibility(View.GONE);
+        } else {
+            expandList.setVisibility(View.VISIBLE);
         }
     }
 
     public void hide() {
         root.setVisibility(View.GONE);
         expanded = false;
+        boundTasks = Collections.emptyList();
+        boundTaskCount = 0;
         expandList.setVisibility(View.GONE);
     }
 
