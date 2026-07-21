@@ -67,6 +67,11 @@ Quick Look 一次持有当前筛选结果的文件 URL 快照和选中索引。�
 该监听器。AppKit 方向键自带的 `.numericPad`/`.function` 属系统事件标志，不能当作
 用户组合键拒绝；Command、Control、Option、Shift 组合继续交给原响应链。
 
+缩略图继续由系统 `QLThumbnailGenerator` 生成，但通过进程级 `ThumbnailLoader`
+统一请求。缓存键包含文件路径、显示尺寸和屏幕倍率；内存缓存同时受项目数和估算像素
+成本约束，相同在途请求只生成一次。方向键选中项只执行最小距离的 `scrollTo`，避免
+每次按键强制居中造成可见网格反复换页和解码任务抖动。
+
 ## 协议
 
 受支持的原生接收端端点：

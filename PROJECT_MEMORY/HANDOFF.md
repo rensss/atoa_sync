@@ -31,6 +31,14 @@ macOS 92 个测试和 `./macos/build_and_run.sh verify` 均通过。仍需执行
 
 ## 最新工作
 
+B31 macOS 首页方向键滚动缩略图性能优化已在 `main` 的 `8761ecf` 基线上完成并提交为
+`aa4cc87`。方向键选中项不再每次强制滚到屏幕中央，而是只做保持可见所需的最小距离滚动；
+新增进程级 `ThumbnailLoader`，以文件路径、显示尺寸和屏幕倍率为键，使用 256 项/
+约 96 MiB 有界缓存并合并相同在途 Quick Look 请求。定向 3 个和完整 113 个测试、
+应用 verify 均通过；真实首页连续向下 12 次约 2.3 秒完成，最终可见区域仅观察到
+1 个未就绪缩略图。详见
+`batches/2026-07-21-B31-macos-thumbnail-navigation-performance.md` 和风险 R-013。
+
 B30 macOS 标题栏搜索交互已在 B29 工作区上完成并提交为 `067a501`。`ContentView`
 显式持有搜索展示状态：初始状态为标题栏最右侧放大镜按钮，激活后由独立工具栏项原位
 展开搜索框；继续绑定既有 `AppModel.searchText`，实时文件名筛选、清除/取消、Command-F

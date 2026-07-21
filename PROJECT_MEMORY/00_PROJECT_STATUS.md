@@ -8,6 +8,7 @@
 - 主分支：`main`
 - B24–B28 实现提交：`54ff01b`。
 - B27 后续键盘导航修复及 B29–B30 实现提交：`067a501`。
+- B31 首页方向键滚动缩略图性能优化提交：`aa4cc87`。
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
 - `main` 最近治理批次提交：`49ffee0`（B08 里程碑）
 - 主线集成合并提交：`8a09aa0`（B03 集成合并）
@@ -138,8 +139,8 @@
   回归后修复了物理方向键自带系统 modifier 被误过滤及网格列数未更新的问题。定向
   Quick Look 12 个、AppModelQuery 9 个和完整 110 个测试通过，应用 verify 通过；
   真实窗口已确认 Quick Look 连续切换和主网格四方向移动/跨行。Delete 由临时仓库/
-  tombstone 集成测试覆盖，未删除真实媒体。初始实现已提交为 `54ff01b`，本轮修复尚未
-  提交，详见
+  tombstone 集成测试覆盖，未删除真实媒体。初始实现已提交为 `54ff01b`，后续键盘
+  修复已提交为 `067a501`，详见
   `PROJECT_MEMORY/batches/2026-07-20-B27-macos-quick-look-navigation-delete.md`。
 - B28 macOS 标题栏重设计已在同一工作基线上完成本地实现：隐藏重复窗口标题，把分类、
   数量和接收状态合成左侧状态菜单，把接收、二维码、上下文删除、筛选/排序、布局、
@@ -160,6 +161,11 @@
   Escape 清空/收起均经真实窗口验证；macOS 110 个测试和应用 verify 通过。实现提交为
   `067a501`，详见
   `PROJECT_MEMORY/batches/2026-07-21-B30-macos-collapsible-toolbar-search.md`。
+- B31 macOS 首页方向键滚动缩略图性能优化已在 `8761ecf` 基线上完成本地实现：选中项
+  改为最小距离滚动，缩略图使用 256 项/约 96 MiB 的有界进程缓存并合并相同在途请求。
+  定向 3 个和完整 113 个测试通过，应用 verify 通过；真实网格连续下移 12 次约 2.3
+  秒完成，最终可见区域仅观察到 1 个未就绪缩略图。实现提交为 `aa4cc87`，详见
+  `PROJECT_MEMORY/batches/2026-07-21-B31-macos-thumbnail-navigation-performance.md`。
 
 ## 开放工作
 

@@ -16,6 +16,7 @@
 | R-010 | Low | 开放 | 命令行 Android 构建依赖本地安装的 SDK 工具和路径，降低可复现性。 | 记录前置条件，并考虑固定 CI 环境；不要轻率替换当前构建系统。 |
 | R-011 | High | 已缓解（B09，提交 `039af65`） | SwiftData `@Model` 属性若使用 NSManagedObject 保留名（如 `deleted`），`ModelContext.save()` 会静默丢弃写入值，导致 UI 状态与 manifest 永久不一致（已删除条目复活）。 | 实体属性避开 Core Data/NSManagedObject 保留名；`MediaItemEntity` 已改用 `removed` 并有回归测试 `AppModelDeleteTests` 守护。新增实体属性时核对保留名。 |
 | R-012 | Medium | 已接受，受约束（B24） | Android 自定义 scheme 可被不可信二维码或本机其他应用调用，直接把后续上传目标改到其他 HTTP/HTTPS 接收端。 | 仅注册固定 `androidsync://configure` host，只接受可解析且带 host 的 HTTP/HTTPS URL；更新后显示 Toast 并进入可见的设置页。文档要求只扫描可信电脑二维码；未来若扩大安全边界，应改用可验证 App Link、配对码或用户确认。 |
+| R-013 | Medium | 已缓解（B31，提交 `aa4cc87`） | macOS 连续滚动时若重复生成已见缩略图，可能造成解码积压、占位图延迟和无界内存压力。 | 使用按路径/尺寸/倍率区分的有界内存缓存，合并同一请求并保持 LazyVGrid；保留缓存和并发合并测试。 |
 
 ## 已关闭风险
 
