@@ -184,7 +184,7 @@ struct LibraryView: View {
         with proxy: ScrollViewProxy
     ) {
         guard let id else { return }
-        proxy.scrollTo(id, anchor: .center)
+        proxy.scrollTo(id)
     }
 
     @ViewBuilder

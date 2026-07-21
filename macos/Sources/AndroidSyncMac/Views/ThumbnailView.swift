@@ -1,11 +1,21 @@
 import AppKit
-import QuickLookThumbnailing
 import SwiftUI
 
 struct ThumbnailView: View {
     let item: MediaItemEntity
     let size: CGSize
+    private let loader: ThumbnailLoader
     @State private var image: NSImage?
+
+    init(
+        item: MediaItemEntity,
+        size: CGSize,
+        loader: ThumbnailLoader = .shared
+    ) {
+        self.item = item
+        self.size = size
+        self.loader = loader
+    }
 
     var body: some View {
         ZStack {
@@ -25,21 +35,11 @@ struct ThumbnailView: View {
         .clipped()
         .task(id: item.filePath) {
             guard !item.removed else { return }
-            let request = QLThumbnailGenerator.Request(
-                fileAt: item.fileURL,
+            image = await loader.image(
+                for: item.fileURL,
                 size: size,
-                scale: NSScreen.main?.backingScaleFactor ?? 2,
-                representationTypes: .thumbnail
+                scale: NSScreen.main?.backingScaleFactor ?? 2
             )
-            image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(
-                for: request
-            ).nsImage
         }
-    }
-}
-
-private extension QLThumbnailRepresentation {
-    var nsImage: NSImage {
-        NSImage(cgImage: cgImage, size: CGSize(width: cgImage.width, height: cgImage.height))
     }
 }
