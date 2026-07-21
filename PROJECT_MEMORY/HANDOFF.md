@@ -31,7 +31,7 @@ macOS 92 个测试和 `./macos/build_and_run.sh verify` 均通过。仍需执行
 
 ## 最新工作
 
-B30 macOS 标题栏搜索交互已在 B29 未提交工作区上完成本地实现，尚未提交。`ContentView`
+B30 macOS 标题栏搜索交互已在 B29 工作区上完成并提交为 `067a501`。`ContentView`
 显式持有搜索展示状态：初始状态为标题栏最右侧放大镜按钮，激活后由独立工具栏项原位
 展开搜索框；继续绑定既有 `AppModel.searchText`，实时文件名筛选、清除/取消、Command-F
 和文本焦点行为保持；展开输入使用原生 `NSSearchField`，确保鼠标或快捷键激活后立即
@@ -42,8 +42,8 @@ B30 macOS 标题栏搜索交互已在 B29 未提交工作区上完成本地实�
 Command-F 入口、直接输入、实时筛选、失焦收起及 Escape 清空/收起。详见
 `batches/2026-07-21-B30-macos-collapsible-toolbar-search.md`。
 
-B29 macOS 标题栏分类胶囊移除已在 `main` 的 `9269afc` 基线上完成本地实现，尚未
-提交。macOS 26 会自动给 `.navigation` 工具栏项套用 Liquid Glass，纯文本仍呈胶囊；
+B29 macOS 标题栏分类胶囊移除已在 `main` 的 `9269afc` 基线上完成并提交为 `067a501`。
+macOS 26 会自动给 `.navigation` 工具栏项套用 Liquid Glass，纯文本仍呈胶囊；
 当前已删除这份与侧栏重复的“全部项目 624”，侧栏选中行继续显示分类与数量。接收状态
 菜单移入统一控制条并使用状态圆点入口，暂停/开始、复制地址和 URL 详情保持不变。
 完整 108 个测试、应用 verify 和真实窗口检查通过。详见
@@ -65,7 +65,7 @@ B27 macOS Quick Look 连续预览与键盘删除已在 `main` 的 `b0092d1` 工�
 系统 modifier 被误过滤，以及网格宽度未稳定更新导致上下键不能按列跨行的问题。
 定向 Quick Look 12 个、AppModelQuery 9 个和完整 110 个测试通过，应用 verify 通过；
 真实窗口已确认 Quick Look 连续切换及主网格四方向移动/跨行。为避免破坏真实媒体，
-Delete 使用临时仓库/tombstone 集成测试验证。本轮修复尚未提交。详见
+Delete 使用临时仓库/tombstone 集成测试验证。本轮修复提交为 `067a501`。详见
 `batches/2026-07-20-B27-macos-quick-look-navigation-delete.md`。
 
 B26 macOS 侧边栏媒体库概览已在 `main` 的 `b0092d1` 工作基线上完成并提交为
