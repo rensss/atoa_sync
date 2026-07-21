@@ -1,23 +1,181 @@
+import AppKit
 import SwiftUI
 
 struct LibraryToolbar: ToolbarContent {
     @Bindable var model: AppModel
+    @Binding var searchPresented: Bool
 
     var body: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            StatusCapsuleView(
-                model: model,
-                categoryTitle: model.receiveDirectory == nil
-                    ? nil
-                    : model.category.title(using: model.language),
-                itemCount: model.receiveDirectory == nil
-                    ? nil
-                    : model.filteredItems.count
-            )
-        }
-
         ToolbarItem(placement: .primaryAction) {
             LibraryToolbarControlStrip(model: model)
+        }
+
+        if model.receiveDirectory != nil {
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    searchControl
+                }
+                .sharedBackgroundVisibility(
+                    searchPresented ? .visible : .hidden
+                )
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    searchControl
+                }
+            }
+        }
+    }
+
+    private var searchControl: some View {
+        LibrarySearchControl(
+            model: model,
+            isPresented: $searchPresented
+        )
+    }
+}
+
+private struct LibrarySearchControl: View {
+    @Bindable var model: AppModel
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        Group {
+            if isPresented {
+                searchField
+            } else {
+                Button(action: presentSearch) {
+                    Image(systemName: "magnifyingglass")
+                        .frame(
+                            width: Theme.toolbarIconSize,
+                            height: Theme.toolbarIconSize
+                        )
+                        .contentShape(
+                            RoundedRectangle(cornerRadius: Theme.radiusS)
+                        )
+                }
+                .buttonStyle(ToolbarIconButtonStyle())
+                .keyboardShortcut("f", modifiers: .command)
+                .help(model.text(.searchFilenames))
+                .accessibilityLabel(model.text(.searchFilenames))
+            }
+        }
+    }
+
+    private var searchField: some View {
+        LibrarySearchTextField(
+            text: $model.searchText,
+            isPresented: $isPresented,
+            prompt: model.text(.searchFilenames)
+        )
+        .frame(width: 220, height: Theme.toolbarIconSize)
+    }
+
+    private func presentSearch() {
+        isPresented = true
+    }
+}
+
+private struct LibrarySearchTextField: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isPresented: Bool
+    let prompt: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let searchField = NSSearchField()
+        searchField.delegate = context.coordinator
+        searchField.placeholderString = prompt
+        searchField.sendsSearchStringImmediately = true
+        searchField.focusRingType = .none
+        context.coordinator.requestFocus(for: searchField)
+        return searchField
+    }
+
+    func updateNSView(_ searchField: NSSearchField, context: Context) {
+        context.coordinator.parent = self
+        searchField.placeholderString = prompt
+        if searchField.stringValue != text {
+            searchField.stringValue = text
+        }
+        context.coordinator.requestFocus(for: searchField)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var parent: LibrarySearchTextField
+        private var allowsAutomaticDismissal = false
+        private var focusRequested = false
+
+        init(parent: LibrarySearchTextField) {
+            self.parent = parent
+        }
+
+        func requestFocus(for searchField: NSSearchField) {
+            guard !focusRequested else { return }
+            DispatchQueue.main.async { [weak self, weak searchField] in
+                guard let self,
+                      let searchField,
+                      let window = searchField.window
+                else {
+                    return
+                }
+                focusRequested = window.makeFirstResponder(searchField)
+                // Toolbar relayout can emit a transient end-editing callback
+                // while replacing the button with this field.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    [weak self, weak searchField] in
+                    guard let self,
+                          let searchField,
+                          self.parent.isPresented,
+                          let window = searchField.window
+                    else {
+                        return
+                    }
+                    if searchField.currentEditor() == nil {
+                        self.focusRequested = window.makeFirstResponder(searchField)
+                    }
+                    self.allowsAutomaticDismissal = self.focusRequested
+                }
+            }
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let searchField = notification.object as? NSSearchField else {
+                return
+            }
+            parent.text = searchField.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard allowsAutomaticDismissal,
+                  notification.object is NSSearchField
+            else {
+                return
+            }
+            parent.isPresented = false
+        }
+
+        func control(
+            _ control: NSControl,
+            textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else {
+                return false
+            }
+
+            if parent.text.isEmpty {
+                parent.isPresented = false
+                control.window?.makeFirstResponder(nil)
+            } else {
+                parent.text = ""
+                control.stringValue = ""
+            }
+            return true
         }
     }
 }
@@ -28,12 +186,16 @@ private struct LibraryToolbarControlStrip: View {
 
     var body: some View {
         HStack(spacing: Theme.spacingXS) {
+            StatusCapsuleView(model: model)
+
             if model.receiveDirectory != nil {
                 receiverControls
                 ToolbarDivider()
                 LibraryOptionsMenu(model: model)
                 ToolbarDivider()
                 layoutControls
+                ToolbarDivider()
+            } else {
                 ToolbarDivider()
             }
 

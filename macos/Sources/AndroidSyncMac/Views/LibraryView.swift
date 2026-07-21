@@ -32,17 +32,6 @@ struct LibraryView: View {
         .focusable()
         .focused($libraryFocused)
         .focusEffectDisabled()
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: LibraryWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
-            }
-        }
-        .onPreferenceChange(LibraryWidthPreferenceKey.self) {
-            model.libraryGridColumnCount = Self.gridColumnCount(for: $0)
-        }
         .onChange(of: libraryFocused) { _, focused in
             model.libraryKeyboardNavigationEnabled = focused
         }
@@ -84,44 +73,52 @@ struct LibraryView: View {
     }
 
     private var grid: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVGrid(
-                    columns: [
-                        GridItem(
-                            .adaptive(
-                                minimum: Theme.Thumb.gridCell,
-                                maximum: Theme.Thumb.gridCell
-                            ),
-                            spacing: Theme.Thumb.gridGap
-                        )
-                    ],
-                    spacing: Theme.Thumb.gridGap
-                ) {
-                    ForEach(model.filteredItems) { item in
-                        MediaGridItem(
-                            model: model,
-                            item: item,
-                            selected: model.selectedIDs.contains(item.id),
-                            onSelect: {
-                                model.select(
-                                    item.id,
-                                    additive: NSEvent.modifierFlags.contains(.command)
-                                )
-                                libraryFocused = true
-                                model.libraryKeyboardNavigationEnabled = true
-                            },
-                            onPreview: { model.preview(item) },
-                            onReveal: { model.reveal(item) }
-                        )
-                        .id(item.id)
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(
+                                .adaptive(
+                                    minimum: Theme.Thumb.gridCell,
+                                    maximum: Theme.Thumb.gridCell
+                                ),
+                                spacing: Theme.Thumb.gridGap
+                            )
+                        ],
+                        spacing: Theme.Thumb.gridGap
+                    ) {
+                        ForEach(model.filteredItems) { item in
+                            MediaGridItem(
+                                model: model,
+                                item: item,
+                                selected: model.selectedIDs.contains(item.id),
+                                onSelect: {
+                                    model.select(
+                                        item.id,
+                                        additive: NSEvent.modifierFlags.contains(.command)
+                                    )
+                                    libraryFocused = true
+                                    model.libraryKeyboardNavigationEnabled = true
+                                },
+                                onPreview: { model.preview(item) },
+                                onReveal: { model.reveal(item) }
+                            )
+                            .id(item.id)
+                        }
                     }
+                    .padding(Theme.spacingS)
                 }
-                .padding(Theme.spacingS)
-            }
-            .background(Theme.bg)
-            .onChange(of: model.libraryScrollTargetID) { _, id in
-                scrollToSelection(id, with: proxy)
+                .background(Theme.bg)
+                .onAppear {
+                    updateGridColumnCount(for: geometry.size.width)
+                }
+                .onChange(of: geometry.size.width) { _, width in
+                    updateGridColumnCount(for: width)
+                }
+                .onChange(of: model.libraryScrollTargetID) { _, id in
+                    scrollToSelection(id, with: proxy)
+                }
             }
         }
     }
@@ -178,6 +175,10 @@ struct LibraryView: View {
         )
     }
 
+    private func updateGridColumnCount(for libraryWidth: CGFloat) {
+        model.libraryGridColumnCount = Self.gridColumnCount(for: libraryWidth)
+    }
+
     private func scrollToSelection(
         _ id: UUID?,
         with proxy: ScrollViewProxy
@@ -205,14 +206,6 @@ struct LibraryView: View {
             return false
         }
         return responder is NSTextView || responder is NSTextField
-    }
-}
-
-private struct LibraryWidthPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 

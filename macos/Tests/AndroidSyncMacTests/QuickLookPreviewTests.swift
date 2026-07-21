@@ -1,4 +1,5 @@
 import AndroidSyncCore
+import AppKit
 import Foundation
 import QuickLookUI
 import SwiftData
@@ -147,6 +148,24 @@ final class QuickLookPreviewTests: XCTestCase {
         XCTAssertEqual(selectedURLs, [urls[2], urls[1]])
         XCTAssertEqual(panel.presentCount, 1)
         XCTAssertEqual(panel.reloadCount, 0)
+    }
+
+    func testQuickLookKeyMonitorAcceptsSystemArrowFlags() {
+        XCTAssertEqual(
+            AppKitQuickLookKeyMonitor.command(
+                forKeyCode: 124,
+                modifierFlags: [.numericPad, .function],
+                isRepeat: false
+            ),
+            .next
+        )
+        XCTAssertNil(
+            AppKitQuickLookKeyMonitor.command(
+                forKeyCode: 123,
+                modifierFlags: [.numericPad, .option],
+                isRepeat: false
+            )
+        )
     }
 
     func testDeleteKeyRemovesCurrentItemAfterDeletionSucceeds() async {

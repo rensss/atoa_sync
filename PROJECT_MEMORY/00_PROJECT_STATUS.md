@@ -1,12 +1,14 @@
 # 项目状态
 
-最后复核：2026-07-20
+最后复核：2026-07-21
 
 ## 基线
 
 - 产品版本：`0.1.2`
 - 主分支：`main`
 - B24–B28 实现提交：`54ff01b`。
+- B29 标题栏分类胶囊移除为基于 `9269afc` 的工作区未提交实现。
+- B30 搜索按钮显式折叠行为为叠加在 B29 上的工作区未提交实现。
 - 远端：`origin`，地址为 `git@github.com:rensss/atoa_sync.git`
 - `main` 最近治理批次提交：`49ffee0`（B08 里程碑）
 - 主线集成合并提交：`8a09aa0`（B03 集成合并）
@@ -133,10 +135,12 @@
   `PROJECT_MEMORY/batches/2026-07-14-B26-macos-sidebar-library-summary.md`。
 - B27 macOS Quick Look 连续预览与键盘删除已在同一工作基线上完成本地实现：预览
   一次持有当前筛选结果，左右方向键只更新系统面板索引而不重复 present/reload；
-  Quick Look 与媒体库均支持 Delete，继续复用 repository/tombstone 删除路径。定向
-  11 个测试和完整 108 个测试通过，应用 verify 通过；真实窗口已确认空格打开/关闭
-  Quick Look 及右方向键连续切换。Delete 由临时仓库/tombstone 集成测试覆盖，未删除
-  真实媒体。实现已提交为 `54ff01b`，详见
+  Quick Look 与媒体库均支持 Delete，继续复用 repository/tombstone 删除路径。用户
+  回归后修复了物理方向键自带系统 modifier 被误过滤及网格列数未更新的问题。定向
+  Quick Look 12 个、AppModelQuery 9 个和完整 110 个测试通过，应用 verify 通过；
+  真实窗口已确认 Quick Look 连续切换和主网格四方向移动/跨行。Delete 由临时仓库/
+  tombstone 集成测试覆盖，未删除真实媒体。初始实现已提交为 `54ff01b`，本轮修复尚未
+  提交，详见
   `PROJECT_MEMORY/batches/2026-07-20-B27-macos-quick-look-navigation-delete.md`。
 - B28 macOS 标题栏重设计已在同一工作基线上完成本地实现：隐藏重复窗口标题，把分类、
   数量和接收状态合成左侧状态菜单，把接收、二维码、上下文删除、筛选/排序、布局、
@@ -144,6 +148,18 @@
   测试、应用 verify 和 diff 检查通过；真实窗口已检查标题栏、状态/二维码菜单和日期
   筛选往返，接收服务最终恢复运行。实现已提交为 `54ff01b`，详见
   `PROJECT_MEMORY/batches/2026-07-20-B28-macos-titlebar-redesign.md`。
+- B29 macOS 标题栏后续修正已在 `9269afc` 基线上完成本地实现：移除系统自动套用
+  Liquid Glass 的“全部项目 624”分类胶囊，分类与数量只在侧栏选中行显示；接收状态
+  菜单收进统一控制条并改为状态圆点入口。macOS 108 个测试和应用 verify 通过，真实
+  窗口确认胶囊已消失且状态菜单仍含暂停、复制地址和当前 URL。实现尚未提交，详见
+  `PROJECT_MEMORY/batches/2026-07-20-B29-macos-titlebar-remove-category-capsule.md`。
+- B30 macOS 标题栏搜索交互已在 B29 工作区上完成本地实现：搜索默认明确保持为最右侧
+  独立放大镜按钮；macOS 26 使用弹性 `ToolbarSpacer` 把它推到窗口最右侧，并避免与
+  主操作组共用一整块 Liquid Glass；独立搜索项在收起时隐藏系统共享背景，只显示裸
+  放大镜，展开后恢复输入框边界。搜索文本继续绑定既有查询逻辑。
+  搜索框失焦会自动收起并保留已有查询。Command-F、直接输入、实时筛选及两段式
+  Escape 清空/收起均经真实窗口验证；macOS 110 个测试和应用 verify 通过。实现尚未提交，详见
+  `PROJECT_MEMORY/batches/2026-07-21-B30-macos-collapsible-toolbar-search.md`。
 
 ## 开放工作
 

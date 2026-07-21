@@ -1,6 +1,6 @@
 # 交接
 
-最后更新：2026-07-20
+最后更新：2026-07-21
 
 ## 从这里开始
 
@@ -31,6 +31,24 @@ macOS 92 个测试和 `./macos/build_and_run.sh verify` 均通过。仍需执行
 
 ## 最新工作
 
+B30 macOS 标题栏搜索交互已在 B29 未提交工作区上完成本地实现，尚未提交。`ContentView`
+显式持有搜索展示状态：初始状态为标题栏最右侧放大镜按钮，激活后由独立工具栏项原位
+展开搜索框；继续绑定既有 `AppModel.searchText`，实时文件名筛选、清除/取消、Command-F
+和文本焦点行为保持；展开输入使用原生 `NSSearchField`，确保鼠标或快捷键激活后立即
+成为 first responder。用户截图反馈搜索仍与主操作组熔成超长玻璃胶囊后，macOS 26
+路径增加弹性 `ToolbarSpacer`，并只在收起状态隐藏独立搜索项的系统共享背景；现在
+窗口顶部最右侧默认是裸放大镜，展开后恢复正常输入边界。完整 110 个测试和应用 verify
+通过；搜索框失去焦点时会自动收起并保留查询；真实窗口已验证两种视觉状态、点击与
+Command-F 入口、直接输入、实时筛选、失焦收起及 Escape 清空/收起。详见
+`batches/2026-07-21-B30-macos-collapsible-toolbar-search.md`。
+
+B29 macOS 标题栏分类胶囊移除已在 `main` 的 `9269afc` 基线上完成本地实现，尚未
+提交。macOS 26 会自动给 `.navigation` 工具栏项套用 Liquid Glass，纯文本仍呈胶囊；
+当前已删除这份与侧栏重复的“全部项目 624”，侧栏选中行继续显示分类与数量。接收状态
+菜单移入统一控制条并使用状态圆点入口，暂停/开始、复制地址和 URL 详情保持不变。
+完整 108 个测试、应用 verify 和真实窗口检查通过。详见
+`batches/2026-07-20-B29-macos-titlebar-remove-category-capsule.md`。
+
 B28 macOS 标题栏重设计已在 `main` 的 `b0092d1` 工作基线上完成并提交为 `54ff01b`。
 主窗口隐藏重复应用标题；左侧状态菜单合并当前分类、筛选后数量和接收状态；右侧统一
 控制条保留暂停/开始接收、地址二维码、上下文删除、筛选/排序、网格/列表、设置和
@@ -43,9 +61,11 @@ B27 macOS Quick Look 连续预览与键盘删除已在 `main` 的 `b0092d1` 工�
 并提交为 `54ff01b`。空格预览现在持有当前筛选结果的稳定 URL 快照，左右方向键直接
 更新系统面板索引和媒体库选中项，不重复 present/reload；Quick Look 与获得焦点的
 媒体库均支持 Delete，并继续走 `LibraryRepository`/tombstone 删除路径。定向 11 个
-测试和完整 108 个测试通过，应用 verify 通过；真实窗口已确认空格打开/关闭 Quick
-Look 及右方向键连续切换。为避免破坏真实媒体，Delete 使用临时仓库/tombstone 集成
-测试验证；主媒体库方向键仍建议用实体键盘补做一次冒烟。详见
+测试的初始实现已提交；用户回归后又修复物理方向键的 `.numericPad`/`.function`
+系统 modifier 被误过滤，以及网格宽度未稳定更新导致上下键不能按列跨行的问题。
+定向 Quick Look 12 个、AppModelQuery 9 个和完整 110 个测试通过，应用 verify 通过；
+真实窗口已确认 Quick Look 连续切换及主网格四方向移动/跨行。为避免破坏真实媒体，
+Delete 使用临时仓库/tombstone 集成测试验证。本轮修复尚未提交。详见
 `batches/2026-07-20-B27-macos-quick-look-navigation-delete.md`。
 
 B26 macOS 侧边栏媒体库概览已在 `main` 的 `b0092d1` 工作基线上完成并提交为

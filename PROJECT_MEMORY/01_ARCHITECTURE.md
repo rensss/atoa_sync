@@ -64,7 +64,8 @@ Quick Look 一次持有当前筛选结果的文件 URL 快照和选中索引。�
 转交 `LibraryRepository`，成功后才从预览数据源移除项目并选择相邻项。
 主媒体库方向键由应用级单一 AppKit 本地事件监听器路由到 `AppModel`：网格上下按
 当前可见列数跨行，列表逐项移动；搜索/重命名输入和 Quick Look key window 会跳过
-该监听器。
+该监听器。AppKit 方向键自带的 `.numericPad`/`.function` 属系统事件标志，不能当作
+用户组合键拒绝；Command、Control、Option、Shift 组合继续交给原响应链。
 
 ## 协议
 

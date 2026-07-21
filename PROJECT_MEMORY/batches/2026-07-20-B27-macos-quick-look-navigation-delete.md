@@ -52,18 +52,23 @@ git diff --check
 
 结果：
 
-- 定向 `QuickLookPreviewTests` 运行 11 个测试并全部通过，包括方向键切换不重复
+- 定向 `QuickLookPreviewTests` 运行 12 个测试并全部通过，包括方向键切换不重复
   present/reload、Delete 删除后选择相邻项，以及真实 `LibraryRepository` tombstone
-  删除集成。
-- 完整 `swift test --package-path macos` 运行 108 个测试，全部通过。
+  删除集成；`AppModelQueryTests` 9 个测试全部通过。
+- 完整 `swift test --package-path macos` 运行 110 个测试，全部通过。
 - `./macos/build_and_run.sh verify` 通过，应用包完成构建和签名替换。
 - `git diff --check` 通过。
 - 审查修复了 Backspace key code 未正确受 `isARepeat` 约束的问题；修复后编译警告消失。
 - 真实窗口已确认空格打开/关闭 Quick Look，右方向键从
   `MVIMG_20260708_125055.jpg` 连续切换到 `wx_camera_1783417673985.jpg`。
+- 用户回归发现主界面物理方向键无效。根因是 AppKit 方向键事件自带 `.numericPad`/
+  `.function` 系统 modifier，监听器错误地要求 modifier 完全为空；修复后只拒绝
+  Command、Control、Option、Shift 等用户组合键，并增加真实 modifier 解析测试。
+- 网格上下键首轮 GUI 检查还暴露列数一直为默认值 1：宽度 preference 挂在无布局
+  `Group` 上未稳定更新。宽度采集已移到实际网格 `GeometryReader`；真实主窗口确认
+  左右逐项、上下按当前 5 列跨行及反向返回均正常。
 - 未在真实媒体上执行 Delete；Quick Look Delete、repository 移除和 manifest
-  tombstone 由临时目录集成测试验证。主媒体库方向键由注入的 AppKit 事件监听器回归
-  测试覆盖，仍建议用实体键盘补做一次交互冒烟。
+  tombstone 由临时目录集成测试验证。
 
 ## 回滚
 
@@ -74,6 +79,6 @@ git diff --check
 ## 结果
 
 - 提交：`54ff01b`。
-- 结果：实现、定向/完整自动化、应用 verify 和 Quick Look 真实窗口交互检查已完成。
-- 后续：用实体键盘补做主媒体库方向键和 Delete 冒烟；为避免破坏真实媒体，本批没有
-  在 GUI 中执行 Delete。
+- 结果：实现、定向/完整自动化、应用 verify、Quick Look 和主媒体库方向键真实窗口
+  交互检查已完成。
+- 后续：为避免破坏真实媒体，本批没有在 GUI 中执行 Delete。

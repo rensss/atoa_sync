@@ -23,7 +23,7 @@ protocol QuickLookPanelProviding {
 }
 
 @MainActor
-enum QuickLookKeyCommand {
+enum QuickLookKeyCommand: Equatable {
     case close
     case previous
     case next
@@ -37,32 +37,48 @@ protocol QuickLookKeyMonitoring: AnyObject {
 }
 
 @MainActor
-private final class AppKitQuickLookKeyMonitor: QuickLookKeyMonitoring {
+final class AppKitQuickLookKeyMonitor: QuickLookKeyMonitoring {
     private var monitor: Any?
 
     func start(handler: @escaping @MainActor (QuickLookKeyCommand) -> Bool) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard modifiers.isEmpty else {
-                return event
-            }
-
-            let command: QuickLookKeyCommand
-            switch event.keyCode {
-            case 49 where !event.isARepeat:
-                command = .close
-            case 123:
-                command = .previous
-            case 124:
-                command = .next
-            case 51 where !event.isARepeat,
-                 117 where !event.isARepeat:
-                command = .delete
-            default:
+            guard let command = Self.command(
+                forKeyCode: event.keyCode,
+                modifierFlags: event.modifierFlags,
+                isRepeat: event.isARepeat
+            ) else {
                 return event
             }
             return handler(command) ? nil : event
+        }
+    }
+
+    static func command(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        isRepeat: Bool
+    ) -> QuickLookKeyCommand? {
+        let userModifiers = modifierFlags.intersection([
+            .command,
+            .control,
+            .option,
+            .shift
+        ])
+        guard userModifiers.isEmpty else { return nil }
+
+        switch keyCode {
+        case 49 where !isRepeat:
+            return .close
+        case 123:
+            return .previous
+        case 124:
+            return .next
+        case 51 where !isRepeat,
+             117 where !isRepeat:
+            return .delete
+        default:
+            return nil
         }
     }
 

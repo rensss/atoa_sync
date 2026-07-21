@@ -1,7 +1,7 @@
 import AppKit
 import QuickLookUI
 
-enum LibraryNavigationCommand {
+enum LibraryNavigationCommand: Equatable {
     case left
     case right
     case up
@@ -21,28 +21,45 @@ final class AppKitLibraryKeyMonitor: LibraryKeyMonitoring {
     func start(handler: @escaping @MainActor (LibraryNavigationCommand) -> Bool) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard modifiers.isEmpty,
-                  !(NSApp.keyWindow is QLPreviewPanel),
+            guard !(NSApp.keyWindow is QLPreviewPanel),
                   !Self.textInputIsFirstResponder
             else {
                 return event
             }
 
-            let command: LibraryNavigationCommand
-            switch event.keyCode {
-            case 123:
-                command = .left
-            case 124:
-                command = .right
-            case 125:
-                command = .down
-            case 126:
-                command = .up
-            default:
+            guard let command = Self.command(
+                forKeyCode: event.keyCode,
+                modifierFlags: event.modifierFlags
+            ) else {
                 return event
             }
             return handler(command) ? nil : event
+        }
+    }
+
+    static func command(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> LibraryNavigationCommand? {
+        let userModifiers = modifierFlags.intersection([
+            .command,
+            .control,
+            .option,
+            .shift
+        ])
+        guard userModifiers.isEmpty else { return nil }
+
+        switch keyCode {
+        case 123:
+            return .left
+        case 124:
+            return .right
+        case 125:
+            return .down
+        case 126:
+            return .up
+        default:
+            return nil
         }
     }
 

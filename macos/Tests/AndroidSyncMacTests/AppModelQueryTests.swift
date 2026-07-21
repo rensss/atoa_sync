@@ -1,4 +1,5 @@
 import AndroidSyncCore
+import AppKit
 import Foundation
 import SwiftData
 import XCTest
@@ -206,6 +207,29 @@ final class AppModelQueryTests: XCTestCase {
         model.libraryKeyboardNavigationEnabled = false
         XCTAssertFalse(monitor.send(.right))
         XCTAssertEqual(model.selectedIDs, Set([first.id]))
+    }
+
+    func testLibraryKeyMonitorAcceptsSystemArrowFlags() {
+        XCTAssertEqual(
+            AppKitLibraryKeyMonitor.command(
+                forKeyCode: 123,
+                modifierFlags: [.numericPad, .function]
+            ),
+            .left
+        )
+        XCTAssertEqual(
+            AppKitLibraryKeyMonitor.command(
+                forKeyCode: 126,
+                modifierFlags: [.numericPad, .function, .capsLock]
+            ),
+            .up
+        )
+        XCTAssertNil(
+            AppKitLibraryKeyMonitor.command(
+                forKeyCode: 124,
+                modifierFlags: [.numericPad, .command]
+            )
+        )
     }
 
     private func makeModel(

@@ -4,6 +4,7 @@ struct ContentView: View {
     @Bindable var model: AppModel
     @State private var renamePresented = false
     @State private var renameValue = ""
+    @State private var searchPresented = false
 
     var body: some View {
         NavigationSplitView {
@@ -20,11 +21,6 @@ struct ContentView: View {
                             quickLookBlocked: renamePresented
                         )
                     }
-                    .searchable(
-                        text: $model.searchText,
-                        placement: .toolbar,
-                        prompt: Text(model.text(.searchFilenames))
-                    )
                     .inspector(isPresented: $model.inspectorPresented) {
                         InspectorView(
                             model: model,
@@ -36,7 +32,10 @@ struct ContentView: View {
                 }
             }
             .toolbar {
-                LibraryToolbar(model: model)
+                LibraryToolbar(
+                    model: model,
+                    searchPresented: $searchPresented
+                )
             }
         }
         .sheet(isPresented: $renamePresented) {
