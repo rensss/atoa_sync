@@ -24,7 +24,7 @@
 
 ## 证据
 
-- 目标提交：`8a09aa0`（Phase 3 实现合并到 `main`）；当前复核 HEAD 为 `17c7538`；前序
+- 目标提交：`8a09aa0`（Phase 3 实现合并到 `main`）；2026-09-22 复核 HEAD 为 `2690006`；前序
   候选 `cbf31db`、集成 `23b09d5`。
 - 2026-08-10，`swift test --package-path macos` 通过（113 个测试）；
   `./macos/build_and_run.sh verify`、应用 plist 和 `codesign --verify --deep --strict`
@@ -54,6 +54,19 @@
   以及上一轮进度清理。完整 `swift test --package-path macos` 运行 114 个测试并通过，
   `./macos/build_and_run.sh verify` 和 `git diff --check` 通过；未执行 GUI 手工检查，
   因此不替代最终视觉/交互 QA。
+- 2026-09-22 基线提交复验：B34/B35 随 `2690006` 提交；完整 macOS 套件 118 个测试通过，
+  `./macos/build_and_run.sh verify` 与 `git diff --check` 通过。GUI 手工检查仍未执行，
+  M3 视觉/交互 QA 出口标准保持开放。
+- 2026-09-22 B36 工作树局部验收：原生窗口在有内容网格、列表、空“其他文件”、有内容
+  “已删除”和非空搜索状态下，进度卡保持在内容区顶部；本地不完整 PUT 探测显示批次级剩余
+  字节与速度可用后的 ETA，探测失败后进度卡收起。没有创建或保留探测媒体文件。“已删除”
+  当时有 1,984 项，未为测试清空用户数据；空“已删除”、真实 Android→Mac 成功传输及成功
+  最后一项完成瞬间未验收。审查修复后的完整 macOS 套件 132 个测试通过，定向
+  `TransferProgressTests|TransferCardStateTests` 24 个测试通过，应用 verify 通过；
+  B36 仍未提交。此局部证据不关闭全量视觉/交互 QA 或接收端成功完成状态验收。
+- 2026-09-22 B36 独立审查还确认取消发生在非末项 PUT 之间时缺少远端结束事件，且并发发送方没有批次 ID。
+  本批用新批次首项重置遗留 burst，并用终态计数处理已观察到的乱序成功/失败；可靠的即时取消清理和
+  多批次隔离需要额外向后兼容协议，作为 R-016 开放，不关闭 M3 退出标准。
 
 ## 风险
 

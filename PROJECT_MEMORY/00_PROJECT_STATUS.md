@@ -1,12 +1,13 @@
 # 项目状态
 
-最后复核：2026-09-21
+最后复核：2026-09-22
 
 ## 基线
 
 - 产品版本：`0.1.3`
 - 主分支：`main`
-- `main` 当前 HEAD：`17c7538`（`v0.1.3` 发布提交）
+- `main` 当前 HEAD：`2690006`（B32–B35 本地基线提交；尚未推送）
+- `v0.1.3` 标签仍指向 `17c7538`；产品版本仍为 `0.1.3`。
 - B24–B28 实现提交：`54ff01b`。
 - B27 后续键盘导航修复及 B29–B30 实现提交：`067a501`。
 - B31 首页方向键滚动缩略图性能优化提交：`aa4cc87`。
@@ -180,6 +181,17 @@
 - 本次复核未获得 Android 真机、端到端 Android→Mac 传输或完整 macOS GUI 视觉/交互
   证据，因此 M1、M2、M3 的未勾选退出标准保持不变。
 
+## 2026-09-22 本地基线提交
+
+- 用户要求先提交当时已有的本地改动。B32、B33、B34、B35 共 46 个已跟踪文件已按既有
+  范围提交为 `2690006`（`feat: harden Android sync and macOS receive flow`）；未推送，
+  当前 `main` 相对 `origin/main` ahead 1。当前同步进度功能的设计/计划文件未纳入该提交。
+- 提交前验证：`./android/run_tests.sh`、`./android/build.sh`、
+  `swift test --package-path macos`（118 tests，0 failures）、
+  `./macos/build_and_run.sh verify`、`git diff --check` 均通过。
+- 提交只确认已有改动的自动化/构建验证，不代表完成新增跨平台任务进度功能，也不代表
+  Android 新一轮真机测试或 macOS GUI 手工 QA 已完成。
+
 ## 2026-08-10 B32
 
 - Android launcher 已从传统 `@drawable/ic_launcher` 迁移为 API 26 adaptive icon，
@@ -192,15 +204,15 @@
 
 ## 2026-09-20 B33
 
-- Android 后台可靠传输实现当前保留在未提交工作树中，`HEAD` 仍为 `17c7538`；未覆盖
-  B32 adaptive icon 或其他无关本地变更。
+- Android 后台可靠传输实现已于 2026-09-22 随 B32–B35 共同提交为 `2690006`；此前批次
+  验证范围未覆盖 B32 adaptive icon 或其他无关本地变更。
 - `SyncQueue` 增加可选 SQLite persistence，新增 `SyncTransferRunner`、`SyncRun`、
   `SyncRunStatus`、`SyncDatabase` 和 `AndroidSyncApplication`。`sync_tasks`、
   `sync_runs`、`sync_run_tasks` 保存任务状态、run 目标 URL 快照和选择顺序。
 - 新增 `SyncForegroundService`，声明 `dataSync` 前台类型和通知权限；Activity 不再拥有
   上传线程。失败继续后续任务，用户停止时当前任务回到 `WAITING`，Service 恢复时先查
   远端 stable ID manifest 并恢复遗留 `UPLOADING`。
-- `./android/run_tests.sh`、`./android/build.sh` 通过，生成
+- `./android/run_tests.sh`、`./android/build.sh` 通过，2026-09-22 提交前再次通过；生成
   `android/build/AndroidSync-debug.apk`；测试脚本覆盖 `SyncQueueTest`、
   `SyncTransferRunnerTest` 和 `SyncRunTest` 等五个 JVM 测试入口。
 - 无线 ADB 设备 `22081212C` 上实测约 1963 项媒体库、445 项 run：Home 后通知从
@@ -219,7 +231,8 @@
   中间文件完成时保持进度卡，避免连续传输过程中闪烁。
 - 移除完成驻留状态及对应中英文文案，保留接收中进度、今日统计和失败短提示。完整
   `swift test --package-path macos` 运行 114 个测试并通过，`./macos/build_and_run.sh verify`
-  和 `git diff --check` 通过。实现仍未提交，未覆盖 B33 Android 工作树变更。
+  和 `git diff --check` 通过。实现于 2026-09-22 随 B32–B35 共同提交为 `2690006`，
+  未覆盖 B33 Android 工作树变更。
 - 批次记录：`PROJECT_MEMORY/batches/2026-09-20-B34-macos-transfer-header-state.md`。
 
 ## 2026-09-21 B35
@@ -230,10 +243,29 @@
   `dateAdded` → 实际接收时间；媒体字节、sidecar、JSONL 和文件名冲突后缀不变。
 - 定向 `swift test --package-path macos --filter LibraryRepositoryTests.testStore` 已通过
   7 个测试；完整 `swift test --package-path macos` 已通过 118 个测试，
-  `./macos/build_and_run.sh verify` 和 `git diff --check` 也已通过。实现未提交，未覆盖
-  B32、B33、B34 及其他用户已有工作树改动。
+  `./macos/build_and_run.sh verify` 和 `git diff --check` 也已通过。实现于 2026-09-22
+  随 B32–B35 共同提交为 `2690006`，未覆盖 B32、B33、B34 及其他用户已有工作树改动。
 - 批次记录：`PROJECT_MEMORY/batches/2026-09-21-B35-flat-receive-storage.md`；决策记录为
   ADR-009，supersede ADR-004 的按月最终目录决策。
+
+## 2026-09-22 B36（工作树未提交）
+
+- 按实际可上传的 `WAITING`/`FAILED` 任务快照计算批次文件数与饱和字节总量；新 Android
+  客户端用可选 `X-Android-Sync-Batch-Total-Bytes` 传递该值，macOS 对缺失/非法值保持兼容。
+- macOS 进度卡显示整批剩余字节和具备速度样本后的 ETA；旧多文件请求不再把当前文件剩余
+  伪装为任务剩余。进度卡移至 detail 外层顶部，空分类布局不再影响其位置；最后一项完成后
+  按现有状态机立即清理卡片。
+- 当前工作树基于 `2690006`，本批尚未提交或推送。审查后新增重载 header、混合可选 header、乱序失败
+  和新批次重置回归测试；最终 Android 测试/build、macOS 完整套件 132 tests、0 failures、应用 verify
+  与 `git diff --check` 均于 2026-09-22 通过。
+- 两轮独立审查完成；复审指出的 loopback 测试 IPv4/IPv6 地址不一致已改为显式绑定 IPv4，随后
+  `./android/run_tests.sh` 再次通过。最终文件范围已核对，无暂存文件或生成产物进入本批。
+- 原生窗口局部检查覆盖有内容网格、列表、空“其他文件”、有内容“已删除”和非空搜索；
+  本地不完整 PUT 探测观察到顶部位置、批次剩余/ETA 更新及失败后卡片收起，未提交媒体文件。
+  “已删除”当时有 1,984 项，因此空“已删除”和成功完整传输结束状态未实测；M3 GUI 退出标准
+  继续开放。详见 `PROJECT_MEMORY/batches/2026-09-22-B36-cross-platform-task-progress.md`。
+- 风险 R-016 开放：两个完整 PUT 之间取消时没有 batch 结束事件；并发发送方也没有 batch ID 隔离。
+  B36 清理下一个新批次首项到达时的旧状态，但不新增结束/取消协议。
 
 ## 开放工作
 

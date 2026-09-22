@@ -171,6 +171,7 @@ public final class SyncForegroundService extends Service {
                             String targetUrl,
                             int batchIndex,
                             int batchTotal,
+                            long batchTotalBytes,
                             SyncTransferRunner.CancellationSignal cancellation
                     ) throws Exception {
                         currentFile = task.media().displayName();
@@ -181,6 +182,7 @@ public final class SyncForegroundService extends Service {
                                 targetUrl,
                                 batchIndex,
                                 batchTotal,
+                                batchTotalBytes,
                                 new HttpFileUploader.CancellationSignal() {
                                     @Override
                                     public boolean isCancelled() {

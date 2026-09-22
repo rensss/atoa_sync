@@ -160,7 +160,8 @@ public enum ReceiverRouter {
                 dateAddedMillis: int64Header(request.header("x-android-sync-date-added")),
                 sourceIP: sourceIP,
                 batchIndex: intHeader(request.header("x-android-sync-batch-index")),
-                batchTotal: intHeader(request.header("x-android-sync-batch-total"))
+                batchTotal: intHeader(request.header("x-android-sync-batch-total")),
+                batchTotalBytes: nonNegativeInt64Header(request.header("x-android-sync-batch-total-bytes"))
             )
         )
     }
@@ -170,6 +171,13 @@ public enum ReceiverRouter {
             return nil
         }
         return Int64(value)
+    }
+
+    private static func nonNegativeInt64Header(_ value: String?) -> Int64? {
+        guard let parsed = int64Header(value), parsed >= 0 else {
+            return nil
+        }
+        return parsed
     }
 
     private static func intHeader(_ value: String?) -> Int? {

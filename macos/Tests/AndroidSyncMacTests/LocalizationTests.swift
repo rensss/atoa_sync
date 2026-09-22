@@ -70,6 +70,41 @@ final class LocalizationTests: XCTestCase {
         )
     }
 
+    func testTransferProgressFormatUsesTaskRemainingAndETA() {
+        XCTAssertEqual(
+            AppStrings.format(
+                .receivingProgressFormat,
+                language: .simplifiedChinese,
+                3,
+                12,
+                "1.8 GB",
+                "2:10"
+            ),
+            "同步进度 3/12 · 剩余 1.8 GB · 预计 2:10"
+        )
+        XCTAssertEqual(
+            AppStrings.format(
+                .receivingProgressFormat,
+                language: .english,
+                3,
+                12,
+                "1.8 GB",
+                "2:10"
+            ),
+            "Progress 3/12 · 1.8 GB left · ETA 2:10"
+        )
+        XCTAssertEqual(AppStrings.text(.calculating, language: .simplifiedChinese), "计算中")
+        XCTAssertEqual(AppStrings.text(.calculating, language: .english), "Calculating…")
+        XCTAssertEqual(
+            AppStrings.format(.durationMinutesSecondsFormat, language: .simplifiedChinese, 2, 10),
+            "2:10"
+        )
+        XCTAssertEqual(
+            AppStrings.format(.durationHoursMinutesSecondsFormat, language: .english, 1, 2, 3),
+            "1:02:03"
+        )
+    }
+
     func testAboutVersionAndBuildLabelsMapToChineseAndEnglish() {
         XCTAssertEqual(
             AppStrings.text(.about, language: .simplifiedChinese),

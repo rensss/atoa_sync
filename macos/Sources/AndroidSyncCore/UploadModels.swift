@@ -10,6 +10,7 @@ public struct UploadMetadata: Equatable, Sendable {
     public let sourceIP: String?
     public let batchIndex: Int?
     public let batchTotal: Int?
+    public let batchTotalBytes: Int64?
 
     public init(
         filename: String,
@@ -20,7 +21,8 @@ public struct UploadMetadata: Equatable, Sendable {
         dateAddedMillis: Int64? = nil,
         sourceIP: String? = nil,
         batchIndex: Int? = nil,
-        batchTotal: Int? = nil
+        batchTotal: Int? = nil,
+        batchTotalBytes: Int64? = nil
     ) {
         self.filename = filename
         self.contentType = contentType
@@ -31,6 +33,7 @@ public struct UploadMetadata: Equatable, Sendable {
         self.sourceIP = sourceIP
         self.batchIndex = batchIndex
         self.batchTotal = batchTotal
+        self.batchTotalBytes = batchTotalBytes
     }
 }
 

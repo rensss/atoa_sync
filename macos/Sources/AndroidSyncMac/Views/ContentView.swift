@@ -14,13 +14,14 @@ struct ContentView: View {
                 if model.receiveDirectory == nil {
                     OnboardingView(model: model)
                 } else {
-                    LibraryView(
-                        model: model,
-                        quickLookBlocked: renamePresented
-                    )
-                    .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
                         TransferCardRow(model: model)
+                        LibraryView(
+                            model: model,
+                            quickLookBlocked: renamePresented
+                        )
                     }
+                    .background(Theme.bg)
                     .inspector(isPresented: $model.inspectorPresented) {
                         InspectorView(
                             model: model,

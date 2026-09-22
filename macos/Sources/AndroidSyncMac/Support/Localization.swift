@@ -135,6 +135,9 @@ enum AppStringKey: String, CaseIterable {
     case listView
     case receivingSummaryFormat
     case receivingProgressFormat
+    case calculating
+    case durationHoursMinutesSecondsFormat
+    case durationMinutesSecondsFormat
     case todayReceived
     case itemsCountFormat
     case speedFormat
@@ -240,7 +243,10 @@ enum AppStrings {
             .gridView: "网格视图",
             .listView: "列表视图",
             .receivingSummaryFormat: "接收中 %d 个文件 · 预计 %@",
-            .receivingProgressFormat: "同步进度 %d/%d · 接收中 %d 个 · 剩余 %@",
+            .receivingProgressFormat: "同步进度 %d/%d · 剩余 %@ · 预计 %@",
+            .calculating: "计算中",
+            .durationHoursMinutesSecondsFormat: "%d:%02d:%02d",
+            .durationMinutesSecondsFormat: "%d:%02d",
             .todayReceived: "今天已接收",
             .itemsCountFormat: "%d 项",
             .speedFormat: "%@/秒",
@@ -343,7 +349,10 @@ enum AppStrings {
             .gridView: "Grid View",
             .listView: "List View",
             .receivingSummaryFormat: "Receiving %d files · about %@",
-            .receivingProgressFormat: "Progress %d/%d · %d receiving · %@ left",
+            .receivingProgressFormat: "Progress %d/%d · %@ left · ETA %@",
+            .calculating: "Calculating…",
+            .durationHoursMinutesSecondsFormat: "%d:%02d:%02d",
+            .durationMinutesSecondsFormat: "%d:%02d",
             .todayReceived: "Received today",
             .itemsCountFormat: "%d items",
             .speedFormat: "%@/s",

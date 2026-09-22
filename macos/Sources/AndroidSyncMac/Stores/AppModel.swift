@@ -99,6 +99,7 @@ struct ActiveUpload: Equatable, Identifiable {
     let expectedSize: Int64
     let batchIndex: Int?
     let batchTotal: Int?
+    let batchTotalBytes: Int64?
     var bytesReceived: Int64 = 0
 
     init(
@@ -107,6 +108,7 @@ struct ActiveUpload: Equatable, Identifiable {
         expectedSize: Int64,
         batchIndex: Int? = nil,
         batchTotal: Int? = nil,
+        batchTotalBytes: Int64? = nil,
         bytesReceived: Int64 = 0
     ) {
         self.id = id
@@ -114,6 +116,7 @@ struct ActiveUpload: Equatable, Identifiable {
         self.expectedSize = expectedSize
         self.batchIndex = batchIndex
         self.batchTotal = batchTotal
+        self.batchTotalBytes = batchTotalBytes
         self.bytesReceived = bytesReceived
     }
 }
@@ -232,9 +235,12 @@ final class AppModel {
     var transientUploadMessage: String?
     private(set) var transferCardState: TransferCardState = .idle
     private var burstCompletedCount = 0
+    private var burstTerminalCount = 0
+    private var burstCompletedBytes: Int64 = 0
     private var burstBytesReceived: Int64 = 0
     private var burstSawProgress = false
     private var burstExpectedCount = 0
+    private var burstTotalBytes: Int64?
     private var transferSamples: [TransferSample] = []
     private var clearedDeletedKeys: Set<String>
     private static let clearedDeletedKeysDefaultsKey = "clearedDeletedItemKeys"
@@ -386,13 +392,115 @@ final class AppModel {
     }
 
     var activeUploadsExpectedBytes: Int64 {
-        activeUploads.values.reduce(0) { $0 + $1.expectedSize }
+        activeUploads.values.reduce(0) {
+            Self.saturatedAdd($0, max(0, $1.expectedSize))
+        }
     }
 
     var activeUploadsRemainingBytes: Int64 {
         activeUploads.values.reduce(0) {
-            $0 + max(0, $1.expectedSize - $1.bytesReceived)
+            Self.saturatedAdd(
+                $0,
+                Self.remainingBytes(expected: $1.expectedSize, received: $1.bytesReceived)
+            )
         }
+    }
+
+    var transferRemainingBytes: Int64? {
+        if let total = burstTotalBytes {
+            let activeReceivedBytes = activeUploads.values.reduce(Int64(0)) { partial, upload in
+                let expected = max(0, upload.expectedSize)
+                let received = min(expected, max(0, upload.bytesReceived))
+                return Self.saturatedAdd(partial, received)
+            }
+            let receivedBytes = Self.saturatedAdd(burstCompletedBytes, activeReceivedBytes)
+            return max(0, total - min(total, receivedBytes))
+        }
+
+        guard activeUploads.count == 1,
+              let upload = activeUploads.values.first,
+              upload.batchTotal == nil || upload.batchTotal == 1
+        else {
+            return nil
+        }
+        return Self.remainingBytes(expected: upload.expectedSize, received: upload.bytesReceived)
+    }
+
+    var transferEstimatedSeconds: TimeInterval? {
+        guard let remainingBytes = transferRemainingBytes,
+              let bytesPerSecond = transferSpeedBytesPerSecond
+        else {
+            return nil
+        }
+        return Self.transferETA(
+            remainingBytes: remainingBytes,
+            bytesPerSecond: Double(bytesPerSecond)
+        )
+    }
+
+    var transferRemainingDescription: String {
+        guard let remainingBytes = transferRemainingBytes else {
+            return text(.calculating)
+        }
+        return formatByteCount(remainingBytes)
+    }
+
+    var transferETADescription: String {
+        guard let seconds = transferEstimatedSeconds else {
+            return text(.calculating)
+        }
+        return Self.formattedTransferDuration(seconds, language: language)
+    }
+
+    static func transferETA(remainingBytes: Int64, bytesPerSecond: Double) -> TimeInterval? {
+        guard remainingBytes >= 0,
+              bytesPerSecond.isFinite,
+              bytesPerSecond > 0
+        else {
+            return nil
+        }
+        let estimate = Double(remainingBytes) / bytesPerSecond
+        return estimate.isFinite ? estimate : nil
+    }
+
+    static func formattedTransferDuration(
+        _ seconds: TimeInterval,
+        language: AppLanguage
+    ) -> String {
+        guard seconds.isFinite, seconds >= 0 else {
+            return AppStrings.text(.calculating, language: language)
+        }
+        let roundedSeconds = ceil(seconds)
+        let totalSeconds = roundedSeconds >= Double(Int.max) ? Int.max : Int(roundedSeconds)
+        let hours = totalSeconds / 3_600
+        if hours > 0 {
+            return AppStrings.format(
+                .durationHoursMinutesSecondsFormat,
+                language: language,
+                hours,
+                (totalSeconds / 60) % 60,
+                totalSeconds % 60
+            )
+        }
+        return AppStrings.format(
+            .durationMinutesSecondsFormat,
+            language: language,
+            totalSeconds / 60,
+            totalSeconds % 60
+        )
+    }
+
+    private static func remainingBytes(expected: Int64, received: Int64) -> Int64 {
+        let safeExpected = max(0, expected)
+        let safeReceived = min(safeExpected, max(0, received))
+        return safeExpected - safeReceived
+    }
+
+    private static func saturatedAdd(_ left: Int64, _ right: Int64) -> Int64 {
+        let safeLeft = max(0, left)
+        let safeRight = max(0, right)
+        let sum = safeLeft.addingReportingOverflow(safeRight)
+        return sum.overflow ? .max : sum.partialValue
     }
 
     var transferCompletedCount: Int {
@@ -1176,20 +1284,27 @@ final class AppModel {
             if receiveDirectory != nil {
                 status = .stopped
             }
-        case let .uploadStarted(id, filename, expectedSize, batchIndex, batchTotal):
+        case let .uploadStarted(id, filename, expectedSize, batchIndex, batchTotal, batchTotalBytes):
+            let startsNewBatchAfterUnfinishedBurst = transferCardState == .receiving
+                && activeUploads.isEmpty
+                && batchIndex == 1
+                && burstTerminalCount > 0
+                && burstTerminalCount < burstExpectedCount
+            if transferCardState != .receiving || startsNewBatchAfterUnfinishedBurst {
+                resetTransferCard()
+            }
             activeUploads[id] = ActiveUpload(
                 id: id,
                 filename: filename,
                 expectedSize: expectedSize,
                 batchIndex: batchIndex,
-                batchTotal: batchTotal
+                batchTotal: batchTotal,
+                batchTotalBytes: batchTotalBytes.flatMap { $0 >= 0 ? $0 : nil }
             )
-            if transferCardState != .receiving {
-                burstCompletedCount = 0
-                burstBytesReceived = 0
-                burstSawProgress = false
-                burstExpectedCount = 0
-                transferSamples.removeAll()
+            if burstTotalBytes == nil,
+               let batchTotalBytes,
+               batchTotalBytes >= 0 {
+                burstTotalBytes = batchTotalBytes
             }
             if let batchTotal, batchTotal > 0 {
                 burstExpectedCount = max(burstExpectedCount, batchTotal)
@@ -1202,12 +1317,13 @@ final class AppModel {
             transferCardState = .receiving
         case let .uploadProgress(id, bytesReceived, _):
             guard var upload = activeUploads[id] else { return }
-            let delta = bytesReceived - upload.bytesReceived
+            let safeBytesReceived = max(0, bytesReceived)
+            let delta = safeBytesReceived - upload.bytesReceived
             guard delta > 0 else { return }
-            upload.bytesReceived = bytesReceived
+            upload.bytesReceived = safeBytesReceived
             activeUploads[id] = upload
             burstSawProgress = true
-            burstBytesReceived += delta
+            burstBytesReceived = Self.saturatedAdd(burstBytesReceived, delta)
             let now = Date()
             transferSamples.append(
                 TransferSample(time: now, totalBytes: burstBytesReceived)
@@ -1215,12 +1331,22 @@ final class AppModel {
             transferSamples.removeAll {
                 now.timeIntervalSince($0.time) > 3
             }
-        case let .uploadStored(id, _):
+        case let .uploadStored(id, record):
             let storedUpload = activeUploads.removeValue(forKey: id)
-            burstCompletedCount += 1
-            if activeUploads.isEmpty,
-               storedUpload.map(shouldFinishTransfer(after:)) ?? true {
-                resetTransferCard()
+            if let storedUpload {
+                if burstCompletedCount < Int.max {
+                    burstCompletedCount += 1
+                }
+                if burstTerminalCount < Int.max {
+                    burstTerminalCount += 1
+                }
+                burstCompletedBytes = Self.saturatedAdd(
+                    burstCompletedBytes,
+                    max(0, record.sizeBytes)
+                )
+                if activeUploads.isEmpty, shouldFinishTransfer(after: storedUpload) {
+                    resetTransferCard()
+                }
             }
             guard let repository else { return }
             let directoryGeneration = directoryConfigurationGeneration
@@ -1232,10 +1358,13 @@ final class AppModel {
                 )
             }
         case let .uploadFailed(id, filename, message):
-            let failedUpload = activeUploads.removeValue(forKey: id)
+            guard let failedUpload = activeUploads.removeValue(forKey: id) else { return }
+            if burstTerminalCount < Int.max {
+                burstTerminalCount += 1
+            }
             showTransientUploadFailure(filename: filename, message: message)
             if activeUploads.isEmpty,
-               failedUpload.map(shouldFinishTransfer(after:)) ?? true {
+               shouldFinishTransfer(after: failedUpload) {
                 resetTransferCard()
             }
         case let .receiverFailed(message):
@@ -1268,7 +1397,7 @@ final class AppModel {
            let batchTotal = upload.batchTotal,
            batchTotal > 0 {
             return batchIndex >= batchTotal
-                || burstCompletedCount >= burstExpectedCount
+                || burstTerminalCount >= burstExpectedCount
         }
         return true
     }
@@ -1276,9 +1405,12 @@ final class AppModel {
     private func resetTransferCard() {
         transferCardState = .idle
         burstCompletedCount = 0
+        burstTerminalCount = 0
+        burstCompletedBytes = 0
         burstBytesReceived = 0
         burstSawProgress = false
         burstExpectedCount = 0
+        burstTotalBytes = nil
         transferSamples.removeAll()
     }
 

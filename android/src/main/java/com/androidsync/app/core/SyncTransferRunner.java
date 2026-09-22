@@ -1,6 +1,8 @@
 package com.androidsync.app.core;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** 不依赖 Android 生命周期的单线程同步状态机。 */
 public final class SyncTransferRunner {
@@ -14,6 +16,7 @@ public final class SyncTransferRunner {
                 String targetUrl,
                 int batchIndex,
                 int batchTotal,
+                long batchTotalBytes,
                 CancellationSignal cancellation
         ) throws Exception;
     }
@@ -66,13 +69,28 @@ public final class SyncTransferRunner {
                 : cancellation;
         Listener effectiveListener = listener == null ? NOOP_LISTENER : listener;
         boolean cancelled = false;
-        int batchTotal = taskIds.size();
+        Map<String, SyncTask> uploadableTasks = new LinkedHashMap<>();
+        for (String taskId : taskIds) {
+            SyncTask task = queue.findById(taskId);
+            if (task != null
+                    && (task.status() == SyncStatus.WAITING || task.status() == SyncStatus.FAILED)) {
+                uploadableTasks.put(taskId, task);
+            }
+        }
+        int batchTotal = uploadableTasks.size();
+        long batchTotalBytes = 0L;
+        for (SyncTask task : uploadableTasks.values()) {
+            batchTotalBytes = saturatedAdd(batchTotalBytes, Math.max(0L, task.media().sizeBytes()));
+        }
         int batchIndex = 0;
 
         for (String taskId : taskIds) {
             if (effectiveCancellation.isCancelled()) {
                 cancelled = true;
                 break;
+            }
+            if (!uploadableTasks.containsKey(taskId)) {
+                continue;
             }
             SyncTask task = queue.findById(taskId);
             if (task == null || (task.status() != SyncStatus.WAITING && task.status() != SyncStatus.FAILED)) {
@@ -86,7 +104,7 @@ public final class SyncTransferRunner {
 
             Exception uploadError = null;
             try {
-                uploader.upload(task, targetUrl, batchIndex, batchTotal, effectiveCancellation);
+                uploader.upload(task, targetUrl, batchIndex, batchTotal, batchTotalBytes, effectiveCancellation);
             } catch (Exception error) {
                 uploadError = error;
             }
@@ -113,6 +131,13 @@ public final class SyncTransferRunner {
             }
         }
         effectiveListener.onFinished(cancelled);
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        if (right > 0L && left > Long.MAX_VALUE - right) {
+            return Long.MAX_VALUE;
+        }
+        return left + right;
     }
 
     private static String cleanError(Exception error) {

@@ -38,12 +38,14 @@ struct TransferCardRow: View {
                         .receivingProgressFormat,
                         model.transferCompletedCount,
                         max(1, model.transferTotalCount),
-                        model.activeUploads.count,
-                        model.formatByteCount(model.activeUploadsRemainingBytes)
+                        model.transferRemainingDescription,
+                        model.transferETADescription
                     )
                 )
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 Spacer(minLength: Theme.spacingS)
                 Button {
                     model.toggleReceiver()

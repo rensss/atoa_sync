@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class HttpFileUploader {
     private final AtomicReference<HttpURLConnection> activeConnection = new AtomicReference<>();
+    private static final long UNKNOWN_BATCH_TOTAL_BYTES = -1L;
+
     public interface CancellationSignal {
         boolean isCancelled();
     }
@@ -29,7 +31,7 @@ public final class HttpFileUploader {
     };
 
     public void upload(ContentResolver resolver, MediaItem item, String targetBaseUrl) throws IOException {
-        upload(resolver, item, targetBaseUrl, 0, 0);
+        upload(resolver, item, targetBaseUrl, 0, 0, UNKNOWN_BATCH_TOTAL_BYTES);
     }
 
     public void upload(
@@ -39,7 +41,7 @@ public final class HttpFileUploader {
             int batchIndex,
             int batchTotal
     ) throws IOException {
-        upload(resolver, item, targetBaseUrl, batchIndex, batchTotal, NEVER_CANCELLED);
+        upload(resolver, item, targetBaseUrl, batchIndex, batchTotal, UNKNOWN_BATCH_TOTAL_BYTES);
     }
 
     public void upload(
@@ -48,6 +50,29 @@ public final class HttpFileUploader {
             String targetBaseUrl,
             int batchIndex,
             int batchTotal,
+            long batchTotalBytes
+    ) throws IOException {
+        upload(resolver, item, targetBaseUrl, batchIndex, batchTotal, batchTotalBytes, NEVER_CANCELLED);
+    }
+
+    public void upload(
+            ContentResolver resolver,
+            MediaItem item,
+            String targetBaseUrl,
+            int batchIndex,
+            int batchTotal,
+            CancellationSignal cancellation
+    ) throws IOException {
+        upload(resolver, item, targetBaseUrl, batchIndex, batchTotal, UNKNOWN_BATCH_TOTAL_BYTES, cancellation);
+    }
+
+    public void upload(
+            ContentResolver resolver,
+            MediaItem item,
+            String targetBaseUrl,
+            int batchIndex,
+            int batchTotal,
+            long batchTotalBytes,
             CancellationSignal cancellation
     ) throws IOException {
         String normalizedBase = targetBaseUrl.endsWith("/") ? targetBaseUrl : targetBaseUrl + "/";
@@ -71,6 +96,12 @@ public final class HttpFileUploader {
             if (batchIndex > 0 && batchTotal > 0) {
                 connection.setRequestProperty("X-Android-Sync-Batch-Index", String.valueOf(batchIndex));
                 connection.setRequestProperty("X-Android-Sync-Batch-Total", String.valueOf(batchTotal));
+                if (batchTotalBytes >= 0L) {
+                    connection.setRequestProperty(
+                            "X-Android-Sync-Batch-Total-Bytes",
+                            String.valueOf(batchTotalBytes)
+                    );
+                }
             }
             if (item.dateModifiedMillis() > 0L) {
                 connection.setRequestProperty("X-Android-Sync-Date-Modified", String.valueOf(item.dateModifiedMillis()));

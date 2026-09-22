@@ -34,6 +34,8 @@ final class TransferCardStateTests: XCTestCase {
         XCTAssertEqual(model.transferTotalCount, 0)
         XCTAssertNil(model.transferProgress)
         XCTAssertNil(model.transferSpeedBytesPerSecond)
+        XCTAssertNil(model.transferRemainingBytes)
+        XCTAssertNil(model.transferEstimatedSeconds)
     }
 
     func testAllFailedBurstSkipsCompletedState() throws {
@@ -89,6 +91,8 @@ final class TransferCardStateTests: XCTestCase {
         model.handle(.uploadStored(id: second, record: TestItems.record()))
 
         XCTAssertEqual(model.transferCardState, .idle)
+        XCTAssertNil(model.transferRemainingBytes)
+        XCTAssertNil(model.transferEstimatedSeconds)
     }
 
     func testTodayStatsCountsOnlyTodayAndNotRemoved() {
@@ -124,5 +128,96 @@ final class TransferCardStateTests: XCTestCase {
         XCTAssertEqual(model.transferTotalCount, 5)
         XCTAssertEqual(model.transferCompletedCount, 1)
         XCTAssertEqual(model.activeUploadsRemainingBytes, 100)
+    }
+
+    func testStaleUploadEventsDoNotChangeCurrentBatchProgress() throws {
+        let model = try makeModel()
+        let activeID = UUID()
+        model.handle(
+            .uploadStarted(
+                id: activeID,
+                filename: "active.jpg",
+                expectedSize: 400,
+                batchIndex: 1,
+                batchTotal: 2,
+                batchTotalBytes: 1_000
+            )
+        )
+        model.handle(.uploadProgress(id: activeID, bytesReceived: 100, expectedSize: 400))
+        let missingID = UUID()
+        model.handle(.uploadStored(id: missingID, record: TestItems.record(sizeBytes: 100)))
+        model.handle(.uploadFailed(id: missingID, filename: "stale.jpg", message: "stale"))
+
+        XCTAssertEqual(model.transferRemainingBytes, 900)
+        XCTAssertEqual(model.transferCompletedCount, 0)
+        XCTAssertNil(model.transientUploadMessage)
+        XCTAssertEqual(model.activeUploads.keys.sorted { $0.uuidString < $1.uuidString }, [activeID])
+    }
+
+    func testOutOfOrderFailureAfterLastSuccessClearsFinishedBatch() throws {
+        let model = try makeModel()
+        let first = UUID()
+        let last = UUID()
+        model.handle(
+            .uploadStarted(
+                id: first,
+                filename: "first.jpg",
+                expectedSize: 400,
+                batchIndex: 1,
+                batchTotal: 2,
+                batchTotalBytes: 1_000
+            )
+        )
+        model.handle(
+            .uploadStarted(
+                id: last,
+                filename: "last.jpg",
+                expectedSize: 600,
+                batchIndex: 2,
+                batchTotal: 2,
+                batchTotalBytes: 1_000
+            )
+        )
+        model.handle(.uploadStored(id: last, record: TestItems.record(sizeBytes: 600)))
+        XCTAssertEqual(model.transferCardState, .receiving)
+
+        model.handle(.uploadFailed(id: first, filename: "first.jpg", message: "failed"))
+
+        XCTAssertEqual(model.transferCardState, .idle)
+        XCTAssertNil(model.transferRemainingBytes)
+        XCTAssertNil(model.transferEstimatedSeconds)
+    }
+
+    func testNewBatchDoesNotReuseIncompleteBurstAfterCancellation() throws {
+        let model = try makeModel()
+        let previous = UUID()
+        model.handle(
+            .uploadStarted(
+                id: previous,
+                filename: "previous.jpg",
+                expectedSize: 400,
+                batchIndex: 1,
+                batchTotal: 3,
+                batchTotalBytes: 1_000
+            )
+        )
+        model.handle(.uploadStored(id: previous, record: TestItems.record(sizeBytes: 400)))
+        XCTAssertEqual(model.transferRemainingBytes, 600)
+
+        let next = UUID()
+        model.handle(
+            .uploadStarted(
+                id: next,
+                filename: "next.jpg",
+                expectedSize: 200,
+                batchIndex: 1,
+                batchTotal: 2,
+                batchTotalBytes: 500
+            )
+        )
+
+        XCTAssertEqual(model.transferRemainingBytes, 500)
+        XCTAssertEqual(model.transferTotalCount, 2)
+        XCTAssertEqual(model.transferCompletedCount, 0)
     }
 }

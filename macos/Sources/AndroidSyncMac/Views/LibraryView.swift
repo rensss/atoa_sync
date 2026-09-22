@@ -29,6 +29,7 @@ struct LibraryView: View {
                 list
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .focusable()
         .focused($libraryFocused)
         .focusEffectDisabled()

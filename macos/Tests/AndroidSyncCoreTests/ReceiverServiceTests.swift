@@ -11,7 +11,8 @@ final class ReceiverServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let repository = LibraryRepository(rootURL: root)
-        let service = ReceiverService(repository: repository, port: 0)
+        let eventRecorder = ReceiverEventRecorder()
+        let service = ReceiverService(repository: repository, port: 0, eventHandler: eventRecorder.append)
         let port = try await service.start()
         defer { service.stop() }
 
@@ -32,12 +33,14 @@ final class ReceiverServiceTests: XCTestCase {
         uploadRequest.httpBody = Data("network photo".utf8)
         uploadRequest.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
         uploadRequest.setValue("image:network", forHTTPHeaderField: "X-Android-Sync-Id")
+        uploadRequest.setValue("13", forHTTPHeaderField: "X-Android-Sync-Batch-Total-Bytes")
         let (uploadData, uploadResponse) = try await URLSession.shared.data(for: uploadRequest)
         XCTAssertEqual((uploadResponse as? HTTPURLResponse)?.statusCode, 201)
         XCTAssertEqual(
             (try JSONSerialization.jsonObject(with: uploadData) as? [String: Any])?["status"] as? String,
             "stored"
         )
+        XCTAssertEqual(eventRecorder.uploadStartedBatchTotalBytes, [13])
 
         let (manifestData, manifestResponse) = try await URLSession.shared.data(
             from: baseURL.appendingPathComponent("manifest.json")
@@ -562,6 +565,17 @@ private final class ReceiverEventRecorder: @unchecked Sendable {
                     return nil
                 }
                 return UploadFailure(filename: filename, message: message)
+            }
+        }
+    }
+
+    var uploadStartedBatchTotalBytes: [Int64] {
+        lock.withLock {
+            events.compactMap { event in
+                guard case let .uploadStarted(_, _, _, _, _, batchTotalBytes) = event else {
+                    return nil
+                }
+                return batchTotalBytes
             }
         }
     }

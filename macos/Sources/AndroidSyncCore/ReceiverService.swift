@@ -5,7 +5,14 @@ import Network
 public enum ReceiverServiceEvent: Sendable {
     case started(port: UInt16)
     case stopped
-    case uploadStarted(id: UUID, filename: String, expectedSize: Int64, batchIndex: Int? = nil, batchTotal: Int? = nil)
+    case uploadStarted(
+        id: UUID,
+        filename: String,
+        expectedSize: Int64,
+        batchIndex: Int? = nil,
+        batchTotal: Int? = nil,
+        batchTotalBytes: Int64? = nil
+    )
     case uploadProgress(id: UUID, bytesReceived: Int64, expectedSize: Int64)
     case uploadStored(id: UUID, record: UploadRecord)
     case uploadFailed(id: UUID, filename: String, message: String)
@@ -495,7 +502,8 @@ private final class ReceiverConnection: @unchecked Sendable {
                     filename: metadata.filename,
                     expectedSize: expectedSize,
                     batchIndex: metadata.batchIndex,
-                    batchTotal: metadata.batchTotal
+                    batchTotal: metadata.batchTotal,
+                    batchTotalBytes: metadata.batchTotalBytes
                 )
             )
             prepareUpload()

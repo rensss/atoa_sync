@@ -37,7 +37,9 @@ Android 应用使用 Java 编写，不引入第三方依赖，通过本地 Andro
 - `SyncDatabase`：使用 `SQLiteOpenHelper` 持久化任务、同步 run 和 run-task 顺序；事务边界覆盖队列写入和 run 创建。
 - `SyncQueue`：内存中的任务归属、状态转换、筛选、汇总和有界可见窗口，并通过可选 persistence 同步到 SQLite。
 - `SyncForegroundService`：用户主动开始后的唯一上传生命周期所有者，持有单线程 runner、取消信号和进度通知；`START_STICKY` 恢复数据库中的 `RUNNING` run。
-- `SyncTransferRunner`：不依赖 Android 生命周期的单线程任务状态机；每个文件只尝试一次，失败后继续后续任务。
+- `SyncTransferRunner`：不依赖 Android 生命周期的单线程任务状态机；按远端 manifest 过滤后
+  的 `WAITING`/`FAILED` 任务快照计算本次上传文件数与字节总量（求和饱和到 `Long.MAX_VALUE`）；
+  每个文件只尝试一次，失败后继续后续任务。
 - `RemoteManifestClient`：读取接收端历史并识别远端已经存储的媒体。
 - `HttpFileUploader`：使用 HTTP `PUT` 和 Android Sync 元数据 header 流式上传媒体。
 
@@ -90,7 +92,16 @@ Quick Look 一次持有当前筛选结果的文件 URL 快照和选中索引。�
 - `PUT /uploads/<filename>`
 
 上传 header 包含稳定 ID、尺寸、MIME 类型、可用的 Android 媒体时间戳，以及可选的
-批次序号/批次总数（用于接收端进度显示）。接收端按原始内容存储，不进行转码。
+批次序号/批次总数（用于接收端进度显示）。新 Android 客户端另外发送可选的
+`X-Android-Sync-Batch-Total-Bytes`，值为 manifest 过滤后的实际待上传任务大小之和；旧客户端
+可以省略该 header。macOS 将合法的非负 `Int64` 保存到 `UploadMetadata` 并透传给接收事件；
+缺失、负数、非法或溢出值按缺失处理，不拒绝上传。接收端按原始内容存储，不进行转码。
+
+`AppModel` 在一次连续批次内用批次总字节减去已完成文件大小和所有活动上传的已接收字节，
+得到整任务剩余量，并将结果限制为非负；ETA 仅在该剩余量可用且三秒速度滑窗给出正速度后
+估算。旧单文件上传可回退到当前文件剩余量；旧多文件批次没有总字节 header 时不把当前文件
+剩余量冒充整批数据。macOS 主窗口在 detail 外层只创建一个 `TransferCardRow` 顶部 header，
+`LibraryView` 填满其下方区域，空分类只在下方区域居中。
 
 地址配置不属于上传 HTTP 协议。macOS 用系统 Core Image 把
 `androidsync://configure?url=<percent-encoded-upload-url>` 生成二维码；Android 系统

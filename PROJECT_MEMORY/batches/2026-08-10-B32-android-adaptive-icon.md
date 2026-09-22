@@ -53,6 +53,7 @@ git diff --check
 
 ## 结果
 
-- 提交：当前工作树未提交，待后续提交时回填 SHA。
+- 提交：随 B32–B35 一并提交为 `2690006`（`feat: harden Android sync and macOS receive flow`），
+  2026-09-22 本地提交，未推送。
 - 结果：已完成本地 adaptive icon 资源迁移和 `SYNC` 模块化矢量字标。
 - 后续：安装到 Android 真机后检查不同 launcher 遮罩下的字标裁切和视觉尺寸。

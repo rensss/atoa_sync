@@ -21,6 +21,9 @@ android/build/AndroidSync-debug.apk
 - 通过 Android `MediaStore` 扫描手机媒体库。
 - 使用稳定去重逻辑把照片和视频加入同步队列。
 - 通过 HTTP/WebDAV 风格的 `PUT` 上传等待或失败的任务。
+- 本次 run 在远端 manifest 过滤后计算实际待传任务数与字节总量；上传到原生 macOS 时
+  通过可选 `X-Android-Sync-Batch-Total-Bytes` header 发送整批字节量。此 header 只供
+  macOS 显示整任务剩余量和 ETA，不改变 Android 通知的进度口径。
 - 允许用户在应用内编辑局域网/NAS 目标 URL。
 - 支持用系统相机扫描 macOS 应用显示的地址二维码；打开 Android Sync 后会校验并
   自动保存新的 HTTP/HTTPS 目标 URL。

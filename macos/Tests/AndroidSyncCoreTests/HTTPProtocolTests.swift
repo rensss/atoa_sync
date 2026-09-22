@@ -27,7 +27,8 @@ final class HTTPProtocolTests: XCTestCase {
                 "x-android-sync-id": "image:42",
                 "x-android-sync-date-modified": "1780482600000",
                 "x-android-sync-batch-index": "2",
-                "x-android-sync-batch-total": "5"
+                "x-android-sync-batch-total": "5",
+                "x-android-sync-batch-total-bytes": "123456"
             ]
         )
 
@@ -43,6 +44,26 @@ final class HTTPProtocolTests: XCTestCase {
         XCTAssertEqual(metadata.sourceIP, "192.168.1.20")
         XCTAssertEqual(metadata.batchIndex, 2)
         XCTAssertEqual(metadata.batchTotal, 5)
+        XCTAssertEqual(metadata.batchTotalBytes, 123456)
+    }
+
+    func testRouterTreatsInvalidBatchTotalBytesAsMissing() throws {
+        for value in ["-1", "9223372036854775808"] {
+            let request = HTTPRequestHead(
+                method: "PUT",
+                target: "/uploads/a.jpg",
+                version: "HTTP/1.1",
+                headers: [
+                    "content-length": "0",
+                    "x-android-sync-batch-total-bytes": value
+                ]
+            )
+
+            guard case let .upload(_, metadata) = try ReceiverRouter.route(request, sourceIP: "192.168.1.20") else {
+                return XCTFail("Expected upload route for invalid optional metadata: \(value)")
+            }
+            XCTAssertNil(metadata.batchTotalBytes, "invalid optional batch bytes should be treated as absent")
+        }
     }
 
     func testRouterRequiresLengthAndTrustedSource() {
