@@ -51,7 +51,8 @@ macOS 套件 118 个、应用 verify 和 `git diff --check` 均通过。批次�
 Mac 所有暂停入口共享同一状态，传输卡从批次计数/字节数中扣除被丢弃文件的部分进度。
 实现提交依次为 `4c97b26`、`9faf4b4`、`3ff1338`、`8cd83ee`；独立审查修复为
 `5864a95`、`c2b1aaa`、`492a4ed`；协议决策为 ADR-010。
-全量构建/测试结果与文档提交号见 `batches/2026-09-22-B37-native-pause-resume.md`。
+项目决策/批次首个文档提交为 `4cc3130a866c23dafc43bd4fe884cd48e0a2ebd7`；全量构建/测试结果见
+`batches/2026-09-22-B37-native-pause-resume.md`。
 Android 与 Mac 真机暂停、恢复、停止和文件完整性尚未验收，不要据此关闭 M1/M2/M3 里程碑
 或 R-004/R-007/R-009/R-015/R-016。
 

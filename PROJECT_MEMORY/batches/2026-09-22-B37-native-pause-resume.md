@@ -93,6 +93,6 @@ git diff --check
 ## 结果
 
 - 实现提交：`4c97b26`、`9faf4b4`、`3ff1338`、`8cd83ee`、`5864a95`、`c2b1aaa`、`492a4ed`。
-- 文档提交：待首个 B37 文档提交 SHA 核验后在记录校正提交中补入。
+- 文档提交：`4cc3130a866c23dafc43bd4fe884cd48e0a2ebd7`（`docs: record native pause resume behavior`），本地提交，未推送。
 - 结果：Android 测试/构建、macOS 143 项测试、macOS app verify 和 `git diff --check` 通过；真机暂停/恢复/停止仍待执行。
 - 后续：用户在 Android 与 Mac 真机验证暂停时丢弃并从头重传当前文件、恢复后同 run 续传、暂停等待时 Stop 生效、无重复落盘且无 `.part` 残留。R-004/R-007/R-009/R-015/R-016 保持登记状态。
