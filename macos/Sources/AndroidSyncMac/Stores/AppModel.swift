@@ -1373,6 +1373,9 @@ final class AppModel {
             resetTransferCard()
             status = .failed(message)
             lastError = message
+        case .availabilityChanged(state: _), .uploadInterrupted(id: _, filename: _):
+            // The core protocol emits these before the UI state is wired in Task 4.
+            break
         }
     }
 

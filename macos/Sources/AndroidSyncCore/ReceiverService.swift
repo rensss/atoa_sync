@@ -16,6 +16,8 @@ public enum ReceiverServiceEvent: Sendable {
     case uploadProgress(id: UUID, bytesReceived: Int64, expectedSize: Int64)
     case uploadStored(id: UUID, record: UploadRecord)
     case uploadFailed(id: UUID, filename: String, message: String)
+    case availabilityChanged(state: ReceiverAvailabilityState)
+    case uploadInterrupted(id: UUID, filename: String)
     case receiverFailed(message: String)
 }
 
@@ -36,6 +38,12 @@ public enum ReceiverServiceError: LocalizedError {
 struct ReceiverConnectionLifecycle {
     enum StopDisposition: Equatable {
         case closeNow
+        case waitForCommit
+        case alreadyClosed
+    }
+
+    enum PauseDisposition: Equatable {
+        case interrupt
         case waitForCommit
         case alreadyClosed
     }
@@ -77,6 +85,20 @@ struct ReceiverConnectionLifecycle {
             return .closeNow
         case .committing:
             stopRequested = true
+            return .waitForCommit
+        case .closed:
+            return .alreadyClosed
+        }
+    }
+
+    mutating func requestPause() -> PauseDisposition {
+        switch phase {
+        case .receiving:
+            phase = .terminal
+            return .interrupt
+        case .terminal:
+            return .alreadyClosed
+        case .committing:
             return .waitForCommit
         case .closed:
             return .alreadyClosed
@@ -165,6 +187,10 @@ public final class ReceiverService: @unchecked Sendable {
     private var sessions: [UUID: ReceiverConnection] = [:]
     private var lifecycle = ReceiverServiceLifecycle()
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pauseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pausePendingSessionCleanups = 0
+    private var availabilityState: ReceiverAvailabilityState = .running
+    private var pauseEpoch: Int = 0
 
     public init(
         repository: LibraryRepository,
@@ -189,6 +215,11 @@ public final class ReceiverService: @unchecked Sendable {
                     continuation.resume(throwing: ReceiverServiceError.alreadyActive)
                     return
                 }
+                self.availabilityState = .running
+                self.pausePendingSessionCleanups = 0
+                let completedPauseWaiters = self.pauseWaiters
+                self.pauseWaiters.removeAll()
+                completedPauseWaiters.forEach { $0.resume() }
                 self.listener = listener
                 self.startContinuation = continuation
                 listener.stateUpdateHandler = { [weak self, weak listener] state in
@@ -216,6 +247,54 @@ public final class ReceiverService: @unchecked Sendable {
 
     public func stopAndWait() async {
         await stopAndWait {}
+    }
+
+    public func pause() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                guard self.lifecycle.state == .running else {
+                    continuation.resume()
+                    return
+                }
+                switch self.availabilityState {
+                case .running:
+                    self.availabilityState = .pausing
+                    self.pauseEpoch += 1
+                    self.eventHandler(.availabilityChanged(state: .pausing))
+                    self.pauseWaiters.append(continuation)
+                    let activeSessions = Array(self.sessions.values)
+                    self.pausePendingSessionCleanups = activeSessions.count
+                    guard !activeSessions.isEmpty else {
+                        self.finishPauseIfPossible()
+                        return
+                    }
+                    activeSessions.forEach { session in
+                        session.requestPause { [weak self] in
+                            self?.finishPauseSessionCleanup()
+                        }
+                    }
+                case .pausing:
+                    self.pauseWaiters.append(continuation)
+                case .paused:
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    public func resume() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                guard self.lifecycle.state == .running,
+                      self.availabilityState == .paused else {
+                    continuation.resume()
+                    return
+                }
+                self.availabilityState = .running
+                self.eventHandler(.availabilityChanged(state: .running))
+                continuation.resume()
+            }
+        }
     }
 
     func stopAndWait(onRequest: @escaping @Sendable () -> Void) async {
@@ -301,6 +380,9 @@ public final class ReceiverService: @unchecked Sendable {
             repository: repository,
             queue: queue,
             uploadURL: { [weak self] in self?.uploadURL ?? "" },
+            availability: { [weak self] in
+                (self?.availabilityState ?? .paused, self?.pauseEpoch ?? 0)
+            },
             eventHandler: eventHandler,
             onClose: { [weak self] in
                 guard let self else { return }
@@ -346,6 +428,21 @@ public final class ReceiverService: @unchecked Sendable {
         stopWaiters.removeAll()
         waiters.forEach { $0.resume() }
     }
+
+    private func finishPauseSessionCleanup() {
+        guard availabilityState == .pausing, pausePendingSessionCleanups > 0 else { return }
+        pausePendingSessionCleanups -= 1
+        finishPauseIfPossible()
+    }
+
+    private func finishPauseIfPossible() {
+        guard availabilityState == .pausing, pausePendingSessionCleanups == 0 else { return }
+        availabilityState = .paused
+        eventHandler(.availabilityChanged(state: .paused))
+        let waiters = pauseWaiters
+        pauseWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
 }
 
 private final class ReceiverConnection: @unchecked Sendable {
@@ -353,6 +450,7 @@ private final class ReceiverConnection: @unchecked Sendable {
     private let repository: LibraryRepository
     private let queue: DispatchQueue
     private let uploadURL: @Sendable () -> String
+    private let availability: @Sendable () -> (ReceiverAvailabilityState, Int)
     private let eventHandler: ReceiverService.EventHandler
     private let onClose: @Sendable () -> Void
     private let uploadID = UUID()
@@ -365,12 +463,15 @@ private final class ReceiverConnection: @unchecked Sendable {
     private var fileHandle: FileHandle?
     private var lifecycle = ReceiverConnectionLifecycle()
     private var lastProgressBytes: Int64 = 0
+    private var uploadPreparationInFlight = false
+    private var pauseCleanupCompletion: (@Sendable () -> Void)?
 
     init(
         connection: NWConnection,
         repository: LibraryRepository,
         queue: DispatchQueue,
         uploadURL: @escaping @Sendable () -> String,
+        availability: @escaping @Sendable () -> (ReceiverAvailabilityState, Int),
         eventHandler: @escaping ReceiverService.EventHandler,
         onClose: @escaping @Sendable () -> Void
     ) {
@@ -378,6 +479,7 @@ private final class ReceiverConnection: @unchecked Sendable {
         self.repository = repository
         self.queue = queue
         self.uploadURL = uploadURL
+        self.availability = availability
         self.eventHandler = eventHandler
         self.onClose = onClose
     }
@@ -417,6 +519,28 @@ private final class ReceiverConnection: @unchecked Sendable {
             close()
         case .waitForCommit, .alreadyClosed:
             break
+        }
+    }
+
+    func requestPause(completion: @escaping @Sendable () -> Void) {
+        guard uploadMetadata != nil else {
+            completion()
+            return
+        }
+        guard lifecycle.requestPause() == .interrupt else {
+            completion()
+            return
+        }
+        cleanupTemporaryFile()
+        if let uploadMetadata {
+            eventHandler(.uploadInterrupted(id: uploadID, filename: uploadMetadata.filename))
+        }
+        if uploadPreparationInFlight {
+            pauseCleanupCompletion = completion
+        }
+        close()
+        if !uploadPreparationInFlight {
+            completion()
         }
     }
 
@@ -464,7 +588,16 @@ private final class ReceiverConnection: @unchecked Sendable {
                 ]
             )
         case .health:
-            sendJSON(status: 200, reason: "OK", object: ["status": "ok"])
+            let (state, epoch) = availability()
+            sendJSON(
+                status: 200,
+                reason: "OK",
+                object: [
+                    "status": "ok",
+                    "receiver_state": state.rawValue,
+                    "pause_epoch": epoch
+                ]
+            )
         case .manifest:
             Task {
                 do {
@@ -493,6 +626,16 @@ private final class ReceiverConnection: @unchecked Sendable {
                 }
             }
         case let .upload(expectedSize, metadata):
+            let (state, _) = availability()
+            guard state == .running else {
+                guard lifecycle.beginTerminal() else { return }
+                sendJSON(
+                    status: 503,
+                    reason: "Service Unavailable",
+                    object: ["error": "receiver is paused", "error_code": "receiver_paused"]
+                )
+                return
+            }
             self.expectedSize = expectedSize
             remainingBytes = expectedSize
             uploadMetadata = metadata
@@ -513,15 +656,18 @@ private final class ReceiverConnection: @unchecked Sendable {
     }
 
     private func prepareUpload() {
+        uploadPreparationInFlight = true
         Task {
             do {
                 let url = try await repository.makeTemporaryUploadURL()
                 _ = FileManager.default.createFile(atPath: url.path, contents: nil)
                 let handle = try FileHandle(forWritingTo: url)
                 queue.async {
+                    self.uploadPreparationInFlight = false
                     guard self.lifecycle.acceptsNetworkCallbacks else {
                         try? handle.close()
                         try? FileManager.default.removeItem(at: url)
+                        self.finishPauseCleanupIfNeeded()
                         return
                     }
                     self.temporaryURL = url
@@ -531,10 +677,21 @@ private final class ReceiverConnection: @unchecked Sendable {
                 }
             } catch {
                 queue.async {
+                    self.uploadPreparationInFlight = false
+                    guard self.lifecycle.acceptsNetworkCallbacks else {
+                        self.finishPauseCleanupIfNeeded()
+                        return
+                    }
                     self.fail(status: 507, reason: "Insufficient Storage", message: error.localizedDescription)
                 }
             }
         }
+    }
+
+    private func finishPauseCleanupIfNeeded() {
+        guard let completion = pauseCleanupCompletion else { return }
+        pauseCleanupCompletion = nil
+        completion()
     }
 
     private func receiveBody() {

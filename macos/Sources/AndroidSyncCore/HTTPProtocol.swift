@@ -98,6 +98,12 @@ public enum ReceiverRoute: Equatable, Sendable {
     case notFound
 }
 
+public enum ReceiverAvailabilityState: String, Sendable {
+    case running
+    case pausing
+    case paused
+}
+
 public enum HTTPRouteError: Error, Equatable {
     case forbiddenSource
     case lengthRequired

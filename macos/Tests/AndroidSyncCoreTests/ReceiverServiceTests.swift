@@ -22,7 +22,7 @@ final class ReceiverServiceTests: XCTestCase {
         )
         XCTAssertEqual((healthResponse as? HTTPURLResponse)?.statusCode, 200)
         XCTAssertEqual(
-            (try JSONSerialization.jsonObject(with: healthData) as? [String: String])?["status"],
+            (try JSONSerialization.jsonObject(with: healthData) as? [String: Any])?["status"] as? String,
             "ok"
         )
 
@@ -50,6 +50,199 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertEqual(manifest["count"] as? Int, 1)
         let uploads = manifest["uploads"] as! [[String: Any]]
         XCTAssertEqual(uploads[0]["stable_id"] as? String, "image:network")
+    }
+
+    func testHealthReportsControlStateAndEpoch() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let service = ReceiverService(repository: LibraryRepository(rootURL: root), port: 0)
+        let port = try await service.start()
+        defer { service.stop() }
+
+        let (data, response) = try await URLSession.shared.data(
+            from: XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/health"))
+        )
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let health = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(health["status"] as? String, "ok")
+        XCTAssertEqual(health["receiver_state"] as? String, "running")
+        XCTAssertEqual(health["pause_epoch"] as? Int, 0)
+    }
+
+    func testPauseKeepsHealthAvailableRejectsNewUploadsAndResumeKeepsPort() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let service = ReceiverService(repository: LibraryRepository(rootURL: root), port: 0)
+        let port = try await service.start()
+        defer { service.stop() }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+
+        await service.pause()
+        let (pausedData, pausedResponse) = try await URLSession.shared.data(
+            from: baseURL.appendingPathComponent("health")
+        )
+        XCTAssertEqual((pausedResponse as? HTTPURLResponse)?.statusCode, 200)
+        let pausedHealth = try JSONSerialization.jsonObject(with: pausedData) as! [String: Any]
+        XCTAssertEqual(pausedHealth["receiver_state"] as? String, "paused")
+        XCTAssertEqual(pausedHealth["pause_epoch"] as? Int, 1)
+
+        var pausedUpload = URLRequest(url: baseURL.appendingPathComponent("uploads/Rejected.jpg"))
+        pausedUpload.httpMethod = "PUT"
+        pausedUpload.httpBody = Data("body".utf8)
+        let (rejectionData, rejectionResponse) = try await URLSession.shared.data(for: pausedUpload)
+        XCTAssertEqual((rejectionResponse as? HTTPURLResponse)?.statusCode, 503)
+        let rejection = try JSONSerialization.jsonObject(with: rejectionData) as! [String: Any]
+        XCTAssertEqual(rejection["error_code"] as? String, "receiver_paused")
+        XCTAssertTrue(try incomingContents(at: root).isEmpty)
+
+        await service.resume()
+        let (resumedData, resumedResponse) = try await URLSession.shared.data(
+            from: baseURL.appendingPathComponent("health")
+        )
+        XCTAssertEqual((resumedResponse as? HTTPURLResponse)?.statusCode, 200)
+        let resumedHealth = try JSONSerialization.jsonObject(with: resumedData) as! [String: Any]
+        XCTAssertEqual(resumedHealth["receiver_state"] as? String, "running")
+        XCTAssertEqual(resumedHealth["pause_epoch"] as? Int, 1)
+
+        var resumedUpload = URLRequest(url: baseURL.appendingPathComponent("uploads/Accepted.jpg"))
+        resumedUpload.httpMethod = "PUT"
+        resumedUpload.httpBody = Data("body".utf8)
+        let (_, acceptedResponse) = try await URLSession.shared.data(for: resumedUpload)
+        XCTAssertEqual((acceptedResponse as? HTTPURLResponse)?.statusCode, 201)
+    }
+
+    func testRestartAfterPauseReportsRunningHealth() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let service = ReceiverService(repository: LibraryRepository(rootURL: root), port: 0)
+        _ = try await service.start()
+        await service.pause()
+        await service.stopAndWait()
+        let port = try await service.start()
+        defer { service.stop() }
+
+        let (data, response) = try await URLSession.shared.data(
+            from: XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/health"))
+        )
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let health = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(health["receiver_state"] as? String, "running")
+        XCTAssertEqual(health["pause_epoch"] as? Int, 1)
+    }
+
+    func testPauseInterruptsUploadAndRemovesTemporaryFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let uploadStarted = expectation(description: "upload started")
+        let uploadInterrupted = expectation(description: "upload interrupted")
+        let eventRecorder = ReceiverEventRecorder()
+        let repository = LibraryRepository(rootURL: root)
+        let service = ReceiverService(repository: repository, port: 0) { event in
+            eventRecorder.append(event)
+            if case .uploadStarted = event { uploadStarted.fulfill() }
+            if case .uploadInterrupted = event { uploadInterrupted.fulfill() }
+        }
+        let port = try await service.start()
+        defer { service.stop() }
+
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: try XCTUnwrap(NWEndpoint.Port(rawValue: port)),
+            using: .tcp
+        )
+        let connected = expectation(description: "connected")
+        connection.stateUpdateHandler = { (state: NWConnection.State) in
+            if case .ready = state { connected.fulfill() }
+        }
+        connection.start(queue: DispatchQueue(label: "ReceiverServiceTests.pause-client"))
+        await fulfillment(of: [connected], timeout: 2)
+
+        let requestHead = [
+            "PUT /uploads/Paused.jpg HTTP/1.1",
+            "Host: 127.0.0.1",
+            "Content-Type: image/jpeg",
+            "Content-Length: 1048576",
+            "X-Android-Sync-Id: image:paused",
+            "Connection: close",
+        ].joined(separator: "\r\n") + "\r\n\r\n"
+        connection.send(
+            content: Data((requestHead + "partial").utf8),
+            completion: NWConnection.SendCompletion.contentProcessed { _ in }
+        )
+
+        await fulfillment(of: [uploadStarted], timeout: 2)
+        try await waitForIncomingFile(at: root)
+        await service.pause()
+        await fulfillment(of: [uploadInterrupted], timeout: 2)
+        connection.cancel()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(eventRecorder.uploadInterruptions.map(\.filename), ["Paused.jpg"])
+        XCTAssertTrue(eventRecorder.uploadFailures.isEmpty)
+        XCTAssertTrue(try incomingContents(at: root).isEmpty)
+        let manifest = try await repository.manifest()
+        XCTAssertTrue(manifest.isEmpty)
+    }
+
+    func testPauseAfterCommitStartsFinishesStoredUpload() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let commitEntered = expectation(description: "repository commit entered")
+        let uploadStored = expectation(description: "upload stored")
+        let eventRecorder = ReceiverEventRecorder()
+        let commitGate = AsyncTestGate()
+        let repository = LibraryRepository(
+            rootURL: root,
+            hooks: LibraryRepositoryHooks(afterFileMove: {
+                commitEntered.fulfill()
+                await commitGate.wait()
+            })
+        )
+        let service = ReceiverService(repository: repository, port: 0) { event in
+            eventRecorder.append(event)
+            if case .uploadStored = event { uploadStored.fulfill() }
+        }
+        let port = try await service.start()
+        defer { service.stop() }
+
+        var request = URLRequest(
+            url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/uploads/CommitDuringPause.jpg"))
+        )
+        request.httpMethod = "PUT"
+        request.httpBody = Data("complete body".utf8)
+        let responseTask = Task { try await URLSession.shared.data(for: request) }
+
+        await fulfillment(of: [commitEntered], timeout: 2)
+        await service.pause()
+        let (healthData, _) = try await URLSession.shared.data(
+            from: XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/health"))
+        )
+        let health = try JSONSerialization.jsonObject(with: healthData) as! [String: Any]
+        XCTAssertEqual(health["receiver_state"] as? String, "paused")
+
+        await commitGate.open()
+        let (_, response) = try await responseTask.value
+        await fulfillment(of: [uploadStored], timeout: 2)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 201)
+        XCTAssertEqual(eventRecorder.uploadStores.count, 1)
+        XCTAssertEqual(try storedFiles(at: root).map(\.lastPathComponent), ["CommitDuringPause.jpg"])
+        let manifest = try await repository.manifest()
+        XCTAssertEqual(manifest.count, 1)
     }
 
     func testInterruptedUploadRemovesTemporaryFileAndEmitsUploadFailure() async throws {
@@ -555,6 +748,11 @@ private final class ReceiverEventRecorder: @unchecked Sendable {
         let message: String
     }
 
+    struct UploadInterruption {
+        let id: UUID
+        let filename: String
+    }
+
     private let lock = NSLock()
     private var events: [ReceiverServiceEvent] = []
 
@@ -565,6 +763,17 @@ private final class ReceiverEventRecorder: @unchecked Sendable {
                     return nil
                 }
                 return UploadFailure(filename: filename, message: message)
+            }
+        }
+    }
+
+    var uploadInterruptions: [UploadInterruption] {
+        lock.withLock {
+            events.compactMap { event in
+                guard case let .uploadInterrupted(id, filename) = event else {
+                    return nil
+                }
+                return UploadInterruption(id: id, filename: filename)
             }
         }
     }

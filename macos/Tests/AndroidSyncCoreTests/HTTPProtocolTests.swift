@@ -104,4 +104,22 @@ final class HTTPProtocolTests: XCTestCase {
             .manifest
         )
     }
+
+    func testRouterKeepsUploadRouteIndependentOfReceiverAvailability() throws {
+        let request = HTTPRequestHead(
+            method: "PUT",
+            target: "/uploads/WhilePaused.jpg",
+            version: "HTTP/1.1",
+            headers: ["content-length": "4"]
+        )
+
+        guard case let .upload(expectedSize, metadata) = try ReceiverRouter.route(
+            request,
+            sourceIP: "127.0.0.1"
+        ) else {
+            return XCTFail("routing should describe the request; service availability is checked later")
+        }
+        XCTAssertEqual(expectedSize, 4)
+        XCTAssertEqual(metadata.filename, "WhilePaused.jpg")
+    }
 }
