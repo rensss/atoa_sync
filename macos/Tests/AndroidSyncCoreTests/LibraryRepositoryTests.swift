@@ -54,6 +54,99 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(log.contains("\"stable_id\":\"image:42\""))
     }
 
+    func testStoreFlattensCategoryAndUsesSourceModifiedTimeForCreationAndModification() async throws {
+        let receivedAt = Date(timeIntervalSince1970: 1_900_000_000)
+        let sourceTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let repository = LibraryRepository(
+            rootURL: temporaryDirectory,
+            now: { receivedAt }
+        )
+
+        let record = try await repository.store(
+            data: Data([1, 2, 3]),
+            metadata: UploadMetadata(
+                filename: "source.jpg",
+                contentType: "image/jpeg",
+                dateModifiedMillis: Int64(sourceTimestamp.timeIntervalSince1970 * 1_000)
+            )
+        )
+
+        XCTAssertEqual(
+            record.fileURL.path,
+            temporaryDirectory.appendingPathComponent("photos/source.jpg").path
+        )
+        let values = try record.fileURL.resourceValues(
+            forKeys: [.creationDateKey, .contentModificationDateKey]
+        )
+        let creationDate = try XCTUnwrap(values.creationDate)
+        let modificationDate = try XCTUnwrap(values.contentModificationDate)
+        XCTAssertEqual(
+            creationDate.timeIntervalSince1970,
+            sourceTimestamp.timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertEqual(
+            modificationDate.timeIntervalSince1970,
+            sourceTimestamp.timeIntervalSince1970,
+            accuracy: 1
+        )
+    }
+
+    func testStoreFallsBackToTakenTimeWhenModifiedTimeIsMissing() async throws {
+        let receivedAt = Date(timeIntervalSince1970: 1_900_000_000)
+        let sourceTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let repository = LibraryRepository(
+            rootURL: temporaryDirectory,
+            now: { receivedAt }
+        )
+
+        let record = try await repository.store(
+            data: Data([1]),
+            metadata: UploadMetadata(
+                filename: "taken.jpg",
+                contentType: "image/jpeg",
+                dateTakenMillis: Int64(sourceTimestamp.timeIntervalSince1970 * 1_000)
+            )
+        )
+
+        try assertFileDates(sourceTimestamp, for: record.fileURL)
+    }
+
+    func testStoreFallsBackToAddedTimeWhenModifiedAndTakenTimesAreMissing() async throws {
+        let receivedAt = Date(timeIntervalSince1970: 1_900_000_000)
+        let sourceTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let repository = LibraryRepository(
+            rootURL: temporaryDirectory,
+            now: { receivedAt }
+        )
+
+        let record = try await repository.store(
+            data: Data([1]),
+            metadata: UploadMetadata(
+                filename: "added.jpg",
+                contentType: "image/jpeg",
+                dateAddedMillis: Int64(sourceTimestamp.timeIntervalSince1970 * 1_000)
+            )
+        )
+
+        try assertFileDates(sourceTimestamp, for: record.fileURL)
+    }
+
+    func testStoreFallsBackToReceivedTimeWhenSourceTimesAreMissing() async throws {
+        let receivedAt = Date(timeIntervalSince1970: 1_900_000_000)
+        let repository = LibraryRepository(
+            rootURL: temporaryDirectory,
+            now: { receivedAt }
+        )
+
+        let record = try await repository.store(
+            data: Data([1]),
+            metadata: UploadMetadata(filename: "received.jpg", contentType: "image/jpeg")
+        )
+
+        try assertFileDates(receivedAt, for: record.fileURL)
+    }
+
     func testStoreUsesIncrementingNameForCollision() async throws {
         let repository = LibraryRepository(rootURL: temporaryDirectory)
         let metadata = UploadMetadata(filename: "same.jpg", contentType: "image/jpeg")
@@ -211,7 +304,7 @@ final class LibraryRepositoryTests: XCTestCase {
 
     func testStoreDoesNotOverwriteOrphanedSidecar() async throws {
         let orphanedSidecar = temporaryDirectory
-            .appendingPathComponent("photos/2026-06/orphan.jpg.metadata.json")
+            .appendingPathComponent("photos/orphan.jpg.metadata.json")
         try FileManager.default.createDirectory(
             at: orphanedSidecar.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -342,6 +435,24 @@ final class LibraryRepositoryTests: XCTestCase {
 
     private func allPaths() throws -> [String] {
         try FileManager.default.subpathsOfDirectory(atPath: temporaryDirectory.path)
+    }
+
+    private func assertFileDates(_ expected: Date, for url: URL) throws {
+        let values = try url.resourceValues(
+            forKeys: [.creationDateKey, .contentModificationDateKey]
+        )
+        let creationDate = try XCTUnwrap(values.creationDate)
+        let modificationDate = try XCTUnwrap(values.contentModificationDate)
+        XCTAssertEqual(
+            creationDate.timeIntervalSince1970,
+            expected.timeIntervalSince1970,
+            accuracy: 1
+        )
+        XCTAssertEqual(
+            modificationDate.timeIntervalSince1970,
+            expected.timeIntervalSince1970,
+            accuracy: 1
+        )
     }
 }
 

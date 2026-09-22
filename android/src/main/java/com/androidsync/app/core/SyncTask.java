@@ -23,6 +23,26 @@ public final class SyncTask {
         return new SyncTask(UUID.randomUUID().toString(), media, SyncStatus.WAITING, 0, null, 0L);
     }
 
+    public static SyncTask restore(
+            String id,
+            MediaItem media,
+            SyncStatus status,
+            int attemptCount,
+            String errorMessage,
+            long uploadedBytes
+    ) {
+        if (id == null || id.trim().isEmpty()) {
+            throw new IllegalArgumentException("id is required");
+        }
+        if (media == null) {
+            throw new IllegalArgumentException("media is required");
+        }
+        if (status == null) {
+            throw new IllegalArgumentException("status is required");
+        }
+        return new SyncTask(id, media, status, attemptCount, errorMessage, uploadedBytes);
+    }
+
     public String id() {
         return id;
     }

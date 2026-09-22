@@ -91,10 +91,8 @@ public actor LibraryRepository {
         let filename = try FilePolicy.safeFilename(from: metadata.filename)
         let kind = FilePolicy.kind(filename: filename, contentType: metadata.contentType)
         let receivedAt = now()
-        let month = Self.monthString(from: receivedAt)
         let targetDirectory = rootURL
             .appendingPathComponent(kind.rawValue, isDirectory: true)
-            .appendingPathComponent(month, isDirectory: true)
         try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
         let targetURL = uniqueURL(for: targetDirectory.appendingPathComponent(filename))
@@ -103,12 +101,15 @@ public actor LibraryRepository {
 
         do {
             try await hooks.afterFileMove?()
-            if let millis = metadata.dateModifiedMillis {
-                try fileManager.setAttributes(
-                    [.modificationDate: Date(timeIntervalSince1970: TimeInterval(millis) / 1_000)],
-                    ofItemAtPath: targetURL.path
-                )
-            }
+            let sourceDate = (metadata.dateModifiedMillis
+                ?? metadata.dateTakenMillis
+                ?? metadata.dateAddedMillis)
+                .map { Date(timeIntervalSince1970: TimeInterval($0) / 1_000) }
+                ?? receivedAt
+            try fileManager.setAttributes(
+                [.creationDate: sourceDate, .modificationDate: sourceDate],
+                ofItemAtPath: targetURL.path
+            )
 
             let record = UploadRecord(
                 filename: targetURL.lastPathComponent,
@@ -380,13 +381,6 @@ public actor LibraryRepository {
             return Int64(string)
         }
         return nil
-    }
-
-    private static func monthString(from date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM"
-        return formatter.string(from: date)
     }
 
     private static func timestampString(from date: Date) -> String {

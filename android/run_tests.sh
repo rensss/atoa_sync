@@ -9,8 +9,12 @@ find "$ROOT/src/main/java/com/androidsync/app/core" -name '*.java' | sort > "$RO
 printf '%s\n' "$ROOT/tests/SyncQueueTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/AlbumFilterTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/AddressConfigurationTest.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/tests/SyncTransferRunnerTest.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/tests/SyncRunTest.java" >> "$ROOT/build/test-sources.list"
 
 javac -d "$BUILD" @"$ROOT/build/test-sources.list"
 java -cp "$BUILD" SyncQueueTest
 java -cp "$BUILD" AlbumFilterTest
 java -cp "$BUILD" AddressConfigurationTest
+java -cp "$BUILD" SyncTransferRunnerTest
+java -cp "$BUILD" SyncRunTest

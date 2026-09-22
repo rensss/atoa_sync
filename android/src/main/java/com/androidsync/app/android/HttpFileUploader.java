@@ -13,8 +13,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class HttpFileUploader {
+    private final AtomicReference<HttpURLConnection> activeConnection = new AtomicReference<>();
     public interface CancellationSignal {
         boolean isCancelled();
     }
@@ -51,6 +53,7 @@ public final class HttpFileUploader {
         String normalizedBase = targetBaseUrl.endsWith("/") ? targetBaseUrl : targetBaseUrl + "/";
         String encodedName = URLEncoder.encode(item.displayName(), "UTF-8").replace("+", "%20");
         HttpURLConnection connection = (HttpURLConnection) new URL(normalizedBase + encodedName).openConnection();
+        activeConnection.set(connection);
         try {
             connection.setRequestMethod("PUT");
             connection.setConnectTimeout(8000);
@@ -105,6 +108,14 @@ public final class HttpFileUploader {
                 throw new IOException("Upload failed with HTTP " + responseCode);
             }
         } finally {
+            connection.disconnect();
+            activeConnection.compareAndSet(connection, null);
+        }
+    }
+
+    public void cancelActive() {
+        HttpURLConnection connection = activeConnection.getAndSet(null);
+        if (connection != null) {
             connection.disconnect();
         }
     }

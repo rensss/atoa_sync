@@ -12,11 +12,13 @@
 | R-006 | Medium | 已缓解 | 重复文件名可能覆盖用户媒体。 | `LibraryRepository` 生成唯一目标文件名。保留该行为及其测试。 |
 | R-007 | Medium | 已缓解 | 未完成上传可能被提交为有效文件。 | 流式写入 `.part`，比较实际和期望尺寸，再移动到最终位置。保留尺寸不匹配测试。 |
 | R-008 | Medium | 开放 | Manifest 是追加式 JSONL；损坏或无限增长会降低启动和 reconciliation 性能。 | 保持解析容错，增加 malformed line 覆盖，并在长期高容量使用前设计 compaction。 |
-| R-009 | Medium | 开放 | Android 队列状态是进程内状态。应用终止会丢失等待、失败和重试状态。 | 在声明可恢复同步前，决定是否需要持久化。 |
+| R-009 | Medium | 部分缓解；B33 已实现持久化队列，等待完整真机恢复验证 | Android 队列状态曾是进程内状态；系统回收或 Activity 生命周期变化可能丢失等待、失败和重试状态。 | `SQLiteOpenHelper` 持久化任务和 run；`ForegroundService` 恢复 `RUNNING` run，并把遗留 `UPLOADING` 恢复为 `WAITING`。B33 已在约 1963 项媒体库上验证 Home、受控强制停止后重开和前台进度；完整系统回收、锁屏长时间运行和厂商策略仍待验证。 |
 | R-010 | Low | 开放 | 命令行 Android 构建依赖本地安装的 SDK 工具和路径，降低可复现性。 | 记录前置条件，并考虑固定 CI 环境；不要轻率替换当前构建系统。 |
 | R-011 | High | 已缓解（B09，提交 `039af65`） | SwiftData `@Model` 属性若使用 NSManagedObject 保留名（如 `deleted`），`ModelContext.save()` 会静默丢弃写入值，导致 UI 状态与 manifest 永久不一致（已删除条目复活）。 | 实体属性避开 Core Data/NSManagedObject 保留名；`MediaItemEntity` 已改用 `removed` 并有回归测试 `AppModelDeleteTests` 守护。新增实体属性时核对保留名。 |
 | R-012 | Medium | 已接受，受约束（B24） | Android 自定义 scheme 可被不可信二维码或本机其他应用调用，直接把后续上传目标改到其他 HTTP/HTTPS 接收端。 | 仅注册固定 `androidsync://configure` host，只接受可解析且带 host 的 HTTP/HTTPS URL；更新后显示 Toast 并进入可见的设置页。文档要求只扫描可信电脑二维码；未来若扩大安全边界，应改用可验证 App Link、配对码或用户确认。 |
 | R-013 | Medium | 已缓解（B31，提交 `aa4cc87`） | macOS 连续滚动时若重复生成已见缩略图，可能造成解码积压、占位图延迟和无界内存压力。 | 使用按路径/尺寸/倍率区分的有界内存缓存，合并同一请求并保持 LazyVGrid；保留缓存和并发合并测试。 |
+| R-014 | Medium | 开放；B33 已记录控制措施 | 部分 Android 厂商的电池优化、后台清理或用户强制停止可能终止前台同步服务。 | 使用 `dataSync` 前台服务、常驻低优先级进度通知和 `START_STICKY`；README 提醒用户关闭相关电池限制。继续用真机覆盖锁屏、后台时长和厂商策略，不能宣称系统永不杀进程。 |
+| R-015 | Low | 已接受，受约束（B33） | 服务恢复前远端 manifest 不可用时，客户端无法确认文件是否已完整落盘，可能再次整文件上传并由接收端生成唯一副本。 | 恢复前尽力查询 stable ID manifest；查询失败记录 warning 并继续既有协议。保留整文件 PUT 和接收端唯一命名，不在本批修改 macOS 协议；未来可增加可验证的 manifest/幂等协议。 |
 
 ## 已关闭风险
 

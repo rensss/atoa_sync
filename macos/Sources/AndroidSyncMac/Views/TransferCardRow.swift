@@ -17,23 +17,12 @@ struct TransferCardRow: View {
                     progressCard
                     statsCard
                 }
-            case let .completed(count):
-                HStack(spacing: Theme.spacingM) {
-                    completedCard(count)
-                    statsCard
-                }
             }
         }
         .padding(.horizontal, Theme.spacingL)
         .padding(.top, contentIsEmpty ? 0 : Theme.spacingM)
-        .animation(
-            .easeInOut(duration: 0.25),
-            value: model.transferCardState
-        )
-        .animation(
-            .easeInOut(duration: 0.25),
-            value: model.transientUploadMessage
-        )
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(Theme.bg)
     }
 
     private var contentIsEmpty: Bool {
@@ -98,26 +87,6 @@ struct TransferCardRow: View {
         return model.format(
             .speedFormat,
             model.formatByteCount(speed)
-        )
-    }
-
-    private func completedCard(_ count: Int) -> some View {
-        HStack(spacing: Theme.spacingS) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Theme.statusRunning)
-            Text(model.format(.completedLingerFormat, count))
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(Theme.textPrimary)
-        }
-        .padding(Theme.spacingM)
-        .frame(maxWidth: .infinity, minHeight: cardHeight, maxHeight: cardHeight, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.radiusL)
-                .fill(Theme.bgRaised)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusL)
-                .strokeBorder(Theme.stroke)
         )
     }
 

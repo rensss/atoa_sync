@@ -37,18 +37,22 @@ swift test --package-path macos
 
 ## 存储兼容性
 
-macOS 应用保留现有接收端布局：
+macOS 应用的新上传采用按类型平铺的接收端布局：
 
 ```text
-photos/YYYY-MM/
-videos/YYYY-MM/
-files/YYYY-MM/
+photos/
+videos/
+files/
 uploads.jsonl
 ```
 
 文件先流式写入临时 `.part` 文件，只有完整 `Content-Length` 到达后才移动到最终
 位置。媒体字节不会被转码或压缩。应用会保留 Android Sync 时间戳、稳定 ID、MIME
-类型、来源 IP、JSONL 历史和 `.metadata.json` sidecar。
+类型、来源 IP、JSONL 历史和 `.metadata.json` sidecar。文件系统创建时间和修改时间
+按源时间设置，优先级为 `dateModified` → `dateTaken` → `dateAdded` → 接收时间。
+
+已有 `photos/YYYY-MM/`、`videos/YYYY-MM/`、`files/YYYY-MM/` 历史文件不会自动搬迁；
+`uploads.jsonl` 中的历史路径仍会继续读取。
 
 选择既有 Python 接收端目录时，会自动导入其中的 `uploads.jsonl` 历史。
 
@@ -75,6 +79,8 @@ uploads.jsonl
 列表可用方向键逐项移动，并自动滚动到新选中项。媒体库中也可用 Delete 删除选中项目。
 方向键移动只在新选中项离开视口时做最小距离滚动；已经生成的缩略图会在有界内存缓存
 中复用，减少连续滚动时的重复 Quick Look 解码。
+同步进度只创建一份，固定在内容区顶部，网格、列表、筛选和搜索共用同一个 header；
+中间文件完成时继续显示本批进度，最后一个文件完成后立即收起，不再显示完成驻留卡。
 删除项目会保留 manifest tombstone，避免 Android 应用再次上传同一媒体。
 当前分类和数量由侧栏选中行显示，标题栏不重复展示。标题栏统一控制条包含接收状态、
 暂停/开始接收、地址二维码、上下文删除、筛选/排序、网格/列表、设置和 Inspector；

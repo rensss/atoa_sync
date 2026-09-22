@@ -17,17 +17,18 @@
 - [x] 运行时中英文本地化已实现（默认中文）。
 - [x] 搜索、排序、Inspector、Quick Look 与设置行为已实现。
 - [x] `AndroidSyncMacTests` 覆盖应用状态与本地化逻辑。
-- [x] `swift test --package-path macos` 在目标提交通过（75 个测试）。
+- [x] `swift test --package-path macos` 在当前 HEAD 通过（113 个测试）。
 - [ ] 最终视觉/交互 QA 覆盖工具栏位置、本地化菜单、Inspector/搜索布局、缩略图与
       空格 Quick Look（已有局部 GUI 证据，完整矩阵仍未执行）。
 - [ ] 未观察到布局、本地化或 Quick Look 交互回归。
 
 ## 证据
 
-- 目标提交：`8a09aa0`（Phase 3 实现合并到 `main`）；前序候选 `cbf31db`、集成 `23b09d5`。
-- 命令与结果：`swift test --package-path macos` 通过（75 个测试）；
-  `swift build --package-path macos -c release` 通过；生成签名应用包版本 `0.1.2`、
-  构建号 `35`，`codesign --verify --deep --strict` 通过。
+- 目标提交：`8a09aa0`（Phase 3 实现合并到 `main`）；当前复核 HEAD 为 `17c7538`；前序
+  候选 `cbf31db`、集成 `23b09d5`。
+- 2026-08-10，`swift test --package-path macos` 通过（113 个测试）；
+  `./macos/build_and_run.sh verify`、应用 plist 和 `codesign --verify --deep --strict`
+  均通过；生成签名应用包版本 `0.1.3`、构建号 `106`。
 - 人工验证：全量矩阵未完成；下列局部 GUI 证据不能替代最终视觉/交互 QA。
 - 2026-07-20 B28 局部人工证据：真实窗口已确认重设计标题栏、状态/二维码菜单、单层
   日期/排序菜单与筛选往返，接收服务最终恢复运行；此证据不覆盖双语、Inspector、
@@ -48,6 +49,11 @@
 - 2026-07-21 B31 局部性能证据：真实首页网格连续向下移动 12 行约 2.3 秒完成，最终
   可见区域仅观察到 1 个未就绪缩略图；有界缓存与请求合并的 3 个新增测试及完整 113
   个 macOS 测试通过。此证据不替代不同媒体格式和大型媒体库的完整压力矩阵。
+- 2026-09-20 B34 自动化证据：同步进度改为 `LibraryView` 顶部 `safeAreaInset` 的唯一
+  header；新增测试覆盖单文件完成立即收起、批次中间文件保持显示、批次最后文件收起
+  以及上一轮进度清理。完整 `swift test --package-path macos` 运行 114 个测试并通过，
+  `./macos/build_and_run.sh verify` 和 `git diff --check` 通过；未执行 GUI 手工检查，
+  因此不替代最终视觉/交互 QA。
 
 ## 风险
 

@@ -9,12 +9,33 @@ import java.util.Set;
 
 public final class SyncQueue {
     private final Map<String, SyncTask> tasksByMediaId = new LinkedHashMap<>();
+    private final SyncQueuePersistence persistence;
+
+    public SyncQueue() {
+        this(null);
+    }
+
+    public SyncQueue(SyncQueuePersistence persistence) {
+        this.persistence = persistence;
+        if (persistence != null) {
+            List<SyncTask> restored = persistence.load();
+            if (restored != null) {
+                for (SyncTask task : restored) {
+                    if (task != null) {
+                        tasksByMediaId.put(task.media().stableId(), task);
+                    }
+                }
+            }
+        }
+    }
 
     public void enqueueAll(List<MediaItem> mediaItems) {
         for (MediaItem item : mediaItems) {
             synchronized (this) {
                 if (!tasksByMediaId.containsKey(item.stableId())) {
-                    tasksByMediaId.put(item.stableId(), SyncTask.waiting(item));
+                    SyncTask task = SyncTask.waiting(item);
+                    persist(task);
+                    tasksByMediaId.put(item.stableId(), task);
                 }
             }
         }
@@ -29,6 +50,9 @@ public final class SyncQueue {
         for (MediaItem item : mediaItems) {
             SyncTask existing = tasksByMediaId.get(item.stableId());
             next.put(item.stableId(), existing == null ? SyncTask.waiting(item) : existing);
+        }
+        if (persistence != null) {
+            persistence.replaceAll(new ArrayList<>(next.values()));
         }
         tasksByMediaId.clear();
         tasksByMediaId.putAll(next);
@@ -106,11 +130,26 @@ public final class SyncQueue {
         replace(taskId, SyncStatus.WAITING, null, 0L, false);
     }
 
+    /** 将指定 run 中进程遗留的上传中任务恢复为可执行状态。 */
+    public synchronized void resetUploadingTasks(List<String> taskIds) {
+        if (taskIds == null) {
+            return;
+        }
+        for (String taskId : taskIds) {
+            SyncTask task = find(taskId);
+            if (task != null && task.status() == SyncStatus.UPLOADING) {
+                retry(taskId);
+            }
+        }
+    }
+
     public synchronized void markRemoteExisting(Set<String> stableIds) {
         for (String stableId : stableIds) {
             SyncTask task = tasksByMediaId.get(stableId);
             if (task != null && task.status() != SyncStatus.UPLOADING) {
-                tasksByMediaId.put(stableId, task.withStatus(SyncStatus.DONE, null, task.media().sizeBytes(), false));
+                SyncTask next = task.withStatus(SyncStatus.DONE, null, task.media().sizeBytes(), false);
+                persist(next);
+                tasksByMediaId.put(stableId, next);
             }
         }
     }
@@ -119,7 +158,9 @@ public final class SyncQueue {
         for (Map.Entry<String, SyncTask> entry : tasksByMediaId.entrySet()) {
             SyncTask task = entry.getValue();
             if (fingerprints.contains(task.media().fingerprint()) && task.status() != SyncStatus.UPLOADING) {
-                tasksByMediaId.put(entry.getKey(), task.withStatus(SyncStatus.DONE, null, task.media().sizeBytes(), false));
+                SyncTask next = task.withStatus(SyncStatus.DONE, null, task.media().sizeBytes(), false);
+                persist(next);
+                tasksByMediaId.put(entry.getKey(), next);
             }
         }
     }
@@ -161,7 +202,9 @@ public final class SyncQueue {
             return;
         }
         SyncTask task = tasksByMediaId.get(key);
-        tasksByMediaId.put(key, task.withStatus(status, errorMessage, uploadedBytes, incrementAttempt));
+        SyncTask next = task.withStatus(status, errorMessage, uploadedBytes, incrementAttempt);
+        persist(next);
+        tasksByMediaId.put(key, next);
     }
 
     private SyncTask find(String taskId) {
@@ -176,6 +219,12 @@ public final class SyncQueue {
             }
         }
         return null;
+    }
+
+    private void persist(SyncTask task) {
+        if (persistence != null) {
+            persistence.save(task);
+        }
     }
 
     private boolean matchesFilter(SyncTask task, String filter) {

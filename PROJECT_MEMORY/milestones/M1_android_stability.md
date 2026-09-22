@@ -33,6 +33,19 @@
 2026-06-22，集成提交通过 `./android/run_tests.sh` 和 `./android/build.sh`，并合并
 到 `main` 的 `8a09aa0`。真机压力测试仍未完成。
 
+2026-08-10，`main` 当前 HEAD `17c7538` 再次通过 `./android/run_tests.sh` 和
+`./android/build.sh`，APK 签名校验通过。未连接 Android 真机，故大型媒体库、快速
+导航、前后台切换、重复开始同步以及 OOM/ANR 无回归观察仍未完成。
+
+2026-09-20，B33 未提交工作树通过 `./android/run_tests.sh` 和 `./android/build.sh`，
+并在无线 ADB 设备 `22081212C` 上安装验证。约 1963 项媒体库中，一次确认 run 包含
+445 项：Home 后前台服务和 `dataSync` 通知进度继续增长；force-stop 后重新打开应用，
+Service 恢复并继续上传；连接失败后后续任务继续；应用内停止后 Service 消失。上述是
+受控真机证据，不等同于完整系统低内存回收、长时间锁屏、厂商电池策略或全量落盘验收，
+因此两项真机退出标准仍未勾选。
+
+对应批次：`PROJECT_MEMORY/batches/2026-09-20-B33-android-background-sync.md`。
+
 ## 回滚
 
 把集成批次作为整体回滚。不要移除该里程碑之前已经引入的有界 `TaskWindow` 行为。

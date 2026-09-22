@@ -4,9 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -31,14 +33,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.androidsync.app.android.AlbumPrefs;
-import com.androidsync.app.android.HttpFileUploader;
 import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.android.RemoteManifestClient;
+import com.androidsync.app.android.SyncDatabase;
 import com.androidsync.app.core.AddressConfiguration;
 import com.androidsync.app.core.AlbumFilter;
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
-import com.androidsync.app.core.SyncRunGate;
+import com.androidsync.app.core.SyncRun;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
@@ -68,14 +70,14 @@ import java.util.concurrent.RejectedExecutionException;
 public final class MainActivity extends Activity {
     private static final String TAG = "AndroidSync";
     private static final int REQUEST_MEDIA_PERMISSION = 40;
+    private static final int REQUEST_NOTIFICATION_PERMISSION = 41;
     private static final String PREFS = "android_sync";
     private static final String KEY_TARGET_URL = "target_url";
 
-    private final SyncQueue queue = new SyncQueue();
-    private final SyncRunGate syncRuns = new SyncRunGate();
+    private SyncQueue queue;
+    private SyncDatabase database;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final HttpFileUploader uploader = new HttpFileUploader();
     private final RemoteManifestClient manifestClient = new RemoteManifestClient();
 
     private final Set<String> albumSelection = new HashSet<>();
@@ -98,11 +100,35 @@ public final class MainActivity extends Activity {
     private int todayCompleted;
     private long todayBytes;
     private volatile boolean destroyed;
+    private String pendingRunId;
+    private boolean syncReceiverRegistered;
+    private final Set<String> countedDoneTaskIds = new HashSet<>();
+    private final BroadcastReceiver syncStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(android.content.Context context, Intent intent) {
+            if (destroyed || !SyncForegroundService.ACTION_STATE_CHANGED.equals(intent.getAction())) {
+                return;
+            }
+            driveTransferProgress();
+            String status = intent.getStringExtra(SyncForegroundService.EXTRA_STATUS);
+            if (status != null && !"RUNNING".equals(status) && "library".equals(screen)) {
+                render();
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         configureSystemBars();
+        AndroidSyncApplication application = (AndroidSyncApplication) getApplication();
+        queue = application.queue();
+        database = application.database();
+        for (SyncTask task : queue.tasks()) {
+            if (task.status() == SyncStatus.DONE) {
+                countedDoneTaskIds.add(task.id());
+            }
+        }
         scanner = new MediaStoreScanner(getContentResolver());
         widgets = new Widgets(this);
         thumbnailLoader = new ThumbnailLoader(this, getContentResolver());
@@ -111,12 +137,12 @@ public final class MainActivity extends Activity {
             public void retry(String taskId) {
                 SyncTask task = queue.findById(taskId);
                 if (task != null && task.status() == SyncStatus.FAILED) {
-                    queue.retry(taskId);
-                    if (syncRuns.isActive()) {
-                        driveTransferProgress();
-                    } else {
-                        startSync(Collections.singleton(task.media().stableId()));
+                    if (database.findRunningRun() != null) {
+                        Toast.makeText(MainActivity.this, "当前同步完成后再重试", Toast.LENGTH_SHORT).show();
+                        return;
                     }
+                    queue.retry(taskId);
+                    startSync(Collections.singleton(task.media().stableId()));
                 }
             }
         }, new TransferCardView.StopHandler() {
@@ -141,9 +167,23 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        registerSyncReceiver();
+        ensureActiveService();
+        driveTransferProgress();
+    }
+
+    @Override
+    protected void onStop() {
+        unregisterSyncReceiver();
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
         destroyed = true;
-        syncRuns.cancel();
+        unregisterSyncReceiver();
         mainHandler.removeCallbacksAndMessages(null);
         thumbnailLoader.shutdown();
         executor.shutdownNow();
@@ -153,7 +193,13 @@ public final class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_MEDIA_PERMISSION && hasMediaPermission()) {
+        if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
+            String runId = pendingRunId;
+            pendingRunId = null;
+            if (runId != null) {
+                startServiceForRun(runId);
+            }
+        } else if (requestCode == REQUEST_MEDIA_PERMISSION && hasMediaPermission()) {
             onPermissionReady();
         } else if (requestCode == REQUEST_MEDIA_PERMISSION) {
             Toast.makeText(this, "需要相册权限才能同步照片和视频", Toast.LENGTH_LONG).show();
@@ -253,16 +299,23 @@ public final class MainActivity extends Activity {
                 if (destroyed) {
                     return;
                 }
-                queue.reconcile(media);
+                SyncRun activeRun = database.findRunningRun();
+                if (activeRun == null) {
+                    queue.reconcile(media);
+                }
                 int remoteMatches = 0;
                 String remoteMessage = "";
-                try {
-                    RemoteManifestClient.Snapshot snapshot = manifestClient.fetch(targetUrl);
-                    remoteMatches = snapshot.stableIds().size() + snapshot.fingerprints().size();
-                    queue.markRemoteExisting(snapshot.stableIds());
-                    queue.markRemoteExistingByFingerprint(snapshot.fingerprints());
-                } catch (Exception error) {
-                    remoteMessage = "，接收端记录读取失败：" + cleanError(error);
+                if (activeRun == null) {
+                    try {
+                        RemoteManifestClient.Snapshot snapshot = manifestClient.fetch(targetUrl);
+                        remoteMatches = snapshot.stableIds().size() + snapshot.fingerprints().size();
+                        queue.markRemoteExisting(snapshot.stableIds());
+                        queue.markRemoteExistingByFingerprint(snapshot.fingerprints());
+                    } catch (Exception error) {
+                        remoteMessage = "，接收端记录读取失败：" + cleanError(error);
+                    }
+                } else {
+                    remoteMessage = "，后台同步进行中，保留本次任务范围";
                 }
                 final int scannedCount = media.size();
                 final int matchedCount = remoteMatches;
@@ -293,178 +346,98 @@ public final class MainActivity extends Activity {
         if (uploadSelection.isEmpty()) {
             return;
         }
-        if (syncRuns.isActive()) {
+        if (database.findRunningRun() != null) {
             stopSync();
             return;
         }
         if (transferCard != null) {
             transferCard.clearFailure();
         }
-        final long syncRun = syncRuns.start();
-        driveTransferProgress();
-        boolean submitted = submitTask(new Runnable() {
-            @Override
-            public void run() {
-                if (destroyed || !syncRuns.isActive(syncRun)) {
-                    return;
-                }
-                List<SyncTask> snapshot = queue.tasks();
-                List<SyncTask> uploadPlan = new ArrayList<>();
-                for (SyncTask task : snapshot) {
-                    if ((task.status() == SyncStatus.WAITING || task.status() == SyncStatus.FAILED)
-                            && uploadSelection.contains(task.media().stableId())) {
-                        uploadPlan.add(task);
-                    }
-                }
-                int batchIndex = 0;
-                int batchTotal = uploadPlan.size();
-                for (SyncTask task : uploadPlan) {
-                    if (destroyed || !syncRuns.isActive(syncRun)) {
-                        break;
-                    }
-                    SyncTask currentTask = queue.findById(task.id());
-                    if (currentTask == null
-                            || (currentTask.status() != SyncStatus.WAITING
-                            && currentTask.status() != SyncStatus.FAILED)) {
-                        continue;
-                    }
-                    batchIndex++;
-                    final SyncStatus previousStatus = currentTask.status();
-                    queue.markUploading(currentTask.id());
-                    postTaskUpdate(currentTask.id(), previousStatus, SyncStatus.UPLOADING);
-                    Exception uploadError = null;
-                    try {
-                        uploader.upload(
-                                getContentResolver(),
-                                currentTask.media(),
-                                targetUrl,
-                                batchIndex,
-                                batchTotal,
-                                new HttpFileUploader.CancellationSignal() {
-                                    @Override
-                                    public boolean isCancelled() {
-                                        return destroyed || !syncRuns.isActive(syncRun);
-                                    }
-                                }
-                        );
-                    } catch (Exception error) {
-                        uploadError = error;
-                    }
-                    SyncTask liveTask = queue.findById(currentTask.id());
-                    if (liveTask == null) {
-                        continue;
-                    }
-                    SyncStatus previousTerminalStatus = liveTask.status();
-                    if (uploadError == null) {
-                        queue.markDone(currentTask.id());
-                    } else if (!syncRuns.isActive(syncRun)) {
-                        queue.retry(currentTask.id());
-                    } else {
-                        queue.markFailed(currentTask.id(), cleanError(uploadError));
-                    }
-                    SyncTask finalTask = queue.findById(currentTask.id());
-                    if (finalTask == null) {
-                        continue;
-                    }
-                    postTaskUpdate(currentTask.id(), previousTerminalStatus, finalTask.status());
-                    if (!syncRuns.isActive(syncRun)) {
-                        break;
-                    }
-                }
-                if (syncRuns.isActive(syncRun)) {
-                    postSyncFinished(syncRun);
-                } else {
-                    postSyncStopped();
-                }
+        List<String> selectedTaskIds = new ArrayList<>();
+        for (SyncTask task : queue.tasks()) {
+            if ((task.status() == SyncStatus.WAITING || task.status() == SyncStatus.FAILED)
+                    && uploadSelection.contains(task.media().stableId())) {
+                selectedTaskIds.add(task.id());
             }
-        });
-        if (!submitted && !destroyed) {
-            syncRuns.finish(syncRun);
-            driveTransferProgress();
         }
+        if (selectedTaskIds.isEmpty()) {
+            return;
+        }
+        final SyncRun run;
+        try {
+            run = database.createRun(targetUrl, selectedTaskIds);
+        } catch (IllegalStateException error) {
+            Toast.makeText(this, "已有同步任务正在进行", Toast.LENGTH_SHORT).show();
+            ensureActiveService();
+            return;
+        }
+        driveTransferProgress();
+        requestNotificationAndStart(run.id());
     }
 
     private void stopSync() {
-        if (!syncRuns.isActive()) {
+        if (database.findRunningRun() == null) {
             return;
         }
-        syncRuns.cancel();
         if (transferCard != null) {
             transferCard.showStopping();
         }
+        SyncForegroundService.stop(this);
         Toast.makeText(this, "同步已停止", Toast.LENGTH_SHORT).show();
         mainHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (!destroyed && !syncRuns.isActive() && "library".equals(screen)) {
+                if (!destroyed && database.findRunningRun() == null && "library".equals(screen)) {
                     render();
                 }
             }
         }, 250L);
     }
 
-    private void postSyncStopped() {
-        postTask(new Runnable() {
-            @Override
-            public void run() {
-                if (!syncRuns.isActive() && "library".equals(screen)) {
-                    render();
-                }
-            }
-        });
-    }
-
-    private void postTaskUpdate(
-            final String taskId,
-            final SyncStatus previousStatus,
-            final SyncStatus currentStatus
-    ) {
-        postTask(new Runnable() {
-            @Override
-            public void run() {
-                if (currentStatus == SyncStatus.DONE && previousStatus != SyncStatus.DONE) {
-                    todayCompleted++;
-                    SyncTask task = queue.findById(taskId);
-                    if (task != null) {
-                        todayBytes += task.media().sizeBytes();
-                    }
-                }
-                if (currentStatus == SyncStatus.FAILED && transferCard != null) {
-                    SyncTask task = queue.findById(taskId);
-                    String message = task == null ? null : task.errorMessage();
-                    transferCard.showFailure(message == null ? "上传失败" : message);
-                }
-                if ("library".equals(screen)) {
-                    driveTransferProgress();
-                }
-            }
-        });
-    }
-
-    private void postSyncFinished(final long syncRun) {
-        if (!syncRuns.finish(syncRun)) {
+    private void requestNotificationAndStart(String runId) {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingRunId = runId;
+            requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, REQUEST_NOTIFICATION_PERMISSION);
             return;
         }
-        postTask(new Runnable() {
-            @Override
-            public void run() {
-                if ("library".equals(screen)) {
-                    render();
-                }
-                if (transferCard == null || !"library".equals(screen)) {
-                    return;
-                }
-                transferCard.showTodayStats(todayCompleted, todayBytes);
-                mainHandler.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (!destroyed && transferCard != null) {
-                            transferCard.hide();
-                        }
-                    }
-                }, 3000);
-            }
-        });
+        startServiceForRun(runId);
+    }
+
+    private void startServiceForRun(String runId) {
+        if (destroyed || runId == null || runId.trim().isEmpty()) {
+            return;
+        }
+        SyncForegroundService.start(this, runId);
+        driveTransferProgress();
+    }
+
+    private void ensureActiveService() {
+        SyncRun run = database.findRunningRun();
+        if (run != null) {
+            startServiceForRun(run.id());
+        }
+    }
+
+    private void registerSyncReceiver() {
+        if (syncReceiverRegistered) {
+            return;
+        }
+        IntentFilter filter = new IntentFilter(SyncForegroundService.ACTION_STATE_CHANGED);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(syncStateReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(syncStateReceiver, filter);
+        }
+        syncReceiverRegistered = true;
+    }
+
+    private void unregisterSyncReceiver() {
+        if (!syncReceiverRegistered) {
+            return;
+        }
+        unregisterReceiver(syncStateReceiver);
+        syncReceiverRegistered = false;
     }
 
     private boolean submitTask(Runnable task) {
@@ -602,7 +575,7 @@ public final class MainActivity extends Activity {
             }
         };
         View page = new LibraryPageView(this, widgets, thumbnailLoader).build(host);
-        if (syncRuns.isActive()) {
+        if (database.findRunningRun() != null || queue.summary().failed() > 0) {
             driveTransferProgress();
         }
         return page;
@@ -613,10 +586,31 @@ public final class MainActivity extends Activity {
             return;
         }
         SyncQueue.Summary summary = queue.summary();
+        if (database.findRunningRun() == null && summary.failed() == 0) {
+            transferCard.hide();
+            return;
+        }
         TaskWindow active = queue.activeWindow(40);
         long bytesRemaining = Math.max(0L, summary.totalBytes() - summary.syncedBytes());
+        recordCompletedTasks();
         transferCard.showProgress(summary.done(), summary.total(), bytesRemaining, null);
         transferCard.bindTasks(active.visibleTasks(), active.totalCount());
+        transferCard.showTodayStats(todayCompleted, todayBytes);
+        for (SyncTask task : active.visibleTasks()) {
+            if (task.status() == SyncStatus.FAILED) {
+                transferCard.showFailure(task.errorMessage() == null ? "上传失败" : task.errorMessage());
+                break;
+            }
+        }
+    }
+
+    private void recordCompletedTasks() {
+        for (SyncTask task : queue.tasks()) {
+            if (task.status() == SyncStatus.DONE && countedDoneTaskIds.add(task.id())) {
+                todayCompleted++;
+                todayBytes += task.media().sizeBytes();
+            }
+        }
     }
 
     private List<MediaItem> computeVisibleItems() {

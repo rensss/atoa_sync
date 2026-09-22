@@ -121,7 +121,6 @@ struct ActiveUpload: Equatable, Identifiable {
 enum TransferCardState: Equatable {
     case idle
     case receiving
-    case completed(Int)
 }
 
 protocol ReceiverServiceControlling: AnyObject, Sendable {
@@ -232,8 +231,6 @@ final class AppModel {
     var activeUploads: [UUID: ActiveUpload] = [:]
     var transientUploadMessage: String?
     private(set) var transferCardState: TransferCardState = .idle
-    var transferCompletionLinger: Duration = .seconds(3)
-    private(set) var transferLingerTask: Task<Void, Never>?
     private var burstCompletedCount = 0
     private var burstBytesReceived: Int64 = 0
     private var burstSawProgress = false
@@ -1187,8 +1184,6 @@ final class AppModel {
                 batchIndex: batchIndex,
                 batchTotal: batchTotal
             )
-            transferLingerTask?.cancel()
-            transferLingerTask = nil
             if transferCardState != .receiving {
                 burstCompletedCount = 0
                 burstBytesReceived = 0
@@ -1221,10 +1216,11 @@ final class AppModel {
                 now.timeIntervalSince($0.time) > 3
             }
         case let .uploadStored(id, _):
-            activeUploads.removeValue(forKey: id)
+            let storedUpload = activeUploads.removeValue(forKey: id)
             burstCompletedCount += 1
-            if activeUploads.isEmpty {
-                beginTransferLinger()
+            if activeUploads.isEmpty,
+               storedUpload.map(shouldFinishTransfer(after:)) ?? true {
+                resetTransferCard()
             }
             guard let repository else { return }
             let directoryGeneration = directoryConfigurationGeneration
@@ -1236,14 +1232,11 @@ final class AppModel {
                 )
             }
         case let .uploadFailed(id, filename, message):
-            activeUploads.removeValue(forKey: id)
+            let failedUpload = activeUploads.removeValue(forKey: id)
             showTransientUploadFailure(filename: filename, message: message)
-            if activeUploads.isEmpty {
-                if burstCompletedCount > 0 {
-                    beginTransferLinger()
-                } else {
-                    resetTransferCard()
-                }
+            if activeUploads.isEmpty,
+               failedUpload.map(shouldFinishTransfer(after:)) ?? true {
+                resetTransferCard()
             }
         case let .receiverFailed(message):
             activeUploads.removeAll()
@@ -1270,25 +1263,17 @@ final class AppModel {
         transientUploadMessage = nil
     }
 
-    private func beginTransferLinger() {
-        transferCardState = .completed(burstCompletedCount)
-        transferLingerTask?.cancel()
-        transferLingerTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: transferCompletionLinger)
-            guard !Task.isCancelled else { return }
-            self.transferCardState = .idle
-            self.burstCompletedCount = 0
-            self.burstBytesReceived = 0
-            self.burstSawProgress = false
-            self.burstExpectedCount = 0
-            self.transferSamples.removeAll()
+    private func shouldFinishTransfer(after upload: ActiveUpload) -> Bool {
+        if let batchIndex = upload.batchIndex,
+           let batchTotal = upload.batchTotal,
+           batchTotal > 0 {
+            return batchIndex >= batchTotal
+                || burstCompletedCount >= burstExpectedCount
         }
+        return true
     }
 
     private func resetTransferCard() {
-        transferLingerTask?.cancel()
-        transferLingerTask = nil
         transferCardState = .idle
         burstCompletedCount = 0
         burstBytesReceived = 0

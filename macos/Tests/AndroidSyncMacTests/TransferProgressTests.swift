@@ -38,9 +38,8 @@ final class TransferProgressTests: XCTestCase {
         XCTAssertEqual(model.transferProgress, 0.5) // (50+150)/(100+300)
     }
 
-    func testNewBurstDuringLingerResetsProgressState() throws {
+    func testNewBurstStartsWithFreshProgressStateAfterPreviousCompletion() throws {
         let model = try makeModel()
-        model.transferCompletionLinger = .seconds(60) // 驻留窗口内不触发回 idle
         let first = UUID()
         model.handle(.uploadStarted(id: first, filename: "a.mp4", expectedSize: 100))
         model.handle(.uploadProgress(id: first, bytesReceived: 100, expectedSize: 100))

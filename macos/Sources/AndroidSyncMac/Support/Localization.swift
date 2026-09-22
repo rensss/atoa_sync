@@ -137,7 +137,6 @@ enum AppStringKey: String, CaseIterable {
     case receivingProgressFormat
     case todayReceived
     case itemsCountFormat
-    case completedLingerFormat
     case speedFormat
 }
 
@@ -244,7 +243,6 @@ enum AppStrings {
             .receivingProgressFormat: "同步进度 %d/%d · 接收中 %d 个 · 剩余 %@",
             .todayReceived: "今天已接收",
             .itemsCountFormat: "%d 项",
-            .completedLingerFormat: "已完成 %d 项",
             .speedFormat: "%@/秒",
         ],
         .english: [
@@ -348,7 +346,6 @@ enum AppStrings {
             .receivingProgressFormat: "Progress %d/%d · %d receiving · %@ left",
             .todayReceived: "Received today",
             .itemsCountFormat: "%d items",
-            .completedLingerFormat: "Completed %d items",
             .speedFormat: "%@/s",
         ],
     ]

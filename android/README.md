@@ -25,8 +25,13 @@ android/build/AndroidSync-debug.apk
 - 支持用系统相机扫描 macOS 应用显示的地址二维码；打开 Android Sync 后会校验并
   自动保存新的 HTTP/HTTPS 目标 URL。
 - 相册白名单变更会替换本次同步范围；确认页只上传明确保留的媒体。
+- 同步由原生 `ForegroundService` 执行；退后台、锁屏或 Activity 重建后仍可继续传输，通知栏显示进度。
+- 应用进程被系统回收后，重新打开应用会恢复未完成任务；用户强制停止应用或厂商省电策略可能中断服务。
+- 单个文件失败后会继续后续文件；失败项需要用户手动重试。本版本不支持单文件字节级断点续传。
 - 同步期间可继续滚动媒体库，并可从传输卡点击“停止”中断当前上传和后续任务。
 - 显示原生首页仪表盘和队列详情页。
+- Android launcher 使用 adaptive icon，品牌标志为由 cyan、coral red、warm yellow 和 deep charcoal
+  组成的模块化 `SYNC` 字标。
 
 如需在本机接收文件，请运行原生 macOS 应用：
 

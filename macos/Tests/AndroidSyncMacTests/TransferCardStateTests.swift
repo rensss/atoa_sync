@@ -14,11 +14,10 @@ final class TransferCardStateTests: XCTestCase {
             modelContainer: container,
             userDefaults: UserDefaults(suiteName: UUID().uuidString)!
         )
-        model.transferCompletionLinger = .zero
         return model
     }
 
-    func testUploadLifecycleDrivesState() async throws {
+    func testUploadLifecycleHidesCardImmediatelyAfterLastUpload() throws {
         let model = try makeModel()
         let id = UUID()
         XCTAssertEqual(model.transferCardState, .idle)
@@ -29,10 +28,12 @@ final class TransferCardStateTests: XCTestCase {
         XCTAssertEqual(model.transferTotalCount, 1)
 
         model.handle(.uploadStored(id: id, record: TestItems.record()))
-        XCTAssertEqual(model.transferCardState, .completed(1))
-
-        await model.transferLingerTask?.value
         XCTAssertEqual(model.transferCardState, .idle)
+        XCTAssertTrue(model.activeUploads.isEmpty)
+        XCTAssertEqual(model.transferCompletedCount, 0)
+        XCTAssertEqual(model.transferTotalCount, 0)
+        XCTAssertNil(model.transferProgress)
+        XCTAssertNil(model.transferSpeedBytesPerSecond)
     }
 
     func testAllFailedBurstSkipsCompletedState() throws {
@@ -43,19 +44,51 @@ final class TransferCardStateTests: XCTestCase {
         XCTAssertEqual(model.transferCardState, .idle)
     }
 
-    func testNewBurstDuringLingerResetsCompletedCount() throws {
+    func testNewBurstStartsWithFreshProgressStateAfterPreviousCompletion() throws {
         let model = try makeModel()
-        model.transferCompletionLinger = .seconds(60) // 驻留窗口内不触发回 idle
         let first = UUID()
         model.handle(.uploadStarted(id: first, filename: "a.jpg", expectedSize: 100))
         model.handle(.uploadStored(id: first, record: TestItems.record()))
-        XCTAssertEqual(model.transferCardState, .completed(1))
+        XCTAssertEqual(model.transferCardState, .idle)
 
         let second = UUID()
         model.handle(.uploadStarted(id: second, filename: "b.jpg", expectedSize: 100))
         XCTAssertEqual(model.transferCardState, .receiving)
         model.handle(.uploadStored(id: second, record: TestItems.record()))
-        XCTAssertEqual(model.transferCardState, .completed(1))
+        XCTAssertEqual(model.transferCardState, .idle)
+    }
+
+    func testIntermediateBatchUploadKeepsCardVisibleUntilBatchEnd() throws {
+        let model = try makeModel()
+        let first = UUID()
+        model.handle(
+            .uploadStarted(
+                id: first,
+                filename: "first.jpg",
+                expectedSize: 100,
+                batchIndex: 1,
+                batchTotal: 2
+            )
+        )
+        model.handle(.uploadStored(id: first, record: TestItems.record()))
+
+        XCTAssertEqual(model.transferCardState, .receiving)
+        XCTAssertEqual(model.transferCompletedCount, 1)
+        XCTAssertEqual(model.transferTotalCount, 2)
+
+        let second = UUID()
+        model.handle(
+            .uploadStarted(
+                id: second,
+                filename: "second.jpg",
+                expectedSize: 100,
+                batchIndex: 2,
+                batchTotal: 2
+            )
+        )
+        model.handle(.uploadStored(id: second, record: TestItems.record()))
+
+        XCTAssertEqual(model.transferCardState, .idle)
     }
 
     func testTodayStatsCountsOnlyTodayAndNotRemoved() {

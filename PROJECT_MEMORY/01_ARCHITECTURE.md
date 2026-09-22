@@ -9,11 +9,14 @@ Android Sync 把 Android 设备上的媒体传输到原生 macOS 接收端，或
 Android MediaStore
         |
         v
-MediaStoreScanner -> SyncQueue -> HttpFileUploader
-        |               ^               |
-        |               |               | HTTP PUT
-        |       RemoteManifestClient    v
-        +---------- reconciliation  macOS ReceiverService
+MediaStoreScanner -> MainActivity -> SyncDatabase / SyncQueue
+                                      ^          |
+                                      |          v
+                              SyncForegroundService -> HttpFileUploader
+                                      |          ^          |
+                                      |          |          | HTTP PUT
+                                      | RemoteManifestClient v
+                                      +------ reconciliation macOS ReceiverService
                                          |
                                          v
                                   LibraryRepository
@@ -27,16 +30,21 @@ MediaStoreScanner -> SyncQueue -> HttpFileUploader
 
 Android 应用使用 Java 编写，不引入第三方依赖，通过本地 Android SDK 工具直接构建。
 
-- `MainActivity`：UI 组合、导航、扫描/上传编排和异步缩略图展示。
+- `MainActivity`：UI 组合、导航、扫描、同步确认、Service 命令和异步缩略图展示；不拥有上传线程。
 - `AddressConfiguration`：解析 macOS 地址二维码中的应用深链，并只接受带有效 host
   的 HTTP/HTTPS 上传目标。
 - `MediaStoreScanner`：从 Android `MediaStore` 读取照片和视频。
-- `SyncQueue`：同步内存中的任务归属、状态转换、筛选、汇总和有界可见窗口。
+- `SyncDatabase`：使用 `SQLiteOpenHelper` 持久化任务、同步 run 和 run-task 顺序；事务边界覆盖队列写入和 run 创建。
+- `SyncQueue`：内存中的任务归属、状态转换、筛选、汇总和有界可见窗口，并通过可选 persistence 同步到 SQLite。
+- `SyncForegroundService`：用户主动开始后的唯一上传生命周期所有者，持有单线程 runner、取消信号和进度通知；`START_STICKY` 恢复数据库中的 `RUNNING` run。
+- `SyncTransferRunner`：不依赖 Android 生命周期的单线程任务状态机；每个文件只尝试一次，失败后继续后续任务。
 - `RemoteManifestClient`：读取接收端历史并识别远端已经存储的媒体。
 - `HttpFileUploader`：使用 HTTP `PUT` 和 Android Sync 元数据 header 流式上传媒体。
 
-在进程生命周期内，队列是权威任务状态。UI 代码必须消费队列快照或有界窗口，不得
-创建第二套可独立变更的任务模型。
+SQLite 是跨进程重建的持久任务状态来源，Application 在一个进程内创建唯一的
+`SyncDatabase` 和 `SyncQueue`。UI 代码必须消费队列快照或有界窗口，不得创建第二套
+可独立变更的任务模型。运行时遗留的 `UPLOADING` 任务在 Service 恢复前回到
+`WAITING`；恢复会先按 stable ID 查询远端 manifest，再决定是否跳过任务。
 
 相册白名单重新扫描后，`SyncQueue` 必须与最新扫描结果 reconcile：保留仍在范围内的
 任务状态，移除已离开白名单的任务。一次上传运行只消费确认页捕获的 stable ID 快照，
@@ -95,25 +103,36 @@ scheme、host 和目标 URL 后写入现有 `target_url` 偏好。二维码不�
 ```text
 <selected-root>/
 |-- .incoming/*.part
-|-- photos/YYYY-MM/
-|-- videos/YYYY-MM/
-|-- files/YYYY-MM/
+|-- photos/
+|-- videos/
+|-- files/
 `-- uploads.jsonl
 ```
 
-每个已存储文件可拥有一个 `.metadata.json` sidecar。`uploads.jsonl` 是追加式事件
+新上传按文件类型直接写入对应目录，不再创建 `YYYY-MM` 子目录。文件提交时的文件系统
+创建时间和修改时间都按源时间设置，优先级为 `date_modified` → `date_taken` →
+`date_added` → 接收时间；旧的按月目录不会自动搬迁，但 manifest 中记录的历史路径仍
+保持可读。
+
+Android 本地数据库包括 `sync_tasks`、`sync_runs` 和 `sync_run_tasks` 三张表。
+`sync_runs` 冻结确认时的目标 URL，`sync_run_tasks` 冻结任务 ID 和选择顺序；重新扫描
+相册或修改目标地址不改变活动 run 快照。每个已存储文件可拥有一个 `.metadata.json` sidecar。
+`uploads.jsonl` 是追加式事件
 历史，用于构建当前 manifest，包括删除 tombstone。macOS “清空已删除”只在应用侧
 隐藏已删除 tombstone，不擦除 `uploads.jsonl` 历史，避免 Android 重新上传已删除媒体。
 
 ## 并发模型
 
-- Android 扫描、缩略图解码和上传必须留在主线程之外。UI 更新再回到 Android 主线程。
-- `SyncQueue` 同步任务 map 访问。持有其 monitor 时绝不能执行长 I/O 或 bitmap 解码。
+- Android 扫描、缩略图解码和上传必须留在主线程之外。UI 更新再回到 Android 主线程；
+  Activity 销毁不取消 Service 上传。
+- `SyncQueue` 同步任务 map 访问。持有其 monitor 时绝不能执行长网络 I/O 或 bitmap
+  解码；状态变更触发的短事务由 persistence 实现负责。
 - macOS listener 和连接状态运行在一个串行 dispatch queue 上。
 - macOS 存储变更通过 `LibraryRepository` actor 执行。
 - SwiftUI 状态通过 `AppModel` 归属 main actor；接收端事件必须显式切换到 UI 状态。
-- Android 停止同步通过代次失效和上传流内取消检查协作完成；当前请求断开后，被中断
-  任务恢复为等待态，后续计划不再启动。
+- Android 停止同步通过 Service 取消信号和上传流内取消检查协作完成；当前请求断开后，
+  被中断任务恢复为等待态，run 标记为 `STOPPED`，后续计划不再启动。普通单文件失败
+  标记为 `FAILED` 后继续后续任务。
 - macOS 接收端必须把对端取消视为上传终止：清理临时文件、关闭 session 并移除对应
   活动上传；用户主动暂停接收则继续走串行 `stop/stopAndWait` 生命周期。
 

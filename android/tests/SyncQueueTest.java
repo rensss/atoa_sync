@@ -1,6 +1,7 @@
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncRunGate;
 import com.androidsync.app.core.SyncQueue;
+import com.androidsync.app.core.SyncQueuePersistence;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
 import com.androidsync.app.core.TaskWindow;
@@ -25,6 +26,8 @@ public final class SyncQueueTest {
         activeWindowSkipsCompletedTasksAndStaysBounded();
         staleSyncRunCannotFinishNewRun();
         cancelledSyncRunCannotContinue();
+        queueHydratesPersistedTasks();
+        queuePersistsStatusChanges();
     }
 
     private static void enqueuesNewMediaOnlyOnce() {
@@ -233,6 +236,41 @@ public final class SyncQueueTest {
         assertEquals(false, gate.finish(run), "cancelled run should not finish twice");
     }
 
+    private static void queueHydratesPersistedTasks() {
+        RecordingPersistence persistence = new RecordingPersistence();
+        MediaItem media = item("26", "content://media/26", "saved.jpg", 2600L);
+        persistence.tasks.add(SyncTask.restore(
+                "saved-task",
+                media,
+                SyncStatus.FAILED,
+                2,
+                "network timeout",
+                0L
+        ));
+
+        SyncQueue queue = new SyncQueue(persistence);
+
+        SyncTask restored = queue.findById("saved-task");
+        assertEquals("saved-task", restored.id(), "queue should hydrate persisted task id");
+        assertEquals(SyncStatus.FAILED, restored.status(), "queue should hydrate persisted status");
+        assertEquals(2, restored.attemptCount(), "queue should hydrate persisted attempt count");
+        assertEquals("network timeout", restored.errorMessage(), "queue should hydrate persisted error");
+    }
+
+    private static void queuePersistsStatusChanges() {
+        RecordingPersistence persistence = new RecordingPersistence();
+        SyncQueue queue = new SyncQueue(persistence);
+        queue.enqueueAll(List.of(item("27", "content://media/27", "persist.jpg", 2700L)));
+        SyncTask task = queue.tasks().get(0);
+
+        queue.markUploading(task.id());
+        queue.markDone(task.id());
+
+        SyncTask saved = persistence.findById(task.id());
+        assertEquals(SyncStatus.DONE, saved.status(), "queue should persist status changes");
+        assertEquals(2700L, saved.uploadedBytes(), "queue should persist uploaded bytes");
+    }
+
     private static MediaItem item(String stableId, String uri, String displayName, long sizeBytes) {
         return new MediaItem(stableId, uri, displayName, sizeBytes, System.currentTimeMillis(), displayName.endsWith(".mp4"));
     }
@@ -254,6 +292,41 @@ public final class SyncQueueTest {
     private static void assertEquals(Object expected, Object actual, String message) {
         if (expected == null ? actual != null : !expected.equals(actual)) {
             throw new AssertionError(message + ": expected <" + expected + "> but was <" + actual + ">");
+        }
+    }
+
+    private static final class RecordingPersistence implements SyncQueuePersistence {
+        private final java.util.ArrayList<SyncTask> tasks = new java.util.ArrayList<>();
+
+        @Override
+        public List<SyncTask> load() {
+            return new java.util.ArrayList<>(tasks);
+        }
+
+        @Override
+        public void save(SyncTask task) {
+            for (int index = 0; index < tasks.size(); index++) {
+                if (tasks.get(index).id().equals(task.id())) {
+                    tasks.set(index, task);
+                    return;
+                }
+            }
+            tasks.add(task);
+        }
+
+        @Override
+        public void replaceAll(List<SyncTask> nextTasks) {
+            tasks.clear();
+            tasks.addAll(nextTasks);
+        }
+
+        private SyncTask findById(String taskId) {
+            for (SyncTask task : tasks) {
+                if (task.id().equals(taskId)) {
+                    return task;
+                }
+            }
+            return null;
         }
     }
 }

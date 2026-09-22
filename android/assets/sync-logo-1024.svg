@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 108 108" role="img" aria-labelledby="title desc">
+  <title id="title">SYNC</title>
+  <desc id="desc">A modular geometric SYNC wordmark in cyan, coral red, warm yellow, and deep charcoal.</desc>
+  <rect width="108" height="108" fill="#202124"/>
+
+  <path fill="#23D5E6" d="M18 24h14v6H18zM18 56h14v6H18z"/>
+  <path fill="#F0524F" d="M18 30h6v13h-6zM26 43h6v13h-6z"/>
+  <path fill="#F7C844" d="M24 37h8v6h-8z"/>
+
+  <path fill="#F0524F" d="M36 24h6v14h-6z"/>
+  <path fill="#F7C844" d="M45 24h6v14h-6z"/>
+  <path fill="#23D5E6" d="M40 38h6v24h-6z"/>
+
+  <path fill="#F7C844" d="M55 24h6v38h-6z"/>
+  <path fill="#F0524F" d="M67 24h6v38h-6z"/>
+  <path fill="#23D5E6" d="M61 24h6l6 38h-6z"/>
+
+  <path fill="#23D5E6" d="M78 24h14v6H78zM78 56h14v6H78z"/>
+  <path fill="#F0524F" d="M78 30h6v26h-6z"/>
+  <path fill="#F7C844" d="M84 30h8v6h-8zM84 50h8v6h-8z"/>
+</svg>
