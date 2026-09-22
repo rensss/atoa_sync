@@ -21,8 +21,15 @@ public final class SyncTransferRunner {
         ) throws Exception;
     }
 
+    public interface PauseAwareUploader extends Uploader {
+        void awaitReceiverRunning(String targetUrl, CancellationSignal cancellation) throws Exception;
+    }
+
     public interface Listener {
         void onTaskStateChanged(String taskId, SyncStatus previousStatus, SyncStatus currentStatus);
+
+        default void onReceiverPauseWaitChanged(boolean waiting) {
+        }
 
         void onFinished(boolean cancelled);
     }
@@ -102,29 +109,90 @@ public final class SyncTransferRunner {
             queue.markUploading(task.id());
             effectiveListener.onTaskStateChanged(task.id(), previousStatus, SyncStatus.UPLOADING);
 
-            Exception uploadError = null;
-            try {
-                uploader.upload(task, targetUrl, batchIndex, batchTotal, batchTotalBytes, effectiveCancellation);
-            } catch (Exception error) {
-                uploadError = error;
-            }
+            boolean taskAttemptFinished = false;
+            while (!taskAttemptFinished) {
+                Exception uploadError = null;
+                try {
+                    uploader.upload(
+                            task,
+                            targetUrl,
+                            batchIndex,
+                            batchTotal,
+                            batchTotalBytes,
+                            effectiveCancellation
+                    );
+                } catch (ReceiverPausedException pause) {
+                    if (uploader instanceof PauseAwareUploader) {
+                        SyncTask interruptedTask = queue.findById(task.id());
+                        if (interruptedTask == null) {
+                            taskAttemptFinished = true;
+                            continue;
+                        }
+                        SyncStatus interruptedStatus = interruptedTask.status();
+                        queue.retry(task.id());
+                        effectiveListener.onTaskStateChanged(
+                                task.id(),
+                                interruptedStatus,
+                                SyncStatus.WAITING
+                        );
+                        effectiveListener.onReceiverPauseWaitChanged(true);
+                        if (!effectiveCancellation.isCancelled()) {
+                            try {
+                                ((PauseAwareUploader) uploader).awaitReceiverRunning(
+                                        targetUrl,
+                                        effectiveCancellation
+                                );
+                            } catch (Exception waitError) {
+                                if (!effectiveCancellation.isCancelled()) {
+                                    uploadError = waitError;
+                                }
+                            }
+                        }
+                        effectiveListener.onReceiverPauseWaitChanged(false);
+                        if (effectiveCancellation.isCancelled()) {
+                            cancelled = true;
+                            taskAttemptFinished = true;
+                            continue;
+                        }
+                        if (uploadError == null) {
+                            queue.markUploading(task.id());
+                            effectiveListener.onTaskStateChanged(
+                                    task.id(),
+                                    SyncStatus.WAITING,
+                                    SyncStatus.UPLOADING
+                            );
+                            continue;
+                        }
+                    } else {
+                        uploadError = pause;
+                    }
+                } catch (Exception error) {
+                    uploadError = error;
+                }
 
-            SyncTask liveTask = queue.findById(task.id());
-            if (liveTask == null) {
-                continue;
-            }
-            SyncStatus previousTerminalStatus = liveTask.status();
-            if (effectiveCancellation.isCancelled()) {
-                queue.retry(task.id());
-                cancelled = true;
-            } else if (uploadError == null) {
-                queue.markDone(task.id());
-            } else {
-                queue.markFailed(task.id(), cleanError(uploadError));
-            }
-            SyncTask finalTask = queue.findById(task.id());
-            if (finalTask != null) {
-                effectiveListener.onTaskStateChanged(task.id(), previousTerminalStatus, finalTask.status());
+                SyncTask liveTask = queue.findById(task.id());
+                if (liveTask == null) {
+                    taskAttemptFinished = true;
+                    continue;
+                }
+                SyncStatus previousTerminalStatus = liveTask.status();
+                if (effectiveCancellation.isCancelled()) {
+                    queue.retry(task.id());
+                    cancelled = true;
+                } else if (uploadError == null) {
+                    queue.markDone(task.id());
+                } else {
+                    queue.markFailed(task.id(), cleanError(uploadError));
+                }
+                SyncTask finalTask = queue.findById(task.id());
+                if (finalTask != null) {
+                    effectiveListener.onTaskStateChanged(
+                            task.id(),
+                            previousTerminalStatus,
+                            finalTask.status()
+                    );
+                }
+                taskAttemptFinished = true;
             }
             if (cancelled) {
                 break;

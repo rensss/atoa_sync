@@ -1,4 +1,5 @@
 import com.androidsync.app.core.MediaItem;
+import com.androidsync.app.core.ReceiverPausedException;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncStatus;
 import com.androidsync.app.core.SyncTask;
@@ -19,6 +20,8 @@ public final class SyncTransferRunnerTest {
         batchTotalBytesSaturatesAtLongMaxValue();
         zeroByteBatchReportsZeroTotal();
         allRemoteExistingTasksFinishWithoutUpload();
+        testReceiverPauseRetriesSameTaskWithoutFailure();
+        testStopDuringReceiverPauseWaitDoesNotRetry();
     }
 
     private static void failedTaskDoesNotStopLaterTasks() {
@@ -268,6 +271,159 @@ public final class SyncTransferRunnerTest {
 
         assertEquals(false, uploaded[0], "all remote-existing tasks should result in no uploads");
         assertEquals(true, finished[0], "finish listener should run when all tasks are skipped");
+    }
+
+    private static void testReceiverPauseRetriesSameTaskWithoutFailure() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(Collections.singletonList(item("pause-retry", "same-file.jpg")));
+        SyncTask task = queue.tasks().get(0);
+        List<String> uploadedIds = new ArrayList<>();
+        List<Integer> batchIndexes = new ArrayList<>();
+        List<String> transitions = new ArrayList<>();
+        List<Boolean> pauseWaitStates = new ArrayList<>();
+        final boolean[] finishedCancelled = { true };
+        final int[] uploadCalls = { 0 };
+
+        new SyncTransferRunner(queue).run(
+                Collections.singletonList(task.id()),
+                "http://receiver/uploads/",
+                new SyncTransferRunner.PauseAwareUploader() {
+                    @Override
+                    public void upload(
+                            SyncTask current,
+                            String targetUrl,
+                            int batchIndex,
+                            int batchTotal,
+                            long totalBytes,
+                            SyncTransferRunner.CancellationSignal cancellation
+                    ) throws Exception {
+                        uploadCalls[0]++;
+                        uploadedIds.add(current.id());
+                        batchIndexes.add(batchIndex);
+                        if (uploadCalls[0] == 1) {
+                            throw new ReceiverPausedException("Mac paused");
+                        }
+                    }
+
+                    @Override
+                    public void awaitReceiverRunning(
+                            String targetUrl,
+                            SyncTransferRunner.CancellationSignal cancellation
+                    ) {
+                        assertEquals(SyncStatus.WAITING, queue.findById(task.id()).status(),
+                                "pause wait should leave the current task waiting");
+                    }
+                },
+                neverCancelled(),
+                new SyncTransferRunner.Listener() {
+                    @Override
+                    public void onTaskStateChanged(
+                            String taskId,
+                            SyncStatus previousStatus,
+                            SyncStatus currentStatus
+                    ) {
+                        transitions.add(previousStatus + "->" + currentStatus);
+                    }
+
+                    @Override
+                    public void onReceiverPauseWaitChanged(boolean waiting) {
+                        pauseWaitStates.add(waiting);
+                    }
+
+                    @Override
+                    public void onFinished(boolean cancelled) {
+                        finishedCancelled[0] = cancelled;
+                    }
+                }
+        );
+
+        assertEquals(Arrays.asList(task.id(), task.id()), uploadedIds,
+                "a pause retry must resend the same task");
+        assertEquals(Arrays.asList(1, 1), batchIndexes,
+                "retry must preserve the original batch index");
+        assertEquals(Arrays.asList(
+                "WAITING->UPLOADING",
+                "UPLOADING->WAITING",
+                "WAITING->UPLOADING",
+                "UPLOADING->DONE"
+        ), transitions, "pause should return the task to waiting without failing it");
+        assertEquals(Arrays.asList(true, false), pauseWaitStates,
+                "listener should bracket the receiver pause wait");
+        assertEquals(SyncStatus.DONE, queue.findById(task.id()).status(), "retry should complete the task");
+        assertEquals(false, finishedCancelled[0], "successful resume is not a cancelled run");
+    }
+
+    private static void testStopDuringReceiverPauseWaitDoesNotRetry() {
+        SyncQueue queue = new SyncQueue();
+        queue.enqueueAll(Collections.singletonList(item("pause-stop", "stopped-file.jpg")));
+        SyncTask task = queue.tasks().get(0);
+        final boolean[] cancelled = { false };
+        final boolean[] finishedCancelled = { false };
+        final int[] uploadCalls = { 0 };
+        List<String> transitions = new ArrayList<>();
+        List<Boolean> pauseWaitStates = new ArrayList<>();
+
+        new SyncTransferRunner(queue).run(
+                Collections.singletonList(task.id()),
+                "http://receiver/uploads/",
+                new SyncTransferRunner.PauseAwareUploader() {
+                    @Override
+                    public void upload(
+                            SyncTask current,
+                            String targetUrl,
+                            int batchIndex,
+                            int batchTotal,
+                            long totalBytes,
+                            SyncTransferRunner.CancellationSignal cancellationSignal
+                    ) throws Exception {
+                        uploadCalls[0]++;
+                        throw new ReceiverPausedException("Mac paused");
+                    }
+
+                    @Override
+                    public void awaitReceiverRunning(
+                            String targetUrl,
+                            SyncTransferRunner.CancellationSignal cancellationSignal
+                    ) {
+                        cancelled[0] = true;
+                    }
+                },
+                new SyncTransferRunner.CancellationSignal() {
+                    @Override
+                    public boolean isCancelled() {
+                        return cancelled[0];
+                    }
+                },
+                new SyncTransferRunner.Listener() {
+                    @Override
+                    public void onTaskStateChanged(
+                            String taskId,
+                            SyncStatus previousStatus,
+                            SyncStatus currentStatus
+                    ) {
+                        transitions.add(previousStatus + "->" + currentStatus);
+                    }
+
+                    @Override
+                    public void onReceiverPauseWaitChanged(boolean waiting) {
+                        pauseWaitStates.add(waiting);
+                    }
+
+                    @Override
+                    public void onFinished(boolean wasCancelled) {
+                        finishedCancelled[0] = wasCancelled;
+                    }
+                }
+        );
+
+        assertEquals(1, uploadCalls[0], "stop during pause wait must prevent another PUT");
+        assertEquals(Arrays.asList("WAITING->UPLOADING", "UPLOADING->WAITING"), transitions,
+                "stopped pause wait must not mark the task failed");
+        assertEquals(Arrays.asList(true, false), pauseWaitStates,
+                "stop must clear the foreground pause-wait indicator");
+        assertEquals(SyncStatus.WAITING, queue.findById(task.id()).status(),
+                "stopped task should remain retryable");
+        assertEquals(true, finishedCancelled[0], "stop should finish the run as cancelled");
     }
 
     private static SyncTransferRunner.CancellationSignal neverCancelled() {

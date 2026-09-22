@@ -12,6 +12,7 @@ import android.os.IBinder;
 import android.util.Log;
 
 import com.androidsync.app.android.HttpFileUploader;
+import com.androidsync.app.android.ReceiverControlClient;
 import com.androidsync.app.android.RemoteManifestClient;
 import com.androidsync.app.android.SyncDatabase;
 import com.androidsync.app.core.SyncQueue;
@@ -48,6 +49,7 @@ public final class SyncForegroundService extends Service {
     private volatile String activeRunId;
     private volatile int totalTasks;
     private volatile String currentFile;
+    private volatile boolean waitingForReceiver;
 
     public static void start(Context context, String runId) {
         Intent intent = new Intent(context, SyncForegroundService.class);
@@ -160,11 +162,14 @@ public final class SyncForegroundService extends Service {
 
         totalTasks = taskIds.size();
         currentFile = null;
+        waitingForReceiver = false;
         sendStateChanged(runId, run.status());
+        final ReceiverControlClient.Session receiverSession =
+                ReceiverControlClient.discover(run.targetUrl());
         new SyncTransferRunner(queue).run(
                 taskIds,
                 run.targetUrl(),
-                new SyncTransferRunner.Uploader() {
+                new SyncTransferRunner.PauseAwareUploader() {
                     @Override
                     public void upload(
                             SyncTask task,
@@ -183,6 +188,7 @@ public final class SyncForegroundService extends Service {
                                 batchIndex,
                                 batchTotal,
                                 batchTotalBytes,
+                                receiverSession,
                                 new HttpFileUploader.CancellationSignal() {
                                     @Override
                                     public boolean isCancelled() {
@@ -190,6 +196,14 @@ public final class SyncForegroundService extends Service {
                                     }
                                 }
                         );
+                    }
+
+                    @Override
+                    public void awaitReceiverRunning(
+                            String targetUrl,
+                            SyncTransferRunner.CancellationSignal cancellation
+                    ) throws Exception {
+                        receiverSession.awaitRunning(cancellation);
                     }
                 },
                 new SyncTransferRunner.CancellationSignal() {
@@ -210,7 +224,15 @@ public final class SyncForegroundService extends Service {
                     }
 
                     @Override
+                    public void onReceiverPauseWaitChanged(boolean waiting) {
+                        waitingForReceiver = waiting;
+                        updateNotification();
+                    }
+
+                    @Override
                     public void onFinished(boolean cancelled) {
+                        waitingForReceiver = false;
+                        updateNotification();
                         queue.resetUploadingTasks(taskIds);
                         database.resetUploadingTasks(runId);
                         if (cancelled) {
@@ -234,6 +256,8 @@ public final class SyncForegroundService extends Service {
 
     private void requestStop() {
         userStopRequested = true;
+        waitingForReceiver = false;
+        updateNotification();
         if (uploader != null) {
             uploader.cancelActive();
         }
@@ -307,7 +331,9 @@ public final class SyncForegroundService extends Service {
                 }
             }
         }
-        String text = totalTasks <= 0
+        String text = waitingForReceiver
+                ? "等待 Mac 恢复接收"
+                : totalTasks <= 0
                 ? "准备同步"
                 : "已完成 " + done + "/" + totalTasks + (currentFile == null ? "" : " · " + currentFile);
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
