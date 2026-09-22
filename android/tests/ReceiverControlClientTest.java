@@ -21,6 +21,7 @@ public final class ReceiverControlClientTest {
         testDiscoveryAndHealthSnapshot();
         testMalformedHealthIsRejected();
         testFractionalPauseEpochIsRejected();
+        testFractionThatRoundsToIntegerIsRejected();
         testWaitRetriesHealthOutage();
         testCancellationDuringAwaitRunning();
         System.out.println("ReceiverControlClientTest passed");
@@ -91,6 +92,31 @@ public final class ReceiverControlClientTest {
             } catch (IOException expected) {
                 assertEquals(true, expected.getMessage().contains("health"),
                         "fractional epoch should be reported as a health protocol error");
+            }
+        }
+    }
+
+    private static void testFractionThatRoundsToIntegerIsRejected() throws Exception {
+        try (ReceiverTestHttpServer server = new ReceiverTestHttpServer(request -> {
+            if ("/".equals(request.path)) {
+                return ReceiverTestHttpServer.Response.json(
+                        200,
+                        "{\"service\":\"Android Sync Receiver\"}"
+                );
+            }
+            return ReceiverTestHttpServer.Response.json(
+                    200,
+                    "{\"status\":\"ok\",\"receiver_state\":\"running\","
+                            + "\"pause_epoch\":0.99999999999999999}"
+            );
+        })) {
+            ReceiverControlClient.Session session = ReceiverControlClient.discover(server.uploadUrl());
+            try {
+                session.readHealth();
+                throw new AssertionError("fractional pause epoch must not pass after floating-point rounding");
+            } catch (IOException expected) {
+                assertEquals(true, expected.getMessage().contains("health"),
+                        "rounded fractional epoch should be a health protocol error");
             }
         }
     }
