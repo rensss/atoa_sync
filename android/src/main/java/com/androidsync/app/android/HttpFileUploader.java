@@ -3,6 +3,7 @@ package com.androidsync.app.android;
 import android.content.ContentResolver;
 
 import com.androidsync.app.core.MediaItem;
+import com.androidsync.app.core.ReceiverPausedException;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -75,11 +76,43 @@ public final class HttpFileUploader {
             long batchTotalBytes,
             CancellationSignal cancellation
     ) throws IOException {
+        upload(resolver, item, targetBaseUrl, batchIndex, batchTotal, batchTotalBytes, null, cancellation);
+    }
+
+    public void upload(
+            ContentResolver resolver,
+            MediaItem item,
+            String targetBaseUrl,
+            int batchIndex,
+            int batchTotal,
+            long batchTotalBytes,
+            ReceiverControlClient.Session receiverSession,
+            CancellationSignal cancellation
+    ) throws IOException {
+        Long initialPauseEpoch = null;
+        if (receiverSession != null && receiverSession.isSupported()) {
+            throwIfCancelled(cancellation);
+            try {
+                ReceiverControlClient.Snapshot snapshot = receiverSession.readHealth();
+                initialPauseEpoch = snapshot.pauseEpoch();
+                if (!"running".equals(snapshot.state())) {
+                    throw new ReceiverPausedException("Mac 接收端已暂停");
+                }
+            } catch (ReceiverPausedException error) {
+                throw error;
+            } catch (IOException unavailable) {
+                // Health-check failure is not proof of pause; preserve the ordinary single PUT attempt.
+                throwIfCancelled(cancellation);
+            }
+        }
+
         String normalizedBase = targetBaseUrl.endsWith("/") ? targetBaseUrl : targetBaseUrl + "/";
-        String encodedName = URLEncoder.encode(item.displayName(), "UTF-8").replace("+", "%20");
-        HttpURLConnection connection = (HttpURLConnection) new URL(normalizedBase + encodedName).openConnection();
-        activeConnection.set(connection);
+        HttpURLConnection connection = null;
+        boolean uploadStarted = false;
         try {
+            String encodedName = URLEncoder.encode(item.displayName(), "UTF-8").replace("+", "%20");
+            connection = (HttpURLConnection) new URL(normalizedBase + encodedName).openConnection();
+            activeConnection.set(connection);
             connection.setRequestMethod("PUT");
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(15000);
@@ -119,6 +152,7 @@ public final class HttpFileUploader {
                 throw new IOException("Cannot open media stream: " + item.displayName());
             }
 
+            uploadStarted = true;
             try (InputStream input = new BufferedInputStream(rawInput);
                  OutputStream output = new BufferedOutputStream(connection.getOutputStream())) {
                 byte[] buffer = new byte[64 * 1024];
@@ -138,10 +172,49 @@ public final class HttpFileUploader {
             if (responseCode < 200 || responseCode >= 300) {
                 throw new IOException("Upload failed with HTTP " + responseCode);
             }
+        } catch (IOException uploadError) {
+            if (uploadStarted
+                    && receiverSession != null
+                    && receiverSession.isSupported()
+                    && (cancellation == null || !cancellation.isCancelled())) {
+                ReceiverPausedException pause = classifyPause(
+                        receiverSession,
+                        initialPauseEpoch,
+                        uploadError
+                );
+                if (pause != null) {
+                    throw pause;
+                }
+            }
+            throw uploadError;
         } finally {
-            connection.disconnect();
-            activeConnection.compareAndSet(connection, null);
+            if (connection != null) {
+                connection.disconnect();
+                activeConnection.compareAndSet(connection, null);
+            }
         }
+    }
+
+    private static ReceiverPausedException classifyPause(
+            ReceiverControlClient.Session receiverSession,
+            Long initialPauseEpoch,
+            IOException uploadError
+    ) {
+        try {
+            ReceiverControlClient.Snapshot after = receiverSession.readHealth();
+            boolean receiverPaused = !"running".equals(after.state());
+            boolean epochChanged = initialPauseEpoch != null
+                    && after.pauseEpoch() != initialPauseEpoch.longValue();
+            if (receiverPaused || epochChanged) {
+                return new ReceiverPausedException(
+                        "Mac 接收端暂停导致当前文件上传中断",
+                        uploadError
+                );
+            }
+        } catch (IOException unavailable) {
+            // Keep the original upload error when control status cannot be confirmed.
+        }
+        return null;
     }
 
     public void cancelActive() {
