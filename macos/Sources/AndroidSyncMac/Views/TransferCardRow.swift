@@ -12,7 +12,7 @@ struct TransferCardRow: View {
             switch model.transferCardState {
             case .idle:
                 EmptyView()
-            case .receiving:
+            case .receiving, .paused:
                 HStack(spacing: Theme.spacingM) {
                     progressCard
                     statsCard
@@ -51,13 +51,14 @@ struct TransferCardRow: View {
                     model.toggleReceiver()
                 } label: {
                     Label(
-                        model.text(.pauseReceiving),
-                        systemImage: "stop.fill"
+                        model.receiverActionTitle,
+                        systemImage: model.receiverActionSystemImage
                     )
                 }
                 .buttonStyle(.bordered)
                 .foregroundStyle(.white)
-                .help(model.text(.pauseReceiving))
+                .disabled(model.receiverActionDisabled)
+                .help(model.receiverActionHelp)
             }
             if let progress = model.transferProgress {
                 ProgressView(value: progress)

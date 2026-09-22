@@ -105,6 +105,15 @@ final class LocalizationTests: XCTestCase {
         )
     }
 
+    func testReceiverPauseAndResumeLabelsAreLocalized() {
+        XCTAssertEqual(AppStrings.text(.receiverPausing, language: .simplifiedChinese), "正在暂停接收")
+        XCTAssertEqual(AppStrings.text(.receiverPausing, language: .english), "Pausing receiver…")
+        XCTAssertEqual(AppStrings.text(.receiverPaused, language: .simplifiedChinese), "接收已暂停")
+        XCTAssertEqual(AppStrings.text(.receiverPaused, language: .english), "Receiver paused")
+        XCTAssertEqual(AppStrings.text(.resumeReceiving, language: .simplifiedChinese), "恢复接收")
+        XCTAssertEqual(AppStrings.text(.resumeReceiving, language: .english), "Resume Receiving")
+    }
+
     func testAboutVersionAndBuildLabelsMapToChineseAndEnglish() {
         XCTAssertEqual(
             AppStrings.text(.about, language: .simplifiedChinese),

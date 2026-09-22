@@ -12,11 +12,11 @@ struct MenuBarView: View {
                 .font(.caption)
         }
         Divider()
-        Button(
-            model.text(model.isRunning ? .pauseReceiving : .startReceiving)
-        ) {
+        Button(model.receiverActionTitle) {
             model.toggleReceiver()
         }
+        .disabled(model.receiverActionDisabled)
+        .help(model.receiverActionHelp)
         if !model.uploadURL.isEmpty {
             Button(model.text(.copyUploadAddress)) {
                 NSPasteboard.general.clearContents()
@@ -44,6 +44,8 @@ struct MenuBarView: View {
         switch model.status {
         case .running: model.text(.receiverRunning)
         case .starting: model.text(.receiverStarting)
+        case .pausing: model.text(.receiverPausing)
+        case .paused: model.text(.receiverPaused)
         case .failed: model.text(.receiverError)
         case .needsDirectory: model.text(.folderRequired)
         case .stopped: model.text(.receiverPaused)

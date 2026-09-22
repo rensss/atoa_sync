@@ -6,9 +6,11 @@ struct StatusCapsuleView: View {
 
     var body: some View {
         Menu {
-            Button(model.text(model.isRunning ? .pause : .start)) {
+            Button(model.receiverActionTitle) {
                 model.toggleReceiver()
             }
+            .disabled(model.receiverActionDisabled)
+            .help(model.receiverActionHelp)
             if !model.uploadURL.isEmpty {
                 Button(model.text(.copyAddress)) {
                     NSPasteboard.general.clearContents()
@@ -50,7 +52,7 @@ struct StatusCapsuleView: View {
         switch model.status {
         case .running: Theme.statusRunning
         case .failed: Theme.statusFailed
-        case .starting, .needsDirectory, .stopped: Theme.statusIdle
+        case .starting, .pausing, .paused, .needsDirectory, .stopped: Theme.statusIdle
         }
     }
 }

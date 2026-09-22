@@ -111,6 +111,115 @@ final class AppModelReceiverTests: XCTestCase {
         XCTAssertNil(model.lastError)
     }
 
+    func testPauseResumeUsesSameReceiverAndDisablesDuringTransition() async throws {
+        let receiverFactory = TestReceiverFactory()
+        let model = try makeModel(receiverFactory: receiverFactory.make)
+        let directory = temporaryDirectory(named: "pause-resume")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        await model.configureDirectory(directory).value
+        let originalService = try XCTUnwrap(receiverFactory.services.first)
+        XCTAssertEqual(model.receiverActionTitle, model.text(.pauseReceiving))
+        XCTAssertEqual(model.receiverActionHelp, model.receiverActionTitle)
+        XCTAssertEqual(model.receiverActionSystemImage, "pause.fill")
+
+        let pause = model.toggleReceiver()
+        XCTAssertEqual(model.status, .pausing)
+        XCTAssertEqual(model.statusCapsuleTitle, model.text(.receiverPausing))
+        XCTAssertTrue(model.receiverActionDisabled)
+        XCTAssertEqual(model.receiverActionSystemImage, "arrow.triangle.2.circlepath")
+        await pause.value
+        await waitForStatus(.paused, model: model)
+
+        XCTAssertEqual(model.status, .paused)
+        XCTAssertEqual(model.statusCapsuleTitle, model.text(.receiverPaused))
+        XCTAssertEqual(model.receiverActionTitle, model.text(.resumeReceiving))
+        XCTAssertFalse(model.receiverActionDisabled)
+        XCTAssertEqual(model.receiverActionSystemImage, "play.fill")
+        XCTAssertEqual(receiverFactory.services.count, 1)
+        XCTAssertEqual(originalService.stopCount, 0)
+        XCTAssertEqual(originalService.pauseCount, 1)
+
+        let resume = model.toggleReceiver()
+        XCTAssertEqual(model.status, .running)
+        await resume.value
+        await waitForStatus(.running, model: model)
+
+        XCTAssertEqual(model.receiverActionTitle, model.text(.pauseReceiving))
+        XCTAssertEqual(receiverFactory.services.count, 1)
+        XCTAssertEqual(originalService.startCount, 1)
+        XCTAssertEqual(originalService.stopCount, 0)
+        XCTAssertEqual(originalService.resumeCount, 1)
+    }
+
+    func testInterruptedUploadRemovesOnlyItsBytesWithoutFailureOrCompletion() async throws {
+        let model = try makeModel()
+        model.status = .running
+        let completedID = UUID()
+        let interruptedID = UUID()
+        let otherID = UUID()
+
+        model.handle(.uploadStarted(
+            id: completedID,
+            filename: "completed.jpg",
+            expectedSize: 100,
+            batchIndex: 1,
+            batchTotal: 3,
+            batchTotalBytes: 1_000
+        ))
+        model.handle(.uploadProgress(id: completedID, bytesReceived: 100, expectedSize: 100))
+        model.handle(.uploadStored(id: completedID, record: makeRecord(filename: "completed.jpg", sizeBytes: 100)))
+
+        model.handle(.uploadStarted(
+            id: interruptedID,
+            filename: "video.mp4",
+            expectedSize: 400,
+            batchIndex: 2,
+            batchTotal: 3,
+            batchTotalBytes: 1_000
+        ))
+        model.handle(.uploadStarted(
+            id: otherID,
+            filename: "other.jpg",
+            expectedSize: 300
+        ))
+        model.handle(.uploadProgress(id: interruptedID, bytesReceived: 100, expectedSize: 400))
+        try await Task.sleep(for: .milliseconds(25))
+        model.handle(.uploadProgress(id: interruptedID, bytesReceived: 150, expectedSize: 400))
+        model.handle(.uploadProgress(id: otherID, bytesReceived: 50, expectedSize: 300))
+
+        XCTAssertNotNil(model.transferSpeedBytesPerSecond)
+        XCTAssertEqual(model.transferRemainingBytes, 700)
+        XCTAssertEqual(model.transferCompletedCount, 1)
+
+        model.handle(.uploadInterrupted(id: interruptedID, filename: "video.mp4"))
+
+        XCTAssertNil(model.activeUploads[interruptedID])
+        XCTAssertEqual(model.activeUploads[otherID]?.bytesReceived, 50)
+        XCTAssertEqual(model.transferRemainingBytes, 850)
+        XCTAssertEqual(model.transferCompletedCount, 1)
+        XCTAssertEqual(model.transferTotalCount, 3)
+        XCTAssertEqual(model.transferSpeedBytesPerSecond, nil)
+        XCTAssertEqual(model.transferCardState, .paused)
+        XCTAssertNil(model.transientUploadMessage)
+
+        model.handle(.availabilityChanged(state: .paused))
+        XCTAssertEqual(model.status, .paused)
+        model.handle(.availabilityChanged(state: .running))
+        let retryID = UUID()
+        model.handle(.uploadStarted(
+            id: retryID,
+            filename: "video.mp4",
+            expectedSize: 400,
+            batchIndex: 2,
+            batchTotal: 3,
+            batchTotalBytes: 1_000
+        ))
+        XCTAssertEqual(model.transferCardState, .receiving)
+        XCTAssertEqual(model.transferRemainingBytes, 850)
+        XCTAssertEqual(model.transferCompletedCount, 1)
+    }
+
     func testOldReceiverEventsCannotOverwriteNewReceiverState() async throws {
         let model = try makeModel()
         let firstDirectory = temporaryDirectory(named: "first")
@@ -631,13 +740,14 @@ final class AppModelReceiverTests: XCTestCase {
 
     private func makeRecord(
         filename: String,
-        root: URL = URL(fileURLWithPath: "/tmp")
+        root: URL = URL(fileURLWithPath: "/tmp"),
+        sizeBytes: Int64 = 1
     ) -> UploadRecord {
         UploadRecord(
             filename: filename,
             originalFilename: filename,
             kind: .photo,
-            sizeBytes: 1,
+            sizeBytes: sizeBytes,
             contentType: "image/jpeg",
             stableID: filename,
             dateModifiedMillis: nil,
@@ -655,6 +765,12 @@ final class AppModelReceiverTests: XCTestCase {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+
+    private func waitForStatus(_ expected: ReceiverStatus, model: AppModel) async {
+        for _ in 0..<100 where model.status != expected {
+            await Task.yield()
+        }
+    }
 }
 
 @MainActor
@@ -667,7 +783,7 @@ private final class TestReceiverFactory {
         port: UInt16,
         eventHandler: @escaping ReceiverService.EventHandler
     ) -> any ReceiverServiceControlling {
-        let service = TestReceiverService()
+        let service = TestReceiverService(eventHandler: eventHandler)
         if shouldBlockNextStart {
             shouldBlockNextStart = false
             service.blockStart()
@@ -690,6 +806,7 @@ private final class TestReceiverFactory {
 
 private final class TestReceiverService: ReceiverServiceControlling, @unchecked Sendable {
     private let lock = NSLock()
+    private let eventHandler: ReceiverService.EventHandler
     private var stopGates: [CheckedContinuation<Void, Never>] = []
     private var stopRequestedContinuation: CheckedContinuation<Void, Never>?
     private var startGate: CheckedContinuation<UInt16, any Error>?
@@ -700,6 +817,12 @@ private final class TestReceiverService: ReceiverServiceControlling, @unchecked 
     private var didRequestStop = false
     private var storedStartCount = 0
     private var storedStopCount = 0
+    private var storedPauseCount = 0
+    private var storedResumeCount = 0
+
+    init(eventHandler: @escaping ReceiverService.EventHandler) {
+        self.eventHandler = eventHandler
+    }
 
     var startCount: Int {
         lock.withLock { storedStartCount }
@@ -707,6 +830,25 @@ private final class TestReceiverService: ReceiverServiceControlling, @unchecked 
 
     var stopCount: Int {
         lock.withLock { storedStopCount }
+    }
+
+    var pauseCount: Int {
+        lock.withLock { storedPauseCount }
+    }
+
+    var resumeCount: Int {
+        lock.withLock { storedResumeCount }
+    }
+
+    func pause() async {
+        lock.withLock { storedPauseCount += 1 }
+        eventHandler(.availabilityChanged(state: .pausing))
+        eventHandler(.availabilityChanged(state: .paused))
+    }
+
+    func resume() async {
+        lock.withLock { storedResumeCount += 1 }
+        eventHandler(.availabilityChanged(state: .running))
     }
 
     func start() async throws -> UInt16 {

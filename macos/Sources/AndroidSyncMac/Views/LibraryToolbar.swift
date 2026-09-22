@@ -228,11 +228,9 @@ private struct LibraryToolbarControlStrip: View {
     @ViewBuilder
     private var receiverControls: some View {
         ToolbarIconButton(
-            title: model.text(
-                model.isRunning ? .pauseReceiving : .startReceiving
-            ),
-            systemImage: model.isRunning ? "stop.fill" : "play.fill",
-            isDisabled: model.status == .starting,
+            title: model.receiverActionTitle,
+            systemImage: model.receiverActionSystemImage,
+            isDisabled: model.receiverActionDisabled,
             action: { model.toggleReceiver() }
         )
 

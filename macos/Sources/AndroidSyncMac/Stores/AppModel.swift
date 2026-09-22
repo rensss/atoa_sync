@@ -90,6 +90,8 @@ enum ReceiverStatus: Equatable {
     case stopped
     case starting
     case running
+    case pausing
+    case paused
     case failed(String)
 }
 
@@ -124,10 +126,13 @@ struct ActiveUpload: Equatable, Identifiable {
 enum TransferCardState: Equatable {
     case idle
     case receiving
+    case paused
 }
 
 protocol ReceiverServiceControlling: AnyObject, Sendable {
     func start() async throws -> UInt16
+    func pause() async
+    func resume() async
     func stop()
     func stopAndWait() async
 }
@@ -655,10 +660,42 @@ final class AppModel {
         return false
     }
 
+    var receiverActionTitle: String {
+        switch status {
+        case .running: text(.pauseReceiving)
+        case .pausing: text(.receiverPausing)
+        case .paused: text(.resumeReceiving)
+        case .needsDirectory, .stopped, .starting, .failed: text(.startReceiving)
+        }
+    }
+
+    var receiverActionHelp: String {
+        receiverActionTitle
+    }
+
+    var receiverActionSystemImage: String {
+        switch status {
+        case .running: "pause.fill"
+        case .pausing, .starting: "arrow.triangle.2.circlepath"
+        case .paused: "play.fill"
+        case .needsDirectory: "folder.badge.plus"
+        case .stopped, .failed: "play.fill"
+        }
+    }
+
+    var receiverActionDisabled: Bool {
+        switch status {
+        case .starting, .pausing: true
+        case .needsDirectory, .stopped, .running, .paused, .failed: false
+        }
+    }
+
     var menuBarSystemImage: String {
         switch status {
         case .running: "arrow.down.circle.fill"
         case .starting: "arrow.triangle.2.circlepath"
+        case .pausing: "arrow.triangle.2.circlepath"
+        case .paused: "pause.circle.fill"
         case .failed: "exclamationmark.triangle.fill"
         case .needsDirectory: "folder.badge.questionmark"
         case .stopped: "arrow.down.circle"
@@ -671,8 +708,9 @@ final class AppModel {
         }
         return switch status {
         case .needsDirectory: text(.receiveFolderRequired)
-        case .stopped: text(.receiverPaused)
+        case .stopped, .paused: text(.receiverPaused)
         case .starting: text(.startingReceiver)
+        case .pausing: text(.receiverPausing)
         case .running: text(.readyToReceive)
         case .failed: text(.receiverUnavailable)
         }
@@ -716,10 +754,23 @@ final class AppModel {
 
     @discardableResult
     func toggleReceiver() -> Task<Void, Never> {
-        if isRunning {
-            scheduleReceiverAction(.stop)
-        } else {
-            scheduleReceiverAction(.start)
+        switch status {
+        case .running:
+            guard receiverService != nil else {
+                return scheduleReceiverAction(.start)
+            }
+            status = .pausing
+            return scheduleReceiverAvailabilityAction(.pausing)
+        case .paused:
+            guard receiverService != nil else {
+                return scheduleReceiverAction(.start)
+            }
+            status = .running
+            return scheduleReceiverAvailabilityAction(.running)
+        case .pausing, .starting:
+            return Task {}
+        case .needsDirectory, .stopped, .failed:
+            return scheduleReceiverAction(.start)
         }
     }
 
@@ -974,6 +1025,32 @@ final class AppModel {
                 action,
                 generation: transition.generation
             )
+        }
+    }
+
+    private func scheduleReceiverAvailabilityAction(
+        _ targetState: ReceiverAvailabilityState
+    ) -> Task<Void, Never> {
+        guard let service = receiverService else {
+            return scheduleReceiverAction(.start)
+        }
+        let generation = receiverGeneration
+        let serviceID = ObjectIdentifier(service)
+        return Task { @MainActor [weak self] in
+            guard let self,
+                  generation == self.receiverGeneration,
+                  let currentService = self.receiverService,
+                  ObjectIdentifier(currentService) == serviceID else {
+                return
+            }
+            switch targetState {
+            case .pausing:
+                await service.pause()
+            case .running:
+                await service.resume()
+            case .paused:
+                break
+            }
         }
     }
 
@@ -1260,7 +1337,7 @@ final class AppModel {
         status = snapshot.status
         guard snapshot.repository != nil else { return }
         switch snapshot.status {
-        case .running, .starting:
+        case .running, .starting, .pausing, .paused:
             await startReceiver(actionGeneration: actionGeneration)
         case .needsDirectory, .stopped, .failed:
             break
@@ -1285,12 +1362,16 @@ final class AppModel {
                 status = .stopped
             }
         case let .uploadStarted(id, filename, expectedSize, batchIndex, batchTotal, batchTotalBytes):
-            let startsNewBatchAfterUnfinishedBurst = transferCardState == .receiving
+            let startsNewBatchAfterUnfinishedBurst = (transferCardState == .receiving
+                || transferCardState == .paused)
                 && activeUploads.isEmpty
                 && batchIndex == 1
                 && burstTerminalCount > 0
                 && burstTerminalCount < burstExpectedCount
-            if transferCardState != .receiving || startsNewBatchAfterUnfinishedBurst {
+            let preservesPausedBurst = transferCardState == .paused
+                && !startsNewBatchAfterUnfinishedBurst
+            if (transferCardState != .receiving && !preservesPausedBurst)
+                || startsNewBatchAfterUnfinishedBurst {
                 resetTransferCard()
             }
             activeUploads[id] = ActiveUpload(
@@ -1367,15 +1448,35 @@ final class AppModel {
                shouldFinishTransfer(after: failedUpload) {
                 resetTransferCard()
             }
+        case let .availabilityChanged(state):
+            switch state {
+            case .running:
+                status = .running
+            case .pausing:
+                status = .pausing
+            case .paused:
+                status = .paused
+                if transferCardState == .receiving || !activeUploads.isEmpty {
+                    transferCardState = .paused
+                }
+            }
+        case let .uploadInterrupted(id, _):
+            guard let interruptedUpload = activeUploads.removeValue(forKey: id) else { return }
+            burstBytesReceived = max(
+                0,
+                burstBytesReceived - max(0, interruptedUpload.bytesReceived)
+            )
+            transferSamples = [
+                TransferSample(time: Date(), totalBytes: burstBytesReceived)
+            ]
+            clearTransientUploadFailure()
+            transferCardState = .paused
         case let .receiverFailed(message):
             activeUploads.removeAll()
             clearTransientUploadFailure()
             resetTransferCard()
             status = .failed(message)
             lastError = message
-        case .availabilityChanged(state: _), .uploadInterrupted(id: _, filename: _):
-            // The core protocol emits these before the UI state is wired in Task 4.
-            break
         }
     }
 

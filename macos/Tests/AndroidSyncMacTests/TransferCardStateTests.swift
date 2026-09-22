@@ -46,6 +46,43 @@ final class TransferCardStateTests: XCTestCase {
         XCTAssertEqual(model.transferCardState, .idle)
     }
 
+    func testPauseInterruptionKeepsCardAndBatchProgressForResume() throws {
+        let model = try makeModel()
+        let interruptedID = UUID()
+        model.handle(.uploadStarted(
+            id: interruptedID,
+            filename: "first.jpg",
+            expectedSize: 100,
+            batchIndex: 1,
+            batchTotal: 2,
+            batchTotalBytes: 300
+        ))
+        model.handle(.uploadProgress(id: interruptedID, bytesReceived: 50, expectedSize: 100))
+        model.handle(.uploadInterrupted(id: interruptedID, filename: "first.jpg"))
+
+        XCTAssertEqual(model.transferCardState, .paused)
+        XCTAssertEqual(model.transferCompletedCount, 0)
+        XCTAssertEqual(model.transferTotalCount, 2)
+        XCTAssertEqual(model.transferRemainingBytes, 300)
+
+        model.handle(.availabilityChanged(state: .paused))
+        model.handle(.availabilityChanged(state: .running))
+        let retryID = UUID()
+        model.handle(.uploadStarted(
+            id: retryID,
+            filename: "first.jpg",
+            expectedSize: 100,
+            batchIndex: 1,
+            batchTotal: 2,
+            batchTotalBytes: 300
+        ))
+
+        XCTAssertEqual(model.transferCardState, .receiving)
+        XCTAssertEqual(model.transferCompletedCount, 0)
+        XCTAssertEqual(model.transferTotalCount, 2)
+        XCTAssertEqual(model.transferRemainingBytes, 300)
+    }
+
     func testNewBurstStartsWithFreshProgressStateAfterPreviousCompletion() throws {
         let model = try makeModel()
         let first = UUID()

@@ -60,6 +60,7 @@ enum AppStringKey: String, CaseIterable {
     case sortSize
     case receiveFolderRequired
     case receiverPaused
+    case receiverPausing
     case startingReceiver
     case readyToReceive
     case receiverUnavailable
@@ -72,6 +73,7 @@ enum AppStringKey: String, CaseIterable {
     case pause
     case start
     case pauseReceiving
+    case resumeReceiving
     case startReceiving
     case copyUploadAddress
     case showAddressQRCode
@@ -169,6 +171,7 @@ enum AppStrings {
             .sortSize: "最大优先",
             .receiveFolderRequired: "需要选择接收文件夹",
             .receiverPaused: "接收已暂停",
+            .receiverPausing: "正在暂停接收",
             .startingReceiver: "正在启动接收服务…",
             .readyToReceive: "可以接收文件",
             .receiverUnavailable: "接收服务不可用",
@@ -181,6 +184,7 @@ enum AppStrings {
             .pause: "暂停",
             .start: "启动",
             .pauseReceiving: "暂停接收",
+            .resumeReceiving: "恢复接收",
             .startReceiving: "开始接收",
             .copyUploadAddress: "复制上传地址",
             .showAddressQRCode: "显示地址二维码",
@@ -275,6 +279,7 @@ enum AppStrings {
             .sortSize: "Largest First",
             .receiveFolderRequired: "Receive folder required",
             .receiverPaused: "Receiver paused",
+            .receiverPausing: "Pausing receiver…",
             .startingReceiver: "Starting receiver…",
             .readyToReceive: "Ready to receive",
             .receiverUnavailable: "Receiver unavailable",
@@ -287,6 +292,7 @@ enum AppStrings {
             .pause: "Pause",
             .start: "Start",
             .pauseReceiving: "Pause Receiving",
+            .resumeReceiving: "Resume Receiving",
             .startReceiving: "Start Receiving",
             .copyUploadAddress: "Copy Upload Address",
             .showAddressQRCode: "Show Address QR Code",
