@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
+import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
@@ -84,7 +85,12 @@ public final class ReceiverControlClient {
                     || !(epochValue instanceof Number)) {
                 throw new IOException("Invalid receiver health response");
             }
-            long epoch = ((Number) epochValue).longValue();
+            long epoch;
+            try {
+                epoch = new BigDecimal(epochValue.toString()).longValueExact();
+            } catch (ArithmeticException | NumberFormatException error) {
+                throw new IOException("Invalid receiver health pause_epoch", error);
+            }
             if (epoch < 0L) {
                 throw new IOException("Invalid receiver health pause_epoch");
             }

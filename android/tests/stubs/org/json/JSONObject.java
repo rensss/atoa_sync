@@ -86,6 +86,13 @@ public final class JSONObject {
             try {
                 return Long.valueOf(token);
             } catch (NumberFormatException error) {
+                if (token.indexOf('.') >= 0 || token.indexOf('e') >= 0 || token.indexOf('E') >= 0) {
+                    try {
+                        return Double.valueOf(token);
+                    } catch (NumberFormatException ignored) {
+                        throw new JSONException("invalid JSON value: " + token);
+                    }
+                }
                 throw new JSONException("invalid JSON value: " + token);
             }
         }

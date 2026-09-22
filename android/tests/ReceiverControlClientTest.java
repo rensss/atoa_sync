@@ -20,6 +20,7 @@ public final class ReceiverControlClientTest {
     public static void main(String[] args) throws Exception {
         testDiscoveryAndHealthSnapshot();
         testMalformedHealthIsRejected();
+        testFractionalPauseEpochIsRejected();
         testWaitRetriesHealthOutage();
         testCancellationDuringAwaitRunning();
         System.out.println("ReceiverControlClientTest passed");
@@ -66,6 +67,30 @@ public final class ReceiverControlClientTest {
             } catch (IOException expected) {
                 assertEquals(true, expected.getMessage().contains("health"),
                         "invalid response should be reported as a health protocol error");
+            }
+        }
+    }
+
+    private static void testFractionalPauseEpochIsRejected() throws Exception {
+        try (ReceiverTestHttpServer server = new ReceiverTestHttpServer(request -> {
+            if ("/".equals(request.path)) {
+                return ReceiverTestHttpServer.Response.json(
+                        200,
+                        "{\"service\":\"Android Sync Receiver\"}"
+                );
+            }
+            return ReceiverTestHttpServer.Response.json(
+                    200,
+                    "{\"status\":\"ok\",\"receiver_state\":\"paused\",\"pause_epoch\":1.5}"
+            );
+        })) {
+            ReceiverControlClient.Session session = ReceiverControlClient.discover(server.uploadUrl());
+            try {
+                session.readHealth();
+                throw new AssertionError("fractional pause epoch must be rejected as malformed health");
+            } catch (IOException expected) {
+                assertEquals(true, expected.getMessage().contains("health"),
+                        "fractional epoch should be reported as a health protocol error");
             }
         }
     }
