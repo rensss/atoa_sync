@@ -131,6 +131,10 @@ struct ReceiverServiceLifecycle {
     private var stopReason: StopReason?
     private var receiverFailureEmitted = false
 
+    var canPublishPauseCompletion: Bool {
+        state == .running
+    }
+
     mutating func beginStart() -> Bool {
         guard state == .idle || state == .stopped else { return false }
         state = .running
@@ -437,8 +441,16 @@ public final class ReceiverService: @unchecked Sendable {
 
     private func finishPauseIfPossible() {
         guard availabilityState == .pausing, pausePendingSessionCleanups == 0 else { return }
+        guard lifecycle.canPublishPauseCompletion else {
+            resumePauseWaiters()
+            return
+        }
         availabilityState = .paused
         eventHandler(.availabilityChanged(state: .paused))
+        resumePauseWaiters()
+    }
+
+    private func resumePauseWaiters() {
         let waiters = pauseWaiters
         pauseWaiters.removeAll()
         waiters.forEach { $0.resume() }

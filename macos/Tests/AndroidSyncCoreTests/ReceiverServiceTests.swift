@@ -706,6 +706,15 @@ final class ReceiverServiceTests: XCTestCase {
         XCTAssertTrue(lifecycle.beginStart())
     }
 
+    func testPauseCompletionIsNotPublishedAfterListenerFailure() {
+        var lifecycle = ReceiverServiceLifecycle()
+
+        XCTAssertTrue(lifecycle.beginStart())
+        XCTAssertTrue(lifecycle.canPublishPauseCompletion)
+        XCTAssertTrue(lifecycle.beginListenerFailure())
+        XCTAssertFalse(lifecycle.canPublishPauseCompletion)
+    }
+
     private func incomingContents(at root: URL) throws -> [URL] {
         let incomingURL = root.appendingPathComponent(".incoming", isDirectory: true)
         guard FileManager.default.fileExists(atPath: incomingURL.path) else {
