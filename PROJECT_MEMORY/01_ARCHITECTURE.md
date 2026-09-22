@@ -39,7 +39,9 @@ Android 应用使用 Java 编写，不引入第三方依赖，通过本地 Andro
 - `SyncForegroundService`：用户主动开始后的唯一上传生命周期所有者，持有单线程 runner、取消信号和进度通知；`START_STICKY` 恢复数据库中的 `RUNNING` run。
 - `SyncTransferRunner`：不依赖 Android 生命周期的单线程任务状态机；按远端 manifest 过滤后
   的 `WAITING`/`FAILED` 任务快照计算本次上传文件数与字节总量（求和饱和到 `Long.MAX_VALUE`）；
-  每个文件只尝试一次，失败后继续后续任务。
+  普通失败后继续后续任务。只有目标被识别为原生 macOS 接收端，且暂停状态/epoch 明确证明
+  当前 PUT 因暂停中断时，才把当前任务恢复为 `WAITING`，等待后从文件开头重传；通用
+  WebDAV/HTTP 和普通网络错误仍不自动重试。
 - `RemoteManifestClient`：读取接收端历史并识别远端已经存储的媒体。
 - `HttpFileUploader`：使用 HTTP `PUT` 和 Android Sync 元数据 header 流式上传媒体。
 
@@ -64,6 +66,13 @@ macOS 应用是面向 macOS 14+ 的 Swift 6 package，分为：
 
 `ReceiverService` 拥有 `NWListener` 和串行接收队列，最多接受 4 个并发连接。每个
 连接把请求字节流写入由 repository 管理的临时存储。
+
+接收可用性由同一服务实例管理：`running`、`pausing`、`paused`。暂停不关闭 listener，
+`GET /health` 始终可用并返回 `status`、`receiver_state` 和单调递增的 `pause_epoch`；根端点
+以 `service: Android Sync Receiver` 标识受支持的原生协议。暂停期间的新 PUT 在创建临时文件前
+以 HTTP 503 和 `error_code: receiver_paused` 拒绝。暂停会取消仍在接收请求体的上传并清理
+`.part`；若请求体已完整接收且存储提交已开始，则允许提交完成并返回成功。Android 只在确认
+此原生协议及暂停状态/epoch 后才等待并重传中断文件。
 
 `LibraryRepository` 是 actor，也是持久媒体库变更的唯一所有者。它负责校验尺寸、
 选择存储路径、原子移动已完成临时文件、写入 sidecar 元数据，并追加 manifest
@@ -144,8 +153,12 @@ Android 本地数据库包括 `sync_tasks`、`sync_runs` 和 `sync_run_tasks` �
 - Android 停止同步通过 Service 取消信号和上传流内取消检查协作完成；当前请求断开后，
   被中断任务恢复为等待态，run 标记为 `STOPPED`，后续计划不再启动。普通单文件失败
   标记为 `FAILED` 后继续后续任务。
-- macOS 接收端必须把对端取消视为上传终止：清理临时文件、关闭 session 并移除对应
-  活动上传；用户主动暂停接收则继续走串行 `stop/stopAndWait` 生命周期。
+- 对已识别的原生 macOS 接收端，Android 暂停等待仍检查用户停止信号；停止会退出等待并
+  标记 run 为 `STOPPED`。只有服务端暂停状态/epoch 证据才触发同文件整文件重传；普通错误
+  和通用 WebDAV 保持原规则。
+- macOS 接收端把对端取消视为上传终止：清理临时文件、关闭 session 并移除对应活动上传；
+  用户暂停只取消尚未完整接收的 PUT，保留 listener/控制通道，等活动临时上传清理后再进入
+  `paused`。已进入存储提交阶段的上传可完成。
 
 ## 所有权规则
 

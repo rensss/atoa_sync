@@ -31,7 +31,11 @@ android/build/AndroidSync-debug.apk
 - 同步由原生 `ForegroundService` 执行；退后台、锁屏或 Activity 重建后仍可继续传输，通知栏显示进度。
 - 应用进程被系统回收后，重新打开应用会恢复未完成任务；用户强制停止应用或厂商省电策略可能中断服务。
 - 单个文件失败后会继续后续文件；失败项需要用户手动重试。本版本不支持单文件字节级断点续传。
+- 当目标明确识别为原生 macOS Android Sync Receiver 时，Mac 暂停会让当前被中断文件保持
+  等待；Mac 恢复后 Android 从文件开头重传该文件，不把暂停记为普通失败。通用 WebDAV/HTTP
+  目标及普通网络错误仍遵循单次尝试和手动重试规则。
 - 同步期间可继续滚动媒体库，并可从传输卡点击“停止”中断当前上传和后续任务。
+  如果同步正等待 Mac 恢复，点击“停止”也会退出等待并停止本次 run，不会在 Mac 恢复后重传。
 - 显示原生首页仪表盘和队列详情页。
 - Android launcher 使用 adaptive icon，品牌标志为由 cyan、coral red、warm yellow 和 deep charcoal
   组成的模块化 `SYNC` 字标。
@@ -54,6 +58,11 @@ http://192.168.1.10:8765/uploads/
 
 如需使用 Synology、QNAP 或其他 NAS，请启用 WebDAV，或运行任何能在配置目标 URL
 接受 HTTP `PUT` 的接收端。
+
+原生 Mac 暂停控制通过接收端根端点的 `service: Android Sync Receiver` 标识协商；`GET /health`
+提供 `status`、`receiver_state`（`running`、`pausing`、`paused`）和 `pause_epoch`。Android 只在
+该控制通道明确证明接收端暂停/恢复代次变化后，才把 PUT 中断归类为暂停并整文件重传；临时
+健康检查失败不会被当作恢复或重试证据。
 
 ## 浏览器原型
 

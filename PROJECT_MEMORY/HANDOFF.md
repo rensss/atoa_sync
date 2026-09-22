@@ -4,11 +4,9 @@
 
 ## 从这里开始
 
-主分支是 `main`，当前 HEAD 为 `2690006`，产品版本为 `0.1.3`；本地提交尚未推送，
-`main` 相对 `origin/main` ahead 1。发布标签 `v0.1.3` 仍指向 `17c7538`。B04 实现提交为
-`fee8063`。治理文档、已
-批准的稳定性/macOS UX 实现、Android UI 重设计和 macOS UI 重设计已经合并到
-`main`。Android UI 快进合入点为 `2eb0889`；macOS UI 合并提交为 `784139a`。
+主分支是 `main`，产品版本为 `0.1.3`；本地 B36/B37 提交尚未推送到 `origin/main`，
+发布标签 `v0.1.3` 仍指向 `17c7538`。最近已核验的 B37 实现提交为 `492a4ed`；工作树
+和分支 tip 请以 `git status --short --branch` 与 `git rev-parse HEAD` 实时确认。
 
 候选实现分支 `codex/stability-macos-ux` 位于 `cbf31db`。它包含完整的已批准
 Android 稳定性和 macOS UX 工作，以及自动化回归覆盖。独立最终代码审查未发现
@@ -27,7 +25,7 @@ swift test --package-path macos
 ```
 
 2026-09-22 提交前复验：Android JVM 测试、APK 构建、macOS 118 个测试、
-`./macos/build_and_run.sh verify` 和 `git diff --check` 均通过。仍需执行
+`./macos/build_and_run.sh verify` 和 `git diff --check` 均通过。B37 最新全量检查记录见下方；仍需执行
 `batches/2026-07-08-B21-android-device-header-qa.md` 中记录的 Android 真机清单
 和 macOS GUI 手工 QA。验收 Android 稳定性里程碑前，先复核风险 R-001 和 R-002。
 
@@ -46,7 +44,18 @@ macOS 套件 118 个、应用 verify 和 `git diff --check` 均通过。批次�
 
 ## 最新工作
 
-2026-09-22 B36 跨端任务进度功能已在 `2690006` 基线上实现，当前仍是未提交工作树、未推送。
+2026-09-22 B37 原生接收端暂停/恢复已完成实现。Mac 暂停保留 listener/health 控制通道，
+取消未完整 PUT 并清理暂存文件；提交阶段文件正常完成。Android 识别原生接收端后，只有
+暂停状态或 epoch 变化的明确证据才会将当前文件恢复为 `WAITING`，等待 Mac 恢复后从头重传；
+普通错误和通用 WebDAV 仍保持原单次失败语义。等待期间 Android“停止”可终止当前 run。
+Mac 所有暂停入口共享同一状态，传输卡从批次计数/字节数中扣除被丢弃文件的部分进度。
+实现提交依次为 `4c97b26`、`9faf4b4`、`3ff1338`、`8cd83ee`；独立审查修复为
+`5864a95`、`c2b1aaa`、`492a4ed`；协议决策为 ADR-010。
+全量构建/测试结果与文档提交号见 `batches/2026-09-22-B37-native-pause-resume.md`。
+Android 与 Mac 真机暂停、恢复、停止和文件完整性尚未验收，不要据此关闭 M1/M2/M3 里程碑
+或 R-004/R-007/R-009/R-015/R-016。
+
+2026-09-22 B36 跨端任务进度功能已基于 `2690006` 实现并提交为 `6ca48f6`，尚未推送。
 Android 在 manifest 过滤后计算本次 `WAITING`/`FAILED` 批次字节总量并经可选 header 传给 macOS；
 macOS 显示整批剩余量与 ETA，并把唯一进度卡放在 detail 内容区固定顶部。Android 测试、APK
 构建、macOS 全量 132 个测试、应用 verify 和 `git diff --check` 均于 2026-09-22 通过；
@@ -55,8 +64,8 @@ macOS 显示整批剩余量与 ETA，并把唯一进度卡放在 detail 内容�
 进度探测；未进行 Android→macOS 真机成功传输，空“已删除”和成功完成瞬间也未验收。不得据此
 关闭 M3 GUI/交互退出标准。取消发生在两个完整 PUT 之间时 macOS 无法收到结束通知、多个发送方批次也没有
 隔离 ID，列为开放风险 R-016；本批不新增结束/取消协议。两轮独立审查和最终范围核对已完成；复审指出的
-loopback 测试地址族不一致已修正，`./android/run_tests.sh` 再次通过。下一步由用户在 Android 真机完成
-成功批次传输验收；B36 仍未提交、未推送。
+loopback 测试地址族不一致已修正，`./android/run_tests.sh` 再次通过。Android 真机成功批次传输验收
+仍待完成。
 批次记录：`batches/2026-09-22-B36-cross-platform-task-progress.md`。
 
 2026-09-22 按用户要求先将既有 B32–B35 改动（46 个已跟踪文件）提交为

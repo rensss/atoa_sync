@@ -32,8 +32,14 @@ swift test --package-path macos
    目标 URL。也可以复制应用显示的上传地址并手工填写。
 
 选择文件夹后，应用会自动开始接收。关闭主窗口后，接收端仍会在菜单栏中运行。
-主窗口工具栏和传输卡中的 **暂停接收** 会停止 listener 并中断未完成上传；也可从
-菜单栏暂停/开始接收。通过菜单栏中的 **退出 Android Sync** 停止整个进程。
+主窗口工具栏、传输卡和菜单栏共用同一个接收状态；点击 **暂停接收** 会保留 listener 与
+控制通道、显示暂停状态，并中断尚未收完整的 PUT。该文件的临时 `.part` 会清理；Android
+识别到暂停后会等待 Mac 恢复，并从头重传当前文件。请求体已完整接收且进入存储提交阶段的
+文件会继续提交并返回成功。通用 WebDAV/HTTP 客户端不参与自动等待/重传。
+暂停期间 `/health` 仍可查询，字段为 `status`、`receiver_state` 和 `pause_epoch`；Mac 对新 PUT
+返回 HTTP 503、`error_code: receiver_paused`。点击 **恢复接收** 会复用原 listener 和端口。
+Android 在等待期间点击 **停止** 会取消等待并结束 run；恢复 Mac 不会重新启动该 run。
+通过菜单栏中的 **退出 Android Sync** 停止整个进程。
 
 ## 存储兼容性
 

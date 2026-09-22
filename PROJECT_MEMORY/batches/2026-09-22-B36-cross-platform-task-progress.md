@@ -85,12 +85,12 @@ git diff --check
 
 ## 回滚
 
-本批尚未提交。若需回滚，只撤销 B36 在 Android runner/header、macOS 协议/AppModel/视图/测试和文档中的
-改动，不回退基线提交 `2690006`；可选 HTTP header 删除后，旧客户端接收行为仍兼容。验证未在媒体库中留下
-探测文件，回滚不需要迁移或删除用户媒体。
+本批独立提交为 `6ca48f63fe14a97fe157d35793fa7506edb4c1b3`。若需回滚，只撤销该提交中 B36 的
+Android runner/header、macOS 协议/AppModel/视图/测试和文档改动，不回退基线提交 `2690006`；可选 HTTP
+header 删除后，旧客户端接收行为仍兼容。验证未在媒体库中留下探测文件，回滚不需要迁移或删除用户媒体。
 
 ## 结果
 
-- 提交：未提交；工作树基线为 `2690006`，未推送。
-- 结果：主体实现完成；两轮审查发现的问题均已修正或明确记入 R-016。Android/macOS 全量测试、Android build、macOS app verify 和 diff check 均通过；B36 未提交、未推送。
+- 提交：`6ca48f63fe14a97fe157d35793fa7506edb4c1b3`（`feat: show cross-platform task progress`），基线为 `2690006f17ab97b360507b65b130b7537afb0c18`；本地提交，未推送。
+- 结果：主体实现完成；两轮审查发现的问题均已修正或明确记入 R-016。Android/macOS 全量测试、Android build、macOS app verify 和 diff check 均通过。以上命令在提交前的 B36 工作树快照执行，随后用户要求将其作为先行本地提交；当前提交事实经 `git rev-parse` 核实。
 - 后续：由用户在 Android 真机完成成功批次传输验收；M3 GUI/交互退出标准保持开放。

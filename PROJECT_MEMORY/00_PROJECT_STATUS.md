@@ -6,7 +6,8 @@
 
 - 产品版本：`0.1.3`
 - 主分支：`main`
-- `main` 当前 HEAD：`2690006`（B32–B35 本地基线提交；尚未推送）
+- 本批开始时 `main` 的 B37 实现检查点为 `492a4ed`；本批文档提交和最终工作树状态
+  以本记录下方 B37 条目及 `git rev-parse HEAD` 为准，所有新增提交保持本地、未推送。
 - `v0.1.3` 标签仍指向 `17c7538`；产品版本仍为 `0.1.3`。
 - B24–B28 实现提交：`54ff01b`。
 - B27 后续键盘导航修复及 B29–B30 实现提交：`067a501`。
@@ -183,9 +184,9 @@
 
 ## 2026-09-22 本地基线提交
 
-- 用户要求先提交当时已有的本地改动。B32、B33、B34、B35 共 46 个已跟踪文件已按既有
-  范围提交为 `2690006`（`feat: harden Android sync and macOS receive flow`）；未推送，
-  当前 `main` 相对 `origin/main` ahead 1。当前同步进度功能的设计/计划文件未纳入该提交。
+- 用户要求先提交当时已有的本地改动。B32、B33、B34、B35 共 46 个已跟踪文件按既有
+  范围提交为 `2690006`（`feat: harden Android sync and macOS receive flow`）；未推送。
+  当时同步进度功能的设计/计划未纳入该提交，随后 B36 单独提交为 `6ca48f6`。
 - 提交前验证：`./android/run_tests.sh`、`./android/build.sh`、
   `swift test --package-path macos`（118 tests，0 failures）、
   `./macos/build_and_run.sh verify`、`git diff --check` 均通过。
@@ -248,14 +249,14 @@
 - 批次记录：`PROJECT_MEMORY/batches/2026-09-21-B35-flat-receive-storage.md`；决策记录为
   ADR-009，supersede ADR-004 的按月最终目录决策。
 
-## 2026-09-22 B36（工作树未提交）
+## 2026-09-22 B36（已提交：`6ca48f6`）
 
 - 按实际可上传的 `WAITING`/`FAILED` 任务快照计算批次文件数与饱和字节总量；新 Android
   客户端用可选 `X-Android-Sync-Batch-Total-Bytes` 传递该值，macOS 对缺失/非法值保持兼容。
 - macOS 进度卡显示整批剩余字节和具备速度样本后的 ETA；旧多文件请求不再把当前文件剩余
   伪装为任务剩余。进度卡移至 detail 外层顶部，空分类布局不再影响其位置；最后一项完成后
   按现有状态机立即清理卡片。
-- 当前工作树基于 `2690006`，本批尚未提交或推送。审查后新增重载 header、混合可选 header、乱序失败
+- 本批基于 `2690006`，已单独提交为 `6ca48f6`，尚未推送。审查后新增重载 header、混合可选 header、乱序失败
   和新批次重置回归测试；最终 Android 测试/build、macOS 完整套件 132 tests、0 failures、应用 verify
   与 `git diff --check` 均于 2026-09-22 通过。
 - 两轮独立审查完成；复审指出的 loopback 测试 IPv4/IPv6 地址不一致已改为显式绑定 IPv4，随后
@@ -266,6 +267,26 @@
   继续开放。详见 `PROJECT_MEMORY/batches/2026-09-22-B36-cross-platform-task-progress.md`。
 - 风险 R-016 开放：两个完整 PUT 之间取消时没有 batch 结束事件；并发发送方也没有 batch ID 隔离。
   B36 清理下一个新批次首项到达时的旧状态，但不新增结束/取消协议。
+
+## 2026-09-22 B37：原生接收端暂停与恢复
+
+- macOS `ReceiverService` 保留 listener 与健康检查控制通道，提供 `running`、`pausing`、
+  `paused` 状态和递增 `pause_epoch`。暂停会中断未收完整的 PUT、清理 `.part`；已完整接收并
+  进入存储提交阶段的文件继续完成。暂停期间的新 PUT 返回 HTTP 503 和 `receiver_paused`。
+- Android 仅对根端点标识为原生 Android Sync Receiver 的目标启用暂停协商。只有健康状态/epoch
+  提供暂停证据时，才把中断文件退回 `WAITING`，等待恢复后从头重传同一文件；普通网络错误和
+  通用 WebDAV 仍不自动重试。等待期间用户停止可取消等待并停止当前 run。
+- macOS 菜单栏、状态胶囊、工具栏和传输卡共用暂停/恢复状态；中断文件的部分字节从整批进度
+  中移除，不计为完成或失败。
+- 实现提交：`4c97b26`（Mac 接收协议）、`9faf4b4`（Android 暂停协商）、`3ff1338`
+  （Android 同文件恢复）、`8cd83ee`（Mac 状态与 UI）；审查修复提交 `5864a95`
+  （精确校验 `pause_epoch`）、`c2b1aaa`（阻止 listener 失败后的迟到暂停状态）和 `492a4ed`
+  （拒绝浮点舍入后的非整数 epoch）。项目决策追加
+  ADR-010；ADR-008 仅在明确确认的原生暂停中断范围内被 supersede。
+- 自动化测试与构建结果见 `PROJECT_MEMORY/batches/2026-09-22-B37-native-pause-resume.md`；
+  Android 真机暂停/恢复/停止及文件完整性验收仍未完成。相关风险 R-004、R-007、R-009、
+  R-015、R-016 均未因本批源代码通过而关闭。
+- B37 批次记录：`PROJECT_MEMORY/batches/2026-09-22-B37-native-pause-resume.md`。
 
 ## 开放工作
 
@@ -287,6 +308,8 @@
    Home、受控 force-stop 后重开、连接失败继续和应用内停止的真机证据。
 9. 完成 B34 的 macOS 全量 GUI/交互 QA，确认同步进度 header 在网格/列表/筛选/搜索间
    的固定位置，以及单文件、批次中间文件和批次最后文件的显示/收起观感。
+10. 对 B37 执行 Android 与 Mac 真机暂停验收：传输中暂停应丢弃并从头重传当前文件；恢复后
+    原 run 继续，停止等待应立即结束；检查无错误横幅、无重复提交和 `.incoming/*.part` 残留。
 
 ## 当前验证记录
 
