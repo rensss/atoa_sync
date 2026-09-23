@@ -377,6 +377,9 @@ public final class MainActivity extends Activity {
             ensureActiveService();
             return;
         }
+        if (transferSheet != null) {
+            transferSheet.beginRun();
+        }
         driveTransferProgress();
         requestNotificationAndStart(run.id());
     }
@@ -517,7 +520,7 @@ public final class MainActivity extends Activity {
     }
 
     private void captureLibraryViewport() {
-        if (libraryPageView != null) {
+        if (libraryPageView != null && libraryPageView.canCaptureViewport()) {
             libraryFirstVisiblePosition = libraryPageView.firstVisiblePosition();
             libraryFirstChildTop = libraryPageView.firstChildTop();
         }

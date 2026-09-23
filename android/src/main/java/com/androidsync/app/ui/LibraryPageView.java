@@ -107,6 +107,10 @@ public final class LibraryPageView {
         }
     }
 
+    public boolean canCaptureViewport() {
+        return grid != null && LibraryViewportPolicy.shouldCapture(grid.isLaidOut(), grid.getChildCount());
+    }
+
     public void replaceStatuses(Map<String, SyncStatus> statuses) {
         if (adapter != null) {
             adapter.replaceStatuses(statuses);

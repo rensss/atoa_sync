@@ -48,7 +48,7 @@ public final class TransferDetailsSheet {
     private LinearLayout taskList;
     private Button stopButton;
     private boolean insetsInstalled;
-    private boolean stopRequested;
+    private final TransferSheetState state = new TransferSheetState();
 
     public TransferDetailsSheet(Activity activity, Widgets widgets, Actions actions) {
         this.activity = activity;
@@ -60,6 +60,7 @@ public final class TransferDetailsSheet {
         if (dialog == null) {
             createDialog();
         }
+        sheetRoot.setTranslationY(0f);
         render(new TransferSheetData(summary, window, runActive));
         if (!dialog.isShowing()) {
             dialog.show();
@@ -84,14 +85,25 @@ public final class TransferDetailsSheet {
     }
 
     public void showStopping() {
+        state.requestStop();
         if (stopButton != null && isShowing()) {
-            stopRequested = true;
             stopButton.setText("正在停止…");
             stopButton.setEnabled(false);
         }
     }
 
+    /** Starts a fresh run so a previous stop request cannot disable this run's control. */
+    public void beginRun() {
+        state.beginRun();
+        if (sheetRoot != null) {
+            sheetRoot.setTranslationY(0f);
+        }
+    }
+
     public void dismiss() {
+        if (sheetRoot != null) {
+            sheetRoot.setTranslationY(0f);
+        }
         if (dialog != null) {
             dialog.dismiss();
         }
@@ -158,7 +170,7 @@ public final class TransferDetailsSheet {
 
         TextView taskHeading = widgets.sectionTitle("任务");
         sheetRoot.addView(taskHeading);
-        int maxBodyHeight = Math.min(maxHeight, Math.max(widgets.dp(72), maxHeight - widgets.dp(280)));
+        int maxBodyHeight = TransferSheetLayout.bodyMaxHeight(maxHeight, 0);
         taskScroll = new BoundedScrollView(activity, maxBodyHeight);
         taskScroll.setFillViewport(false);
         taskScroll.setVerticalScrollBarEnabled(true);
@@ -167,7 +179,7 @@ public final class TransferDetailsSheet {
         taskScroll.addView(taskList, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         sheetRoot.addView(taskScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         stopButton = widgets.secondaryButton("停止同步", new View.OnClickListener() {
             @Override
@@ -220,11 +232,13 @@ public final class TransferDetailsSheet {
         progressBar.setMax(Math.max(1, summary.total()));
         progressBar.setProgress(summary.done());
         stopButton.setVisibility(data.showStop() ? View.VISIBLE : View.GONE);
-        if (data.showStop() && !stopRequested) {
+        state.clearIfIdle(data.showStop());
+        if (state.canStop(data.showStop())) {
             stopButton.setText("停止同步");
             stopButton.setEnabled(true);
-        } else if (!data.showStop()) {
-            stopRequested = false;
+        } else if (data.showStop()) {
+            stopButton.setText("正在停止…");
+            stopButton.setEnabled(false);
         }
 
         final int scrollY = taskScroll.getScrollY();
