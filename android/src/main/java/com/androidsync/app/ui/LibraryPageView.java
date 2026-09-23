@@ -1,16 +1,16 @@
-// android/src/main/java/com/androidsync/app/ui/LibraryPageView.java
 package com.androidsync.app.ui;
 
 import android.app.Activity;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.GridLayout;
+import android.widget.GridView;
 import android.widget.HorizontalScrollView;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.androidsync.app.android.MediaStoreScanner;
@@ -18,11 +18,10 @@ import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncStatus;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-/**
- * 深色媒体库首页：相册 chips 过滤行 + 传输卡片 + 三列缩略图网格 + 同步 FAB。
- */
+/** Media library page with in-place album filtering and a recycling thumbnail grid. */
 public final class LibraryPageView {
     public interface LibraryHost {
         List<MediaStoreScanner.Album> whitelistAlbums();
@@ -30,7 +29,7 @@ public final class LibraryPageView {
         void toggleChip(String bucketId);
         void openAlbumPicker();
         List<MediaItem> visibleItems();
-        SyncStatus statusFor(MediaItem item);
+        Map<String, SyncStatus> statusByStableId();
         void openPreview(MediaItem item);
         void startConfirm();
         View transferCard();
@@ -39,6 +38,12 @@ public final class LibraryPageView {
     private final Activity activity;
     private final Widgets widgets;
     private final ThumbnailLoader thumbnails;
+
+    private HorizontalScrollView chipScroll;
+    private LinearLayout chipRow;
+    private GridView grid;
+    private TextView visibleCount;
+    private MediaGridAdapter adapter;
 
     public LibraryPageView(Activity activity, Widgets widgets, ThumbnailLoader thumbnails) {
         this.activity = activity;
@@ -50,148 +55,159 @@ public final class LibraryPageView {
         LinearLayout page = new LinearLayout(activity);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setBackgroundColor(widgets.color(Theme.BG));
-        page.setPadding(widgets.dp(Theme.SPACE_L), widgets.statusBarHeight() + widgets.dp(Theme.SPACE_M),
+        page.setPadding(widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_M),
                 widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_S));
 
-        page.addView(buildChips(host));
+        LinearLayout heading = new LinearLayout(activity);
+        heading.setOrientation(LinearLayout.HORIZONTAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = widgets.title("媒体库", 23);
+        heading.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        List<MediaItem> visibleItems = host.visibleItems();
+        visibleCount = widgets.label(visibleItems.size() + " 项", 13, Theme.TEXT_SECONDARY);
+        heading.addView(visibleCount);
+        page.addView(heading);
+        page.addView(widgets.label("浏览本机照片与视频", 12, Theme.TEXT_MUTED));
+
+        chipScroll = new HorizontalScrollView(activity);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        chipScroll.setClipToPadding(false);
+        chipRow = new LinearLayout(activity);
+        chipRow.setOrientation(LinearLayout.HORIZONTAL);
+        chipScroll.addView(chipRow, new HorizontalScrollView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        rebuildChipButtons(host);
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chipParams.topMargin = widgets.dp(Theme.SPACE_S);
+        chipParams.bottomMargin = widgets.dp(Theme.SPACE_XS);
+        page.addView(chipScroll, chipParams);
+
         page.addView(host.transferCard());
-        page.addView(buildGridArea(host), new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        page.addView(buildGridArea(host, visibleItems), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return page;
     }
 
-    private View buildChips(final LibraryHost host) {
-        HorizontalScrollView scroll = new HorizontalScrollView(activity);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout chips = new LinearLayout(activity);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
+    public int firstVisiblePosition() {
+        return grid == null ? 0 : grid.getFirstVisiblePosition();
+    }
+
+    public int firstChildTop() {
+        if (grid == null || grid.getChildCount() == 0) {
+            return 0;
+        }
+        View firstChild = grid.getChildAt(0);
+        return firstChild == null ? 0 : firstChild.getTop();
+    }
+
+    public void restorePosition(int firstVisiblePosition, int firstChildTop) {
+        if (grid != null && adapter != null) {
+            grid.setSelectionFromTop(adapter.clampPosition(firstVisiblePosition), firstChildTop);
+        }
+    }
+
+    public void replaceStatuses(Map<String, SyncStatus> statuses) {
+        if (adapter != null) {
+            adapter.replaceStatuses(statuses);
+        }
+    }
+
+    private void rebuildChipButtons(final LibraryHost host) {
+        chipRow.removeAllViews();
         Set<String> active = host.activeChipFilter();
         for (final MediaStoreScanner.Album album : host.whitelistAlbums()) {
-            boolean selected = active.contains(album.bucketId);
-            Button chip = chipButton(album.name + " " + album.count, selected);
-            chip.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    host.toggleChip(album.bucketId);
-                }
-            });
-            chips.addView(chip);
+            TextView chip = widgets.chip(
+                    album.name + " · " + album.count,
+                    active.contains(album.bucketId),
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View view) {
+                            updateFilter(host, album.bucketId);
+                        }
+                    });
+            addChip(chip);
         }
-        Button manage = chipButton("管理", false);
-        manage.setOnClickListener(new View.OnClickListener() {
+
+        Button manage = widgets.secondaryButton("管理相册", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 host.openAlbumPicker();
             }
         });
-        chips.addView(manage);
-        scroll.addView(chips);
-        return scroll;
+        manage.setTextSize(13);
+        addChip(manage);
     }
 
-    private Button chipButton(String text, boolean selected) {
-        Button chip = widgets.smallButton(text);
-        chip.setTextColor(widgets.color(selected ? Theme.ACCENT : Theme.TEXT_SECONDARY));
-        chip.setBackground(selected
-                ? widgets.rounded("#33E8A33D", Theme.ACCENT, 1, 10)
-                : widgets.rounded(Theme.BG_RAISED, Theme.STROKE, 1, 10));
+    private void addChip(View chip) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, widgets.dp(Theme.SPACE_S), 0);
-        chip.setLayoutParams(params);
-        return chip;
+        chipRow.addView(chip, params);
     }
 
-    private View buildGridArea(final LibraryHost host) {
-        FrameLayout frame = new FrameLayout(activity);
+    private void updateFilter(final LibraryHost host, String bucketId) {
+        final int firstPosition = firstVisiblePosition();
+        final int firstTop = firstChildTop();
+        final int chipOffset = chipScroll.getScrollX();
+        host.toggleChip(bucketId);
+        List<MediaItem> visible = host.visibleItems();
+        adapter.replaceItems(visible);
+        adapter.replaceStatuses(host.statusByStableId());
+        visibleCount.setText(visible.size() + " 项");
+        grid.setSelectionFromTop(adapter.clampPosition(firstPosition), firstTop);
+        rebuildChipButtons(host);
+        chipScroll.post(new Runnable() {
+            @Override
+            public void run() {
+                chipScroll.scrollTo(chipOffset, 0);
+            }
+        });
+    }
 
-        ScrollView scroll = new ScrollView(activity);
-        GridLayout grid = new GridLayout(activity);
-        grid.setColumnCount(3);
-        int cellSize = (activity.getResources().getDisplayMetrics().widthPixels
-                - widgets.dp(Theme.SPACE_L) * 2) / 3 - widgets.dp(2);
-        for (final MediaItem item : host.visibleItems()) {
-            FrameLayout cell = new FrameLayout(activity);
-            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-            params.width = cellSize;
-            params.height = cellSize;
-            params.setMargins(widgets.dp(1), widgets.dp(1), widgets.dp(1), widgets.dp(1));
-            ImageView image = new ImageView(activity);
-            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            image.setBackgroundColor(widgets.color(Theme.BG_RAISED));
-            TextView placeholder = widgets.label(item.isVideo() ? "▶" : "…", 12, Theme.TEXT_SECONDARY);
-            placeholder.setGravity(Gravity.CENTER);
-            cell.addView(image, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            cell.addView(placeholder, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-            cell.addView(statusBadge(host.statusFor(item)));
-            thumbnails.loadThumbnailInto(image, placeholder, item.uri(), cellSize);
-            cell.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    host.openPreview(item);
-                }
-            });
-            grid.addView(cell, params);
-        }
-        scroll.addView(grid);
-        frame.addView(scroll, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+    private View buildGridArea(final LibraryHost host, List<MediaItem> visibleItems) {
+        FrameLayout area = new FrameLayout(activity);
+        TextView empty = widgets.label("没有可显示的照片或视频\n请检查媒体权限和相册筛选。", 14, Theme.TEXT_SECONDARY);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(widgets.dp(Theme.SPACE_XL), widgets.dp(Theme.SPACE_L),
+                widgets.dp(Theme.SPACE_XL), widgets.dp(Theme.SPACE_L));
+        area.addView(empty, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        Button fab = widgets.smallButton("⇪ 同步");
-        fab.setTextColor(widgets.color("#FFFFFF"));
-        fab.setBackground(widgets.rounded(Theme.ACCENT, Theme.ACCENT, 0, 20));
-        fab.setOnClickListener(new View.OnClickListener() {
+        grid = new GridView(activity);
+        grid.setNumColumns(3);
+        grid.setHorizontalSpacing(widgets.dp(2));
+        grid.setVerticalSpacing(widgets.dp(2));
+        grid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        grid.setSelector(new ColorDrawable(Color.TRANSPARENT));
+        grid.setCacheColorHint(widgets.color(Theme.BG));
+        grid.setClipToPadding(false);
+        grid.setPadding(0, 0, 0, widgets.dp(88));
+        grid.setVerticalScrollBarEnabled(false);
+        adapter = new MediaGridAdapter(activity, widgets, thumbnails, new MediaGridAdapter.ItemClickListener() {
+            @Override
+            public void onItemClick(MediaItem item) {
+                host.openPreview(item);
+            }
+        });
+        adapter.replaceItems(visibleItems);
+        adapter.replaceStatuses(host.statusByStableId());
+        grid.setAdapter(adapter);
+        grid.setEmptyView(empty);
+        area.addView(grid, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        Button sync = widgets.primaryButton("同步", new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 host.startConfirm();
             }
         });
-        FrameLayout.LayoutParams fabParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, widgets.dp(48));
-        fabParams.gravity = Gravity.BOTTOM | Gravity.END;
-        fabParams.setMargins(0, 0, widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_L));
-        frame.addView(fab, fabParams);
-        return frame;
-    }
-
-    private View statusBadge(SyncStatus status) {
-        String text;
-        String fill;
-        String stroke;
-        switch (status) {
-            case DONE:
-                text = "已同步";
-                fill = "#CC1E4F35";
-                stroke = Theme.STATUS_RUNNING;
-                break;
-            case UPLOADING:
-                text = "上传中";
-                fill = "#CC2C3D73";
-                stroke = Theme.GRADIENT_START;
-                break;
-            case FAILED:
-                text = "失败";
-                fill = "#CC542528";
-                stroke = Theme.STATUS_FAILED;
-                break;
-            case WAITING:
-            default:
-                text = "未同步";
-                fill = "#CC1C1C21";
-                stroke = Theme.STROKE;
-                break;
-        }
-        TextView badge = widgets.label(text, 11, Theme.TEXT_PRIMARY);
-        badge.setGravity(Gravity.CENTER);
-        badge.setPadding(widgets.dp(6), widgets.dp(2), widgets.dp(6), widgets.dp(2));
-        badge.setBackground(widgets.rounded(fill, stroke, 1, 8));
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, widgets.dp(24));
-        params.gravity = Gravity.TOP | Gravity.END;
-        params.setMargins(0, widgets.dp(6), widgets.dp(6), 0);
-        badge.setLayoutParams(params);
-        return badge;
+        FrameLayout.LayoutParams syncParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        syncParams.gravity = Gravity.BOTTOM | Gravity.END;
+        syncParams.setMargins(0, 0, widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_L));
+        area.addView(sync, syncParams);
+        return area;
     }
 }

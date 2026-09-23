@@ -90,6 +90,9 @@ public final class MainActivity extends Activity {
     private Widgets widgets;
     private ThumbnailLoader thumbnailLoader;
     private TransferCardView transferCard;
+    private LibraryPageView libraryPageView;
+    private int libraryFirstVisiblePosition;
+    private int libraryFirstChildTop;
     private List<MediaStoreScanner.Album> albums = Collections.emptyList();
     private List<MediaItem> scannedMedia = Collections.emptyList();
     private Button albumDoneButton;
@@ -112,10 +115,6 @@ public final class MainActivity extends Activity {
                 return;
             }
             driveTransferProgress();
-            String status = intent.getStringExtra(SyncForegroundService.EXTRA_STATUS);
-            if (status != null && !"RUNNING".equals(status) && "library".equals(screen)) {
-                render();
-            }
         }
     };
 
@@ -473,6 +472,8 @@ public final class MainActivity extends Activity {
         if (destroyed) {
             return;
         }
+        captureLibraryViewport();
+        libraryPageView = null;
         thumbnailLoader.bumpGeneration();
         albumDoneButton = null;
         root = new LinearLayout(this);
@@ -504,6 +505,13 @@ public final class MainActivity extends Activity {
         return "library".equals(screen) || "settings".equals(screen);
     }
 
+    private void captureLibraryViewport() {
+        if (libraryPageView != null) {
+            libraryFirstVisiblePosition = libraryPageView.firstVisiblePosition();
+            libraryFirstChildTop = libraryPageView.firstChildTop();
+        }
+    }
+
     @Override
     public void onBackPressed() {
         if ("settings".equals(screen)) {
@@ -532,7 +540,6 @@ public final class MainActivity extends Activity {
 
     private View libraryView() {
         final View transferRoot = transferCard.build();
-        final Map<String, SyncStatus> statusByStableId = taskStatusByStableId();
         LibraryPageView.LibraryHost host = new LibraryPageView.LibraryHost() {
             @Override
             public List<MediaStoreScanner.Album> whitelistAlbums() {
@@ -551,7 +558,6 @@ public final class MainActivity extends Activity {
                 } else {
                     chipFilter.add(bucketId);
                 }
-                render();
             }
 
             @Override
@@ -565,14 +571,13 @@ public final class MainActivity extends Activity {
             }
 
             @Override
-            public SyncStatus statusFor(MediaItem item) {
-                SyncStatus status = statusByStableId.get(item.stableId());
-                return status == null ? SyncStatus.WAITING : status;
+            public void openPreview(MediaItem item) {
+                showPreview(item);
             }
 
             @Override
-            public void openPreview(MediaItem item) {
-                showPreview(item);
+            public Map<String, SyncStatus> statusByStableId() {
+                return taskStatusByStableId();
             }
 
             @Override
@@ -587,7 +592,9 @@ public final class MainActivity extends Activity {
                 return transferRoot;
             }
         };
-        View page = new LibraryPageView(this, widgets, thumbnailLoader).build(host);
+        libraryPageView = new LibraryPageView(this, widgets, thumbnailLoader);
+        View page = libraryPageView.build(host);
+        libraryPageView.restorePosition(libraryFirstVisiblePosition, libraryFirstChildTop);
         if (database.findRunningRun() != null || queue.summary().failed() > 0) {
             driveTransferProgress();
         }
@@ -597,6 +604,9 @@ public final class MainActivity extends Activity {
     private void driveTransferProgress() {
         if (transferCard == null) {
             return;
+        }
+        if (libraryPageView != null && "library".equals(screen)) {
+            libraryPageView.replaceStatuses(taskStatusByStableId());
         }
         SyncQueue.Summary summary = queue.summary();
         if (database.findRunningRun() == null && summary.failed() == 0) {
