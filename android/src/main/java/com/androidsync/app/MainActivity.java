@@ -38,6 +38,7 @@ import com.androidsync.app.android.RemoteManifestClient;
 import com.androidsync.app.android.SyncDatabase;
 import com.androidsync.app.core.AddressConfiguration;
 import com.androidsync.app.core.AlbumFilter;
+import com.androidsync.app.core.AlbumTree;
 import com.androidsync.app.core.MediaItem;
 import com.androidsync.app.core.SyncQueue;
 import com.androidsync.app.core.SyncRun;
@@ -93,6 +94,7 @@ public final class MainActivity extends Activity {
     private List<MediaItem> scannedMedia = Collections.emptyList();
     private Button albumDoneButton;
     private String albumPickerReturn = "library";
+    private String albumPickerPath = "";
     private String screen = "library";
     private String targetUrl;
     private boolean scanning;
@@ -229,6 +231,7 @@ public final class MainActivity extends Activity {
     /** 打开相册白名单选择页；{@code initialSetup} 为首启强制引导（预勾 Camera）。 */
     private void openAlbumPicker(final boolean initialSetup) {
         albumPickerReturn = initialSetup ? "library" : screen;
+        albumPickerPath = "";
         screen = "albumPicker";
         scanMessage = "正在读取相册...";
         render();
@@ -505,6 +508,12 @@ public final class MainActivity extends Activity {
             return;
         }
         if ("albumPicker".equals(screen)) {
+            if (!AlbumTree.normalizePath(albumPickerPath).isEmpty()) {
+                int separator = albumPickerPath.lastIndexOf('/');
+                albumPickerPath = separator < 0 ? "" : albumPickerPath.substring(0, separator);
+                render();
+                return;
+            }
             screen = albumPickerReturn;
             render();
             return;
@@ -671,7 +680,14 @@ public final class MainActivity extends Activity {
                     }
                 }
             };
-            View list = new AlbumPickerView(this, widgets).build(albums, albumSelection, onChanged);
+            View list = new AlbumPickerView(this, widgets).build(albums, albumSelection, albumPickerPath,
+                    new AlbumPickerView.OnNavigateListener() {
+                        @Override
+                        public void onNavigate(String path) {
+                            albumPickerPath = path;
+                            render();
+                        }
+                    }, onChanged);
             page.addView(list, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         }
 

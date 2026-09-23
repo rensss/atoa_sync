@@ -3,6 +3,7 @@ package com.androidsync.app;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -339,10 +340,21 @@ public final class SyncForegroundService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
+        Intent openAppIntent = new Intent(this, MainActivity.class);
+        openAppIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent contentIntent = PendingIntent.getActivity(
+                this,
+                NOTIFICATION_ID,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
         return builder
                 .setSmallIcon(com.androidsync.app.R.drawable.ic_stat_sync)
                 .setContentTitle("Android Sync")
                 .setContentText(text)
+                .setContentIntent(contentIntent)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setProgress(Math.max(1, totalTasks), done, false)

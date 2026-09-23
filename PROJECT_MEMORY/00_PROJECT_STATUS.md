@@ -289,6 +289,19 @@
 - B37 批次记录：`PROJECT_MEMORY/batches/2026-09-22-B37-native-pause-resume.md`。
 - B37 项目决策、平台说明和批次记录首个文档提交：`4cc3130a866c23dafc43bd4fe884cd48e0a2ebd7`，未推送。
 
+## 2026-09-22 B38：Android 相册层级与通知点击
+
+- 相册选择页从 MediaStore 目录路径构建层级；文件夹复选框级联选择其直接相册和全部子目录，进入后
+  可按相册独立取消；父目录显示“部分选择”。Android 10+ 使用 `relative_path`，旧版尝试从 `_data`
+  路径提取目录；无法获取路径的记录保留为根级平铺项。
+- 原有 `bucket_id` 白名单持久化与同步过滤不变。点击前台同步通知会启动或切回 `MainActivity`，
+  `ForegroundService` 继续传输；未改变通知长按和渠道行为。
+- `./android/run_tests.sh`、`./android/build.sh`、`git diff --check` 均通过；APK 生成于忽略目录
+  `android/build/AndroidSync-debug.apk`，未安装到手机。通知点击和目录交互仍待用户真机验收。
+- 未触及协议、持久化布局或已登记风险控制措施；R-002 队列大视图风险已检查，本批树构建只处理
+  聚合后的相册元数据，不遍历完整媒体队列。批次记录：
+  `PROJECT_MEMORY/batches/2026-09-22-B38-android-album-tree-notification.md`。
+
 ## 开放工作
 
 1. 完成 Android 真机压力测试，覆盖大型媒体库、导航、生命周期切换和重复开始同步
@@ -311,6 +324,8 @@
    的固定位置，以及单文件、批次中间文件和批次最后文件的显示/收起观感。
 10. 对 B37 执行 Android 与 Mac 真机暂停验收：传输中暂停应丢弃并从头重传当前文件；恢复后
     原 run 继续，停止等待应立即结束；检查无错误横幅、无重复提交和 `.incoming/*.part` 残留。
+11. 对 B38 执行 Android 真机验收：确认目录层级、级联选择/单独取消/返回路径，以及点击进行中的同步
+    通知后 App 到前台且当前传输不断；长按通知不属于 B38 范围。
 
 ## 当前验证记录
 

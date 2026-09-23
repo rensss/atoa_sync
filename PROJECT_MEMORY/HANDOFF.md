@@ -44,6 +44,13 @@ macOS 套件 118 个、应用 verify 和 `git diff --check` 均通过。批次�
 
 ## 最新工作
 
+2026-09-22 B38 Android 相册目录层级与通知点击已实现：相册页根据 MediaStore 目录路径构建树，
+勾选文件夹会级联选择子目录；进入后可单独调整直接相册，父目录展示部分选择状态。无路径记录仍
+平铺显示，持久化的 `bucket_id` 白名单不变。点击同步通知会把 MainActivity 带到前台，前台服务
+继续传输；未改通知长按/渠道行为。`./android/run_tests.sh`、`./android/build.sh` 和
+`git diff --check` 通过；新 APK 已构建但未安装，待用户真机验证通知点击、目录导航和级联选择。
+详见 `batches/2026-09-22-B38-android-album-tree-notification.md`。
+
 2026-09-22 B37 原生接收端暂停/恢复已完成实现。Mac 暂停保留 listener/health 控制通道，
 取消未完整 PUT 并清理暂存文件；提交阶段文件正常完成。Android 识别原生接收端后，只有
 暂停状态或 epoch 变化的明确证据才会将当前文件恢复为 `WAITING`，等待 Mac 恢复后从头重传；

@@ -5,10 +5,12 @@ import android.content.ContentUris;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.provider.MediaStore;
 
 import com.androidsync.app.core.MediaItem;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -23,6 +25,8 @@ public final class MediaStoreScanner {
     // 用字符串常量（26–28 与 29+ 列名一致）。
     private static final String BUCKET_ID = "bucket_id";
     private static final String BUCKET_NAME = "bucket_display_name";
+    private static final String RELATIVE_PATH = "relative_path";
+    private static final String DATA = "_data";
 
     private final ContentResolver resolver;
 
@@ -60,11 +64,12 @@ public final class MediaStoreScanner {
     public List<Album> listAlbums() {
         LinkedHashMap<String, int[]> counts = new LinkedHashMap<>();
         LinkedHashMap<String, String> names = new LinkedHashMap<>();
-        countBuckets(imagesCollection(), counts, names);
-        countBuckets(videosCollection(), counts, names);
+        LinkedHashMap<String, String> paths = new LinkedHashMap<>();
+        countBuckets(imagesCollection(), counts, names, paths);
+        countBuckets(videosCollection(), counts, names, paths);
         List<Album> albums = new ArrayList<>();
         for (Map.Entry<String, int[]> entry : counts.entrySet()) {
-            albums.add(new Album(entry.getKey(), names.get(entry.getKey()), entry.getValue()[0]));
+            albums.add(new Album(entry.getKey(), names.get(entry.getKey()), entry.getValue()[0], paths.get(entry.getKey())));
         }
         Collections.sort(albums, new Comparator<Album>() {
             @Override
@@ -75,8 +80,10 @@ public final class MediaStoreScanner {
         return albums;
     }
 
-    private void countBuckets(Uri collection, Map<String, int[]> counts, Map<String, String> names) {
-        String[] projection = new String[] { BUCKET_ID, BUCKET_NAME };
+    private void countBuckets(Uri collection, Map<String, int[]> counts, Map<String, String> names,
+                              Map<String, String> paths) {
+        String pathColumn = Build.VERSION.SDK_INT >= 29 ? RELATIVE_PATH : DATA;
+        String[] projection = new String[] { BUCKET_ID, BUCKET_NAME, pathColumn };
         Cursor cursor = resolver.query(collection, projection, null, null, null);
         if (cursor == null) {
             return;
@@ -84,23 +91,71 @@ public final class MediaStoreScanner {
         try {
             int idColumn = cursor.getColumnIndexOrThrow(BUCKET_ID);
             int nameColumn = cursor.getColumnIndexOrThrow(BUCKET_NAME);
+            int pathColumnIndex = cursor.getColumnIndex(pathColumn);
             while (cursor.moveToNext()) {
                 String id = cursor.getString(idColumn);
                 if (id == null) {
                     continue;
                 }
                 String name = cursor.getString(nameColumn);
+                String providerPath = pathColumnIndex < 0 ? null : cursor.getString(pathColumnIndex);
+                String path = albumPath(providerPath);
                 int[] count = counts.get(id);
                 if (count == null) {
                     counts.put(id, new int[] { 1 });
                     names.put(id, name == null ? id : name);
+                    if (path != null) {
+                        paths.put(id, path);
+                    }
                 } else {
                     count[0]++;
+                    if (!paths.containsKey(id) && path != null) {
+                        paths.put(id, path);
+                    }
                 }
             }
         } finally {
             cursor.close();
         }
+    }
+
+    @SuppressWarnings("deprecation") // Android 26–28 expose legacy absolute paths through MediaStore DATA.
+    private String albumPath(String providerPath) {
+        if (providerPath == null || providerPath.trim().isEmpty()) {
+            return null;
+        }
+        if (Build.VERSION.SDK_INT >= 29) {
+            String normalized = providerPath.replace('\\', '/').replaceAll("^/+|/+$", "");
+            return normalized.isEmpty() ? null : normalized;
+        }
+
+        String directory = new File(providerPath).getParent();
+        if (directory == null) {
+            return null;
+        }
+        String primaryRoot = Environment.getExternalStorageDirectory().getAbsolutePath();
+        if (directory.startsWith(primaryRoot + "/")) {
+            return directory.substring(primaryRoot.length() + 1);
+        }
+        if ("/storage".equals(directory)) {
+            return null;
+        }
+        if (directory.startsWith("/storage/")) {
+            String[] parts = directory.substring("/storage/".length()).split("/");
+            int firstMediaDirectory = parts.length > 1 && "emulated".equals(parts[0]) ? 2 : 1;
+            if (parts.length <= firstMediaDirectory) {
+                return null;
+            }
+            StringBuilder relative = new StringBuilder();
+            for (int i = firstMediaDirectory; i < parts.length; i++) {
+                if (relative.length() > 0) {
+                    relative.append('/');
+                }
+                relative.append(parts[i]);
+            }
+            return relative.toString();
+        }
+        return null;
     }
 
     private Uri imagesCollection() {
@@ -190,11 +245,17 @@ public final class MediaStoreScanner {
         public final String bucketId;
         public final String name;
         public final int count;
+        public final String path;
 
         public Album(String bucketId, String name, int count) {
+            this(bucketId, name, count, null);
+        }
+
+        public Album(String bucketId, String name, int count, String path) {
             this.bucketId = bucketId;
             this.name = name;
             this.count = count;
+            this.path = path;
         }
     }
 }
