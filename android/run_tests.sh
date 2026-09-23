@@ -21,9 +21,11 @@ printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/Theme.java" >> "$ROOT/
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/UiInsetsPadding.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/MediaGridData.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/TransferSheetData.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/SelectionSummary.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/AndroidUiFoundationTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/MediaGridDataTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/TransferSheetDataTest.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/tests/SelectionSummaryTest.java" >> "$ROOT/build/test-sources.list"
 
 javac -d "$BUILD" @"$ROOT/build/test-sources.list"
 java -cp "$BUILD" SyncQueueTest
@@ -37,3 +39,4 @@ java -cp "$BUILD" ReceiverControlClientTest
 java -cp "$BUILD" AndroidUiFoundationTest
 java -cp "$BUILD" MediaGridDataTest
 java -cp "$BUILD" TransferSheetDataTest
+java -cp "$BUILD" SelectionSummaryTest

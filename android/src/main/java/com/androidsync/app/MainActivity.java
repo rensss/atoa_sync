@@ -10,6 +10,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -504,7 +505,8 @@ public final class MainActivity extends Activity {
         View bottomInsetTarget = content;
         if (showsBottomNav()) {
             View navigation = navBar();
-            root.addView(navigation, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(76)));
+            root.addView(navigation, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             bottomInsetTarget = navigation;
         }
         widgets.installSystemInsets(root, content, bottomInsetTarget);
@@ -833,14 +835,28 @@ public final class MainActivity extends Activity {
     }
 
     private void showPreview(final MediaItem item) {
-        Dialog dialog = new Dialog(this);
+        final Dialog dialog = new Dialog(this);
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setBackgroundColor(widgets.color(Theme.BG));
         page.setPadding(widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_L), widgets.dp(Theme.SPACE_L));
 
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = widgets.title("媒体预览", 18);
+        toolbar.addView(heading, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        toolbar.addView(widgets.iconButton(R.drawable.ic_close, "关闭预览", new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                dialog.dismiss();
+            }
+        }));
+        page.addView(toolbar);
+
         FrameLayout preview = new FrameLayout(this);
-        preview.setBackgroundColor(widgets.color(Theme.BG_RAISED));
+        preview.setBackground(widgets.rounded(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_L));
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         TextView loading = widgets.label("加载预览...", 14, Theme.TEXT_SECONDARY);
@@ -849,18 +865,32 @@ public final class MainActivity extends Activity {
         preview.addView(loading, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         page.addView(preview, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        page.addView(widgets.label(item.displayName(), 16, Theme.TEXT_PRIMARY));
-        page.addView(widgets.label(Widgets.formatBytes(item.sizeBytes()) + " · " + formatDate(item.dateModifiedMillis()), 13, Theme.TEXT_SECONDARY));
+        LinearLayout metadata = widgets.card();
+        metadata.setOrientation(LinearLayout.VERTICAL);
+        TextView filename = widgets.label(item.displayName(), 16, Theme.TEXT_PRIMARY);
+        filename.setMaxLines(2);
+        filename.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        metadata.addView(filename);
+        TextView details = widgets.label(Widgets.formatBytes(item.sizeBytes()) + " · "
+                + formatDate(item.dateModifiedMillis()), 13, Theme.TEXT_SECONDARY);
+        details.setPadding(0, widgets.dp(Theme.SPACE_XS), 0, 0);
+        metadata.addView(details);
+        page.addView(metadata);
         if (item.isVideo()) {
-            page.addView(widgets.actionButton("用系统播放器打开", new View.OnClickListener() {
+            Button openVideo = widgets.primaryButton("用系统播放器打开", new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
                     openMedia(item);
                 }
-            }));
+            });
+            LinearLayout.LayoutParams videoParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            videoParams.setMargins(0, widgets.dp(Theme.SPACE_S), 0, 0);
+            page.addView(openVideo, videoParams);
         }
 
         dialog.setContentView(page);
+        dialog.setCanceledOnTouchOutside(true);
         dialog.show();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -872,21 +902,39 @@ public final class MainActivity extends Activity {
     private View navBar() {
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setPadding(widgets.dp(18), widgets.dp(8), widgets.dp(18), widgets.dp(12));
+        nav.setPadding(widgets.dp(18), widgets.dp(8), widgets.dp(18), widgets.dp(8));
         nav.setGravity(Gravity.CENTER);
-        nav.setBackgroundColor(widgets.color(Theme.BG_SIDEBAR));
-        nav.addView(navButton("媒体库", "library"), widgets.weightParams());
-        nav.addView(navButton("设置", "settings"), widgets.weightParams());
+        nav.setBackgroundColor(widgets.color(Theme.BG_SURFACE));
+        nav.addView(navButton("媒体库", "library", R.drawable.ic_library), widgets.weightParams());
+        nav.addView(navButton("设置", "settings", R.drawable.ic_settings), widgets.weightParams());
         return nav;
     }
 
-    private Button navButton(String text, final String nextScreen) {
-        Button button = widgets.smallButton(text);
+    private LinearLayout navButton(String text, final String nextScreen, int drawableId) {
         boolean selected = nextScreen.equals(navSelection());
-        button.setTextColor(widgets.color(selected ? Theme.TEXT_PRIMARY : Theme.TEXT_SECONDARY));
+        LinearLayout button = new LinearLayout(this);
+        button.setOrientation(LinearLayout.VERTICAL);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(widgets.dp(8), widgets.dp(4), widgets.dp(8), widgets.dp(4));
+        button.setMinimumHeight(widgets.dp(56));
         button.setBackground(selected
-                ? widgets.rounded(Theme.BG_RAISED, Theme.ACCENT, 1, 14)
-                : widgets.rounded(Theme.BG_RAISED, Theme.STROKE, 1, 14));
+                ? widgets.rounded("#243943", Theme.ACCENT, 1, Theme.RADIUS_L)
+                : widgets.clickableSurface());
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(drawableId);
+        icon.setImageTintList(ColorStateList.valueOf(widgets.color(
+                selected ? Theme.ACCENT : Theme.TEXT_SECONDARY)));
+        icon.setContentDescription(null);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(
+                widgets.dp(22), widgets.dp(22));
+        iconParams.setMargins(0, 0, 0, widgets.dp(2));
+        button.addView(icon, iconParams);
+        TextView label = widgets.label(text, 12, selected ? Theme.ACCENT : Theme.TEXT_SECONDARY);
+        label.setGravity(Gravity.CENTER);
+        button.addView(label);
+        button.setContentDescription(text + (selected ? "，当前页面" : "，切换页面"));
+        button.setFocusable(true);
+        button.setClickable(true);
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {

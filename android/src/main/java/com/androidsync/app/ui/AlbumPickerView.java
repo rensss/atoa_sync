@@ -1,13 +1,18 @@
 package com.androidsync.app.ui;
 
 import android.app.Activity;
+import android.content.res.ColorStateList;
+import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.androidsync.app.R;
 import com.androidsync.app.android.MediaStoreScanner;
 import com.androidsync.app.core.AlbumTree;
 
@@ -45,14 +50,19 @@ public final class AlbumPickerView {
         LinearLayout content = new LinearLayout(activity);
         content.setOrientation(LinearLayout.VERTICAL);
         TextView breadcrumb = widgets.label(breadcrumb(path), 13, Theme.TEXT_SECONDARY);
-        breadcrumb.setPadding(widgets.dp(2), widgets.dp(8), widgets.dp(2), widgets.dp(10));
-        content.addView(breadcrumb);
+        breadcrumb.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S),
+                widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S));
+        breadcrumb.setBackground(widgets.rounded(Theme.BG_SURFACE, Theme.STROKE, 1, Theme.RADIUS_L));
+        LinearLayout.LayoutParams breadcrumbParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        breadcrumbParams.setMargins(0, 0, 0, widgets.dp(Theme.SPACE_S));
+        content.addView(breadcrumb, breadcrumbParams);
 
         LinearLayout list = new LinearLayout(activity);
         list.setOrientation(LinearLayout.VERTICAL);
         if (!path.isEmpty()) {
-            TextView up = widgets.textButton("‹ 返回上级", Theme.TEXT_PRIMARY, Theme.BG_RAISED);
-            up.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            TextView up = widgets.secondaryButton("‹  返回上级", null);
+            up.setGravity(Gravity.CENTER_VERTICAL);
             up.setContentDescription("返回上级目录");
             up.setOnClickListener(new View.OnClickListener() {
                 @Override
@@ -62,8 +72,8 @@ public final class AlbumPickerView {
                 }
             });
             LinearLayout.LayoutParams upParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(44));
-            upParams.setMargins(0, 0, 0, widgets.dp(6));
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            upParams.setMargins(0, 0, 0, widgets.dp(Theme.SPACE_S));
             list.addView(up, upParams);
         }
 
@@ -81,11 +91,13 @@ public final class AlbumPickerView {
         if (current.directAlbums.isEmpty() && current.children.isEmpty()
                 && (path.isEmpty() || current.fallbackAlbums.isEmpty())) {
             TextView empty = widgets.label("此目录没有可同步的媒体", 14, Theme.TEXT_SECONDARY);
-            empty.setPadding(widgets.dp(8), widgets.dp(16), widgets.dp(8), widgets.dp(16));
+            empty.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_L),
+                    widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_L));
             list.addView(empty);
         }
 
         ScrollView scroll = new ScrollView(activity);
+        scroll.setFillViewport(true);
         scroll.setBackgroundColor(widgets.color(Theme.BG));
         scroll.addView(list);
         content.addView(scroll, new LinearLayout.LayoutParams(
@@ -96,18 +108,20 @@ public final class AlbumPickerView {
     private void addFolderRow(LinearLayout list, final AlbumTree.Node folder,
                               final Set<String> selected, final OnNavigateListener onNavigate,
                               final Runnable onChanged) {
-        LinearLayout row = widgets.card();
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        final CheckBox box = new CheckBox(activity);
+        final LinearLayout row = rowSurface();
+        final CheckBox box = checkBox();
         updateFolderCheckBox(box, folder, selected);
-        TextView name = widgets.label(folder.name + "  ·  " + folder.totalCount + " 项"
-                + (folder.checkState(selected) == AlbumTree.CheckState.PARTIAL ? "  ·  部分选择" : ""),
-                15, Theme.TEXT_PRIMARY);
-        row.addView(box);
-        row.addView(name, widgets.weightParams());
-        TextView enter = widgets.label("›", 24, Theme.TEXT_SECONDARY);
-        enter.setGravity(android.view.Gravity.CENTER);
-        row.addView(enter, new LinearLayout.LayoutParams(widgets.dp(28), ViewGroup.LayoutParams.WRAP_CONTENT));
+        row.addView(box, checkParams());
+
+        final TextView name = widgets.label(folder.name, 15, Theme.TEXT_PRIMARY);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        final TextView detail = widgets.label(folderDetail(folder, selected), 12, Theme.TEXT_SECONDARY);
+        LinearLayout labels = new LinearLayout(activity);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(name);
+        labels.addView(detail);
+        row.addView(labels, widgets.weightParams());
 
         View.OnClickListener navigate = new View.OnClickListener() {
             @Override
@@ -115,16 +129,19 @@ public final class AlbumPickerView {
                 onNavigate.onNavigate(folder.path);
             }
         };
+        ImageButton enter = widgets.iconButton(R.drawable.ic_folder, "进入文件夹 " + folder.name, navigate);
+        row.addView(enter, new LinearLayout.LayoutParams(
+                widgets.dp(Theme.MIN_TOUCH_TARGET_DP), widgets.dp(Theme.MIN_TOUCH_TARGET_DP)));
         row.setOnClickListener(navigate);
         name.setOnClickListener(navigate);
-        enter.setOnClickListener(navigate);
+        detail.setOnClickListener(navigate);
+
         box.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 folder.toggle(selected);
                 updateFolderCheckBox(box, folder, selected);
-                name.setText(folder.name + "  ·  " + folder.totalCount + " 项"
-                        + (folder.checkState(selected) == AlbumTree.CheckState.PARTIAL ? "  ·  部分选择" : ""));
+                detail.setText(folderDetail(folder, selected));
                 onChanged.run();
             }
         });
@@ -133,20 +150,25 @@ public final class AlbumPickerView {
 
     private void addAlbumRow(LinearLayout list, final AlbumTree.Node owner, final AlbumTree.Album album,
                              final Set<String> selected, final Runnable onChanged) {
-        LinearLayout row = widgets.card();
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        final CheckBox box = new CheckBox(activity);
-        box.setChecked(selected.contains(album.bucketId));
-        box.setContentDescription(selectionDescription(album.name, selected.contains(album.bucketId)));
-        TextView name = widgets.label(album.name + "  ·  " + album.count + " 项", 15, Theme.TEXT_PRIMARY);
-        row.addView(box);
-        row.addView(name, widgets.weightParams());
+        final LinearLayout row = rowSurface();
+        final CheckBox box = checkBox();
+        updateAlbumCheckBox(box, album, selected);
+        row.addView(box, checkParams());
+        TextView name = widgets.label(album.name, 15, Theme.TEXT_PRIMARY);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        TextView detail = widgets.label(album.count + " 项", 12, Theme.TEXT_SECONDARY);
+        LinearLayout labels = new LinearLayout(activity);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(name);
+        labels.addView(detail);
+        row.addView(labels, widgets.weightParams());
+
         View.OnClickListener toggle = new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 owner.toggle(album, selected);
-                box.setChecked(selected.contains(album.bucketId));
-                box.setContentDescription(selectionDescription(album.name, selected.contains(album.bucketId)));
+                updateAlbumCheckBox(box, album, selected);
                 onChanged.run();
             }
         };
@@ -155,11 +177,56 @@ public final class AlbumPickerView {
         list.addView(row);
     }
 
+    private LinearLayout rowSurface() {
+        LinearLayout row = new LinearLayout(activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(widgets.dp(Theme.SPACE_S), widgets.dp(Theme.SPACE_S),
+                widgets.dp(Theme.SPACE_S), widgets.dp(Theme.SPACE_S));
+        row.setMinimumHeight(widgets.dp(Theme.MIN_TOUCH_TARGET_DP));
+        row.setBackground(widgets.clickableSurface());
+        row.setFocusable(true);
+        row.setClickable(true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, widgets.dp(Theme.SPACE_S));
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    private CheckBox checkBox() {
+        CheckBox box = new CheckBox(activity);
+        box.setButtonTintList(ColorStateList.valueOf(widgets.color(Theme.ACCENT)));
+        box.setMinWidth(widgets.dp(Theme.MIN_TOUCH_TARGET_DP));
+        box.setMinHeight(widgets.dp(Theme.MIN_TOUCH_TARGET_DP));
+        return box;
+    }
+
+    private LinearLayout.LayoutParams checkParams() {
+        return new LinearLayout.LayoutParams(
+                widgets.dp(Theme.MIN_TOUCH_TARGET_DP), widgets.dp(Theme.MIN_TOUCH_TARGET_DP));
+    }
+
     private void updateFolderCheckBox(CheckBox box, AlbumTree.Node folder, Set<String> selected) {
         AlbumTree.CheckState state = folder.checkState(selected);
         box.setChecked(state == AlbumTree.CheckState.ALL);
         box.setContentDescription(folder.name + (state == AlbumTree.CheckState.PARTIAL
                 ? "，部分选择" : state == AlbumTree.CheckState.ALL ? "，已全选" : "，未选择"));
+    }
+
+    private void updateAlbumCheckBox(CheckBox box, AlbumTree.Album album, Set<String> selected) {
+        boolean checked = selected.contains(album.bucketId);
+        box.setChecked(checked);
+        box.setContentDescription(selectionDescription(album.name, checked));
+    }
+
+    private String folderDetail(AlbumTree.Node folder, Set<String> selected) {
+        AlbumTree.CheckState state = folder.checkState(selected);
+        String detail = folder.totalCount + " 项";
+        if (state == AlbumTree.CheckState.PARTIAL) {
+            return detail + " · 部分选择";
+        }
+        return detail + (state == AlbumTree.CheckState.ALL ? " · 已选择" : " · 未选择");
     }
 
     private String breadcrumb(String path) {
