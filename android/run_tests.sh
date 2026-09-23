@@ -17,6 +17,9 @@ printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/android/HttpFileUploader.
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/android/ReceiverControlClient.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/HttpFileUploaderTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/ReceiverControlClientTest.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/Theme.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/UiInsetsPadding.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/tests/AndroidUiFoundationTest.java" >> "$ROOT/build/test-sources.list"
 
 javac -d "$BUILD" @"$ROOT/build/test-sources.list"
 java -cp "$BUILD" SyncQueueTest
@@ -27,3 +30,4 @@ java -cp "$BUILD" SyncTransferRunnerTest
 java -cp "$BUILD" SyncRunTest
 java -cp "$BUILD" HttpFileUploaderTest
 java -cp "$BUILD" ReceiverControlClientTest
+java -cp "$BUILD" AndroidUiFoundationTest

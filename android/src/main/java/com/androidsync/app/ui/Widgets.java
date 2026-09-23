@@ -2,21 +2,26 @@
 package com.androidsync.app.ui;
 
 import android.app.Activity;
+import android.app.Dialog;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsets;
 import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.text.DecimalFormat;
 
-/**
- * 程序化 View 工厂，B17 自 MainActivity 原样搬移（行为零变化）。
- * 各方法体逐字保留，仅把对 Activity 的隐式引用改为字段 {@code activity}。
- */
+/** Shared native View factories and system-bar inset handling. */
 public final class Widgets {
     private final Activity activity;
 
@@ -27,7 +32,7 @@ public final class Widgets {
     public LinearLayout pageLayout() {
         LinearLayout page = new LinearLayout(activity);
         page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), statusBarHeight() + dp(18), dp(20), dp(28));
+        page.setPadding(dp(20), dp(18), dp(20), dp(28));
         return page;
     }
 
@@ -35,7 +40,7 @@ public final class Widgets {
         LinearLayout card = new LinearLayout(activity);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackground(rounded(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_L));
+        card.setBackground(rounded(Theme.BG_SURFACE, Theme.STROKE, 1, Theme.RADIUS_L));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, dp(8), 0, dp(8));
         card.setLayoutParams(params);
@@ -49,9 +54,13 @@ public final class Widgets {
     }
 
     public TextView sectionHeader(String text) {
+        return sectionTitle(text);
+    }
+
+    public TextView sectionTitle(String text) {
         TextView view = label(text, 16, Theme.TEXT_PRIMARY);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setPadding(0, dp(12), 0, dp(2));
+        view.setPadding(0, dp(Theme.SPACE_M), 0, dp(2));
         return view;
     }
 
@@ -73,11 +82,74 @@ public final class Widgets {
     }
 
     public Button actionButton(String text, View.OnClickListener listener) {
-        Button button = smallButton(text);
-        button.setTextColor(Color.WHITE);
-        button.setBackground(rounded(Theme.ACCENT, Theme.ACCENT, 0, 12));
+        return primaryButton(text, listener);
+    }
+
+    public Button primaryButton(String text, View.OnClickListener listener) {
+        Button button = new Button(activity);
+        button.setText(text);
+        button.setTextSize(14);
+        button.setTextColor(color(Theme.BG));
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(Theme.MIN_TOUCH_TARGET_DP));
+        button.setPadding(dp(Theme.SPACE_L), 0, dp(Theme.SPACE_L), 0);
+        button.setBackground(ripple(Theme.ACCENT, Theme.ACCENT, 0, Theme.RADIUS_L, "#55FFFFFF"));
         button.setOnClickListener(listener);
         return button;
+    }
+
+    public Button secondaryButton(String text, View.OnClickListener listener) {
+        Button button = new Button(activity);
+        button.setText(text);
+        button.setTextSize(14);
+        button.setTextColor(color(Theme.TEXT_PRIMARY));
+        button.setAllCaps(false);
+        button.setMinHeight(dp(Theme.MIN_TOUCH_TARGET_DP));
+        button.setPadding(dp(Theme.SPACE_L), 0, dp(Theme.SPACE_L), 0);
+        button.setBackground(ripple(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_L, "#33FFFFFF"));
+        button.setOnClickListener(listener);
+        return button;
+    }
+
+    public ImageButton iconButton(int drawableId, String contentDescription, View.OnClickListener listener) {
+        ImageButton button = new ImageButton(activity);
+        button.setImageResource(drawableId);
+        button.setImageTintList(ColorStateList.valueOf(color(Theme.TEXT_SECONDARY)));
+        button.setContentDescription(contentDescription);
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        button.setPadding(dp(Theme.SPACE_S), dp(Theme.SPACE_S), dp(Theme.SPACE_S), dp(Theme.SPACE_S));
+        button.setMinimumWidth(dp(Theme.MIN_TOUCH_TARGET_DP));
+        button.setMinimumHeight(dp(Theme.MIN_TOUCH_TARGET_DP));
+        button.setBackground(ripple(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_L, "#33FFFFFF"));
+        button.setFocusable(true);
+        button.setOnClickListener(listener);
+        return button;
+    }
+
+    public TextView chip(String text, boolean selected, View.OnClickListener listener) {
+        TextView chip = label(text, 13, selected ? Theme.ACCENT : Theme.TEXT_SECONDARY);
+        chip.setGravity(Gravity.CENTER);
+        chip.setMinHeight(dp(Theme.MIN_TOUCH_TARGET_DP));
+        chip.setPadding(dp(Theme.SPACE_M), 0, dp(Theme.SPACE_M), 0);
+        chip.setBackground(ripple(
+                selected ? "#243943" : Theme.BG_RAISED,
+                selected ? Theme.ACCENT : Theme.STROKE,
+                1,
+                Theme.RADIUS_L,
+                "#33FFFFFF"));
+        chip.setClickable(true);
+        chip.setFocusable(true);
+        chip.setOnClickListener(listener);
+        return chip;
+    }
+
+    public View divider() {
+        View divider = new View(activity);
+        divider.setBackgroundColor(color(Theme.STROKE));
+        divider.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1))));
+        return divider;
     }
 
     public Button smallButton(String text) {
@@ -86,9 +158,9 @@ public final class Widgets {
         button.setTextSize(13);
         button.setTextColor(color(Theme.TEXT_PRIMARY));
         button.setAllCaps(false);
-        button.setMinHeight(dp(40));
+        button.setMinHeight(dp(Theme.MIN_TOUCH_TARGET_DP));
         button.setPadding(dp(10), 0, dp(10), 0);
-        button.setBackground(rounded(Theme.BG_RAISED, Theme.STROKE, 1, 12));
+        button.setBackground(ripple(Theme.BG_RAISED, Theme.STROKE, 1, 12, "#33FFFFFF"));
         return button;
     }
 
@@ -97,7 +169,8 @@ public final class Widgets {
         view.setGravity(Gravity.CENTER);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         view.setPadding(dp(14), 0, dp(14), 0);
-        view.setBackground(rounded(backgroundColor, backgroundColor, 0, 21));
+        view.setMinHeight(dp(Theme.MIN_TOUCH_TARGET_DP));
+        view.setBackground(ripple(backgroundColor, backgroundColor, 0, 21, "#33FFFFFF"));
         view.setClickable(true);
         view.setFocusable(true);
         return view;
@@ -121,6 +194,79 @@ public final class Widgets {
             drawable.setStroke(dp(strokeDp), color(strokeColor));
         }
         return drawable;
+    }
+
+    private RippleDrawable ripple(String fillColor, String strokeColor, int strokeDp, int radiusDp, String rippleColor) {
+        GradientDrawable content = rounded(fillColor, strokeColor, strokeDp, radiusDp);
+        GradientDrawable mask = rounded("#FFFFFFFF", "#FFFFFFFF", 0, radiusDp);
+        return new RippleDrawable(ColorStateList.valueOf(color(rippleColor)), content, mask);
+    }
+
+    public void installSystemInsets(final View insetHost, final View topTarget, final View bottomTarget) {
+        if (insetHost == null) {
+            return;
+        }
+        final int[] topBaseline = paddingOf(topTarget);
+        final int[] bottomBaseline = topTarget == bottomTarget ? topBaseline : paddingOf(bottomTarget);
+        insetHost.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
+                int left;
+                int top;
+                int right;
+                int bottom;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                    left = bars.left;
+                    top = bars.top;
+                    right = bars.right;
+                    bottom = bars.bottom;
+                } else {
+                    left = insets.getSystemWindowInsetLeft();
+                    top = insets.getSystemWindowInsetTop();
+                    right = insets.getSystemWindowInsetRight();
+                    bottom = insets.getSystemWindowInsetBottom();
+                }
+                if (topTarget != null && topTarget == bottomTarget) {
+                    setPadding(topTarget, UiInsetsPadding.apply(
+                            topBaseline, new int[] { left, top, right, bottom }));
+                } else {
+                    if (topTarget != null) {
+                        setPadding(topTarget, UiInsetsPadding.apply(
+                                topBaseline, new int[] { left, top, right, 0 }));
+                    }
+                    if (bottomTarget != null) {
+                        setPadding(bottomTarget, UiInsetsPadding.apply(
+                                bottomBaseline, new int[] { left, 0, right, bottom }));
+                    }
+                }
+                return insets;
+            }
+        });
+        insetHost.requestApplyInsets();
+    }
+
+    public void installDialogInsets(Dialog dialog, View topTarget, View bottomTarget) {
+        if (dialog == null) {
+            return;
+        }
+        Window window = dialog.getWindow();
+        if (window != null) {
+            View decor = window.getDecorView();
+            installSystemInsets(decor, topTarget, bottomTarget);
+            decor.requestApplyInsets();
+        }
+    }
+
+    private int[] paddingOf(View view) {
+        if (view == null) {
+            return new int[] { 0, 0, 0, 0 };
+        }
+        return new int[] { view.getPaddingLeft(), view.getPaddingTop(), view.getPaddingRight(), view.getPaddingBottom() };
+    }
+
+    private void setPadding(View view, int[] padding) {
+        view.setPadding(padding[0], padding[1], padding[2], padding[3]);
     }
 
     public int dp(int value) {

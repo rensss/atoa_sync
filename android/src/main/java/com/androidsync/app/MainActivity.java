@@ -491,9 +491,13 @@ public final class MainActivity extends Activity {
         } else {
             content.addView(libraryView());
         }
+        View bottomInsetTarget = content;
         if (showsBottomNav()) {
-            root.addView(navBar(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(76)));
+            View navigation = navBar();
+            root.addView(navigation, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(76)));
+            bottomInsetTarget = navigation;
         }
+        widgets.installSystemInsets(root, content, bottomInsetTarget);
     }
 
     private boolean showsBottomNav() {
@@ -818,6 +822,7 @@ public final class MainActivity extends Activity {
         if (dialog.getWindow() != null) {
             dialog.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         }
+        widgets.installDialogInsets(dialog, page, page);
         thumbnailLoader.loadPreviewAsync(image, loading, item.uri());
     }
 
@@ -955,10 +960,12 @@ public final class MainActivity extends Activity {
 
     private void configureSystemBars() {
         Window window = getWindow();
-        window.setStatusBarColor(widgets == null ? android.graphics.Color.parseColor(Theme.BG) : widgets.color(Theme.BG));
-        window.setNavigationBarColor(widgets == null ? android.graphics.Color.parseColor(Theme.BG_SIDEBAR) : widgets.color(Theme.BG_SIDEBAR));
+        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
         View decor = window.getDecorView();
         int flags = decor.getSystemUiVisibility();
+        flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
         if (Build.VERSION.SDK_INT >= 23) {
             flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         }
@@ -966,11 +973,21 @@ public final class MainActivity extends Activity {
             flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         }
         decor.setSystemUiVisibility(flags);
-        if (Build.VERSION.SDK_INT >= 30 && window.getInsetsController() != null) {
-            window.getInsetsController().setSystemBarsAppearance(
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.setStatusBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
+        }
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.setNavigationBarDividerColor(android.graphics.Color.TRANSPARENT);
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false);
+            if (window.getInsetsController() != null) {
+                window.getInsetsController().setSystemBarsAppearance(
                     0,
                     WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                             | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
         }
     }
 }

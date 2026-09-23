@@ -1,31 +1,33 @@
 // android/src/main/java/com/androidsync/app/ui/Theme.java
 package com.androidsync.app.ui;
 
-/**
- * 深色工作台主题 token，数值与 macOS 端 Theme.swift 一致
- * （docs/superpowers/specs/2026-07-08-android-ui-redesign-design.md）。
- * 本批次只定义，不接线；各页在 B18–B20 重画时改用这里的值。
- */
+/** Shared visual tokens for the Android phone UI. */
 public final class Theme {
-    public static final String BG = "#1E1E23";
-    public static final String BG_RAISED = "#2B2B31";
-    public static final String BG_SIDEBAR = "#1C1C21";
-    public static final String STROKE = "#38383F";
-    public static final String TEXT_PRIMARY = "#F6F7FA";
-    public static final String TEXT_SECONDARY = "#C7C7D0";
-    public static final String TEXT_MUTED = "#A9A9B4";
-    public static final String ACCENT = "#E8A33D";
-    public static final String GRADIENT_START = "#4F7CF0";
-    public static final String GRADIENT_END = "#6A5CD8";
-    public static final String STATUS_RUNNING = "#4CD964";
-    public static final String STATUS_FAILED = "#FF5F57";
+    public static final String BG = "#11151A";
+    public static final String BG_SURFACE = "#1A2027";
+    public static final String BG_RAISED = "#242D36";
+    public static final String STROKE = "#35414B";
+    public static final String TEXT_PRIMARY = "#F2F5F7";
+    public static final String TEXT_SECONDARY = "#B3BEC6";
+    public static final String TEXT_MUTED = "#85939D";
+    public static final String ACCENT = "#59C3D4";
+    public static final String STATUS_RUNNING = "#57CB91";
+    public static final String STATUS_WARNING = "#E8B85E";
+    public static final String STATUS_FAILED = "#F07578";
 
     public static final int SPACE_XS = 4;
     public static final int SPACE_S = 8;
     public static final int SPACE_M = 12;
     public static final int SPACE_L = 16;
+    public static final int SPACE_XL = 24;
+    public static final int MIN_TOUCH_TARGET_DP = 48;
     public static final int RADIUS_S = 6;
     public static final int RADIUS_L = 10;
+
+    // Compatibility aliases until the existing callers are migrated in this batch.
+    public static final String BG_SIDEBAR = BG_SURFACE;
+    public static final String GRADIENT_START = BG_RAISED;
+    public static final String GRADIENT_END = BG_RAISED;
 
     private Theme() {
     }
