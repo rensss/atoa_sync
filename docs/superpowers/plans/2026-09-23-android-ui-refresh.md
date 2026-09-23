@@ -320,13 +320,13 @@ Run: `git diff --check`
 
 Record each result and the verified UI implementation commit from Task 4 in the status and handoff documents.
 
-Observed on 2026-09-23: initial implementation checks passed at `b045f44`; the final review fix commit `8be2fa7e8f1d7daa8f55b0008e49eb993c1c5ed6` added deterministic regression coverage for sheet state, weighted task layout, and viewport capture. The final `./android/run_tests.sh`, `./android/build.sh`, and `git diff --check` each exited 0 and produced `android/build/AndroidSync-debug.apk`. `adb devices -l` still reported no device.
+Observed on 2026-09-23: initial implementation checks passed at `b045f44`; review fixes landed in `8be2fa7e8f1d7daa8f55b0008e49eb993c1c5ed6`, and the local-first media refresh fix landed in `923c61debb3398c7db1a80aa81a08ee23a47b449`. The final `./android/run_tests.sh`, `./android/build.sh`, and `git diff --check` each exited 0 and produced `android/build/AndroidSync-debug.apk`. The APK was incrementally installed on the paired device `2410DPN6CC`; `adb devices -l` had no device before pairing and the device was available after wireless ADB reconnect.
 
 - [x] **Step 3: Check device availability; real-device acceptance pending**
 
 Check `adb devices -l`. If a portrait Android phone is available, cover all manual cases from Tasks 1–4, notification tap returning to the foreground while transfer continues, Android system-bar overlap under gesture and 3-button navigation if available, and the open R-001/R-002 large-library/rapid-scroll checks. If no device is connected, record that output and leave these criteria explicitly pending.
 
-Observed: `adb devices -l` returned only `List of devices attached`; no device was available. All listed manual cases remain pending and R-001/R-002 remain open.
+Observed: the first `adb devices -l` returned only `List of devices attached`; after wireless ADB reconnect, device `2410DPN6CC` was detected and the APK was installed/launched. All listed manual cases remain pending and R-001/R-002 remain open.
 
 - [x] **Step 4: Commit the batch evidence**
 
@@ -341,7 +341,8 @@ git commit -m "docs: record Android UI refresh batch"
 - [x] Measure the transfer task list with the sheet's weighted remaining height so long active windows cannot clip the stop action.
 - [x] Capture the media-library viewport only after the replacement `GridView` is laid out with children, preserving the position across the immediate scan render.
 - [x] Add pure-Java regression contracts for transfer state, sheet layout bounds, and viewport capture policy. The tests were observed failing before the helper implementations and pass in the final Android harness.
-- [x] Re-run `./android/run_tests.sh`, `./android/build.sh`, and `git diff --check`; keep device QA and R-001/R-002 open because `adb devices -l` has no connected device.
+- [x] Re-run `./android/run_tests.sh`, `./android/build.sh`, and `git diff --check`; keep the remaining device QA and R-001/R-002 open pending interactive checks.
+- [x] Let local media render before the remote manifest lookup, with `MediaScanPresentationTest` covering the pending and completed snapshots; an incremental APK install on `2410DPN6CC` succeeded.
 
 ## Rollback
 

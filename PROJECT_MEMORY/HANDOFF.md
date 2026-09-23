@@ -6,7 +6,7 @@
 
 项目主分支 `main` 当前位于 Android UI 重设计规格提交 `1749eb4`，`origin/main` 当前为
 `17c7538`，产品版本仍为 `0.1.3`。B39 Android UI 实现位于本地分支
-`feat/android-ui-refresh`，代码验证提交为 `8be2fa7`（基于 `1749eb4`）；实现和文档提交均未推送。
+`feat/android-ui-refresh`，代码验证提交为 `923c61d`（基于 `1749eb4`）；实现和文档提交均未推送。
 工作树、分支 tip 和远端跟踪指针请以 `git status --short --branch` 与 `git rev-parse` 实时确认。
 
 候选实现分支 `codex/stability-macos-ux` 位于 `cbf31db`。它包含完整的已批准
@@ -45,15 +45,15 @@ macOS 套件 118 个、应用 verify 和 `git diff --check` 均通过。批次�
 
 ## 最新工作
 
-2026-09-23 B39 Android UI 重设计已实现，代码验证提交 `8be2fa7`：统一深色 token 和控件，
+2026-09-23 B39 Android UI 重设计已实现，代码验证提交 `923c61d`：统一深色 token 和控件，
 首页使用可回收媒体网格，传输摘要打开最多 40 项的底部详情抽屉；相册选择、确认固定汇总、
 设置、预览和底部导航已统一样式。沿用既有 `ThumbnailLoader`、`SyncQueue`、Service、数据库、
 媒体扫描/过滤、地址深链和通知行为，没有重构核心传输/数据管理。后续复核修复了抽屉复用位移、
-长任务列表测量、停止状态跨 run 残留和媒体库位置覆盖。`./android/run_tests.sh`、
+长任务列表测量、停止状态跨 run 残留、媒体库位置覆盖和本地媒体等待远端 manifest 的问题。`./android/run_tests.sh`、
 `./android/build.sh`、`git diff --check` 均通过；测试增加 `SelectionSummaryTest`、
-`TransferSheetStateTest`、`TransferSheetLayoutTest`、`LibraryViewportPolicyTest`。当前
-`adb devices -l` 仅输出 `List of devices attached`，没有连接设备；Task 1–4 的真机交互、
-系统栏/字体、通知返回和 R-001/R-002 压力验收仍待执行。两个风险保持开放。批次记录：
+`TransferSheetStateTest`、`TransferSheetLayoutTest`、`LibraryViewportPolicyTest`、
+`MediaScanPresentationTest`。无线 ADB 重连后设备 `2410DPN6CC` 已检测到，APK 已安装并启动；
+Task 1–4 的真机交互、系统栏/字体、通知返回和 R-001/R-002 压力验收仍待执行。两个风险保持开放。批次记录：
 `batches/2026-09-23-B39-android-ui-refresh.md`。
 
 2026-09-22 B38 Android 相册目录层级与通知点击已实现：相册页根据 MediaStore 目录路径构建树，

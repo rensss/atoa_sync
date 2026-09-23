@@ -7,7 +7,7 @@
 - 产品版本：`0.1.3`
 - 主分支：`main`
 - `main` 当前位于 Android UI 重设计规格提交 `1749eb4`，`origin/main` 当前位于
-  `17c7538`；B39 UI 实现位于 `feat/android-ui-refresh` 的 `8be2fa7`，基于 `1749eb4`。
+  `17c7538`；B39 UI 实现位于 `feat/android-ui-refresh` 的 `923c61d`，基于 `1749eb4`。
   B39 及其文档提交保持本地、未推送；实时分支指针以 `git rev-parse` 为准。
 - `v0.1.3` 标签仍指向 `17c7538`；产品版本仍为 `0.1.3`。
 - B24–B28 实现提交：`54ff01b`。
@@ -309,12 +309,12 @@
   抽屉、相册目录行、同步确认区、设置分组、全屏预览和底部导航。新建确认页纯 Java
   `SelectionSummary` 测试；没有更改队列状态机、Service、数据库 schema、MediaStore
   扫描/过滤、HTTP 协议或 macOS 接收端，也未引入第三方 UI 依赖。
-- UI 实现分支为 `feat/android-ui-refresh`，代码验证提交 `8be2fa7`，基于 `1749eb4`。批次仅限 Android UI、矢量资源、无依赖测试和文档；后续修复了传输详情抽屉复用位移、长列表测量、停止状态跨 run 残留和媒体库滚动位置覆盖。
+- UI 实现分支为 `feat/android-ui-refresh`，代码验证提交 `923c61d`，基于 `1749eb4`。批次仅限 Android UI、矢量资源、无依赖测试和文档；后续修复了传输详情抽屉复用位移、长列表测量、停止状态跨 run 残留、媒体库滚动位置覆盖，以及本地媒体被远端 manifest 查询阻塞显示。
 - `./android/run_tests.sh`、`./android/build.sh` 和 `git diff --check` 均通过；新增
-  `TransferSheetStateTest`、`TransferSheetLayoutTest`、`LibraryViewportPolicyTest`，APK 生成在
-  忽略目录 `android/build/AndroidSync-debug.apk`。`adb devices -l` 未列出设备，因此
-  安装、真机交互、系统栏、字体放大、通知返回、快速滚动及大媒体库压力检查均待完成；
-  自动化/构建通过不代表视觉验收。
+  `TransferSheetStateTest`、`TransferSheetLayoutTest`、`LibraryViewportPolicyTest`、
+  `MediaScanPresentationTest`，APK 生成在忽略目录 `android/build/AndroidSync-debug.apk`。
+  无线 ADB 重连后设备 `2410DPN6CC` 已检测到，APK 已安装并启动；媒体浏览、系统栏、字体放大、
+  通知返回、快速滚动及大媒体库压力检查仍待用户执行，自动化/构建通过不代表视觉验收。
 - 复核 R-001：网格继续使用带 URI 身份校验的 `ThumbnailLoader`，快速滚动/回收的设备
   验收待完成。复核 R-002：任务抽屉仍使用 `activeWindow(40)` 有界快照、媒体状态原地
   更新；大媒体库设备验收待完成。两个风险保持开放，不因此关闭 Android 稳定性里程碑；
