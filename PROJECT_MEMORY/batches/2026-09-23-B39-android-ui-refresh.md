@@ -36,7 +36,7 @@
 
 ## 验证
 
-实现提交：`b045f44`（分支 `feat/android-ui-refresh`，基于 `1749eb4`）。
+实现提交：`8be2fa7`（分支 `feat/android-ui-refresh`，基于 `1749eb4`）。该提交补齐了代码审查发现的弹层复用位移、长任务列表测量、停止状态跨 run 残留和媒体库位置覆盖问题；核心传输与数据管理仍未改动。
 
 ```bash
 ./android/run_tests.sh
@@ -45,7 +45,7 @@ git diff --check
 adb devices -l
 ```
 
-- `./android/run_tests.sh`：退出码 0；原有 Android harness 与 `AndroidUiFoundationTest`、`MediaGridDataTest`、`TransferSheetDataTest`、`SelectionSummaryTest` 均通过。
+- `./android/run_tests.sh`：退出码 0；原有 Android harness 与 `AndroidUiFoundationTest`、`MediaGridDataTest`、`TransferSheetDataTest`、`SelectionSummaryTest`、`TransferSheetStateTest`、`TransferSheetLayoutTest`、`LibraryViewportPolicyTest` 均通过。三个新增回归测试先在实现缺失时观察到编译失败，再在修复后通过。
 - `./android/build.sh`：退出码 0；生成忽略产物 `android/build/AndroidSync-debug.apk`。
 - `git diff --check`：通过。
 - `adb devices -l`：只输出 `List of devices attached`，没有连接设备。未安装 APK；媒体浏览/筛选、抽屉实时更新/停止/重试、相册与设置返回、确认排除、预览关闭、系统栏、字体放大、通知点击、快速滚动及大型媒体库验收均待执行。
@@ -53,10 +53,10 @@ adb devices -l
 
 ## 回滚
 
-按文档提交、`b045f44`、`4fb0a14`、`b0cffb3`、`a12942c` 的逆序撤销本批文档和 UI 提交即可。无数据库迁移、协议变化、远端兼容步骤或同步数据回滚。
+按文档提交、`8be2fa7`、`b045f44`、`4fb0a14`、`b0cffb3`、`a12942c` 的逆序撤销本批文档和 UI 提交即可。无数据库迁移、协议变化、远端兼容步骤或同步数据回滚。
 
 ## 结果
 
-- 提交：UI 实现与验证指针为 `b045f44`；本批文档提交另见当前 Git 历史，不在自身记录中引用。
+- 提交：UI 实现与验证指针为 `8be2fa7`；本批文档提交另见当前 Git 历史，不在自身记录中引用。
 - 结果：UI 改版、Android harness 与 APK 构建完成；设备验收待执行。
 - 后续：连接竖屏 Android 手机，执行本批设备清单并复核 R-001/R-002；不得在设备证据齐全前关闭相关风险或稳定性里程碑。

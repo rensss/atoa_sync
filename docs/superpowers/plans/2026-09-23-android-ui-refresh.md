@@ -320,7 +320,7 @@ Run: `git diff --check`
 
 Record each result and the verified UI implementation commit from Task 4 in the status and handoff documents.
 
-Observed on 2026-09-23: `./android/run_tests.sh` exit 0 (including SelectionSummaryTest); `./android/build.sh` exit 0 and produced `android/build/AndroidSync-debug.apk`; `git diff --check` clean. UI implementation commit resolved with `git rev-parse HEAD`: `b045f44df186677d2c5a37eacf61d98dbd91e575`.
+Observed on 2026-09-23: initial implementation checks passed at `b045f44`; the final review fix commit `8be2fa7e8f1d7daa8f55b0008e49eb993c1c5ed6` added deterministic regression coverage for sheet state, weighted task layout, and viewport capture. The final `./android/run_tests.sh`, `./android/build.sh`, and `git diff --check` each exited 0 and produced `android/build/AndroidSync-debug.apk`. `adb devices -l` still reported no device.
 
 - [x] **Step 3: Check device availability; real-device acceptance pending**
 
@@ -334,6 +334,14 @@ Observed: `adb devices -l` returned only `List of devices attached`; no device w
 git add PROJECT_MEMORY/00_PROJECT_STATUS.md PROJECT_MEMORY/HANDOFF.md PROJECT_MEMORY/02_RISK_REGISTER.md PROJECT_MEMORY/batches/2026-09-23-B39-android-ui-refresh.md android/README.md docs/superpowers/specs/2026-09-23-android-ui-refresh-design.md docs/superpowers/plans/2026-09-23-android-ui-refresh.md
 git commit -m "docs: record Android UI refresh batch"
 ```
+
+### Final review corrections
+
+- [x] Reset the reusable transfer sheet's drag offset on show/dismiss, and scope the stop button's pending state to the current sync run.
+- [x] Measure the transfer task list with the sheet's weighted remaining height so long active windows cannot clip the stop action.
+- [x] Capture the media-library viewport only after the replacement `GridView` is laid out with children, preserving the position across the immediate scan render.
+- [x] Add pure-Java regression contracts for transfer state, sheet layout bounds, and viewport capture policy. The tests were observed failing before the helper implementations and pass in the final Android harness.
+- [x] Re-run `./android/run_tests.sh`, `./android/build.sh`, and `git diff --check`; keep device QA and R-001/R-002 open because `adb devices -l` has no connected device.
 
 ## Rollback
 
