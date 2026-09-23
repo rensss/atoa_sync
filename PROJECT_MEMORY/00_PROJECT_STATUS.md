@@ -1,13 +1,14 @@
 # 项目状态
 
-最后复核：2026-09-22
+最后复核：2026-09-23
 
 ## 基线
 
 - 产品版本：`0.1.3`
 - 主分支：`main`
-- 本批开始时 `main` 的 B37 实现检查点为 `492a4ed`；本批文档提交和最终工作树状态
-  以本记录下方 B37 条目及 `git rev-parse HEAD` 为准，所有新增提交保持本地、未推送。
+- `main` 当前位于 Android UI 重设计规格提交 `1749eb4`，`origin/main` 当前位于
+  `17c7538`；B39 UI 实现位于 `feat/android-ui-refresh` 的 `b045f44`，基于 `1749eb4`。
+  B39 及其文档提交保持本地、未推送；实时分支指针以 `git rev-parse` 为准。
 - `v0.1.3` 标签仍指向 `17c7538`；产品版本仍为 `0.1.3`。
 - B24–B28 实现提交：`54ff01b`。
 - B27 后续键盘导航修复及 B29–B30 实现提交：`067a501`。
@@ -302,6 +303,23 @@
   聚合后的相册元数据，不遍历完整媒体队列。批次记录：
   `PROJECT_MEMORY/batches/2026-09-22-B38-android-album-tree-notification.md`。
 
+## 2026-09-23 B39：Android UI 重设计
+
+- 按用户批准的设计规格重做 Android 原生 View 的主题、媒体库网格、传输详情底部
+  抽屉、相册目录行、同步确认区、设置分组、全屏预览和底部导航。新建确认页纯 Java
+  `SelectionSummary` 测试；没有更改队列状态机、Service、数据库 schema、MediaStore
+  扫描/过滤、HTTP 协议或 macOS 接收端，也未引入第三方 UI 依赖。
+- UI 实现分支为 `feat/android-ui-refresh`，代码验证提交 `b045f44`，基于 `1749eb4`。批次仅限 Android UI、矢量资源、无依赖测试和文档。
+- `./android/run_tests.sh`、`./android/build.sh` 和 `git diff --check` 均通过；APK 生成在
+  忽略目录 `android/build/AndroidSync-debug.apk`。`adb devices -l` 未列出设备，因此
+  安装、真机交互、系统栏、字体放大、通知返回、快速滚动及大媒体库压力检查均待完成；
+  自动化/构建通过不代表视觉验收。
+- 复核 R-001：网格继续使用带 URI 身份校验的 `ThumbnailLoader`，快速滚动/回收的设备
+  验收待完成。复核 R-002：任务抽屉仍使用 `activeWindow(40)` 有界快照、媒体状态原地
+  更新；大媒体库设备验收待完成。两个风险保持开放，不因此关闭 Android 稳定性里程碑；
+  无新增 ADR。
+- 批次记录：`PROJECT_MEMORY/batches/2026-09-23-B39-android-ui-refresh.md`。
+
 ## 开放工作
 
 1. 完成 Android 真机压力测试，覆盖大型媒体库、导航、生命周期切换和重复开始同步
@@ -326,6 +344,9 @@
     原 run 继续，停止等待应立即结束；检查无错误横幅、无重复提交和 `.incoming/*.part` 残留。
 11. 对 B38 执行 Android 真机验收：确认目录层级、级联选择/单独取消/返回路径，以及点击进行中的同步
     通知后 App 到前台且当前传输不断；长按通知不属于 B38 范围。
+12. 对 B39 执行 Android 真机验收：按批次记录覆盖媒体浏览、传输抽屉、确认/排除、相册路径、
+    设置和预览；补测系统栏与字体放大、通知返回、快速缩略图滚动及大型媒体库，并据此复核
+    R-001/R-002。
 
 ## 当前验证记录
 

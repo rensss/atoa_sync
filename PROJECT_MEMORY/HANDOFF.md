@@ -1,12 +1,13 @@
 # 交接
 
-最后更新：2026-09-22
+最后更新：2026-09-23
 
 ## 从这里开始
 
-主分支是 `main`，产品版本为 `0.1.3`；本地 B36/B37 提交尚未推送到 `origin/main`，
-发布标签 `v0.1.3` 仍指向 `17c7538`。最近已核验的 B37 实现提交为 `492a4ed`；工作树
-和分支 tip 请以 `git status --short --branch` 与 `git rev-parse HEAD` 实时确认。
+项目主分支 `main` 当前位于 Android UI 重设计规格提交 `1749eb4`，`origin/main` 当前为
+`17c7538`，产品版本仍为 `0.1.3`。B39 Android UI 实现位于本地分支
+`feat/android-ui-refresh`，代码验证提交为 `b045f44`（基于 `1749eb4`）；实现和文档提交均未推送。
+工作树、分支 tip 和远端跟踪指针请以 `git status --short --branch` 与 `git rev-parse` 实时确认。
 
 候选实现分支 `codex/stability-macos-ux` 位于 `cbf31db`。它包含完整的已批准
 Android 稳定性和 macOS UX 工作，以及自动化回归覆盖。独立最终代码审查未发现
@@ -43,6 +44,15 @@ macOS 套件 118 个、应用 verify 和 `git diff --check` 均通过。批次�
 `PROJECT_MEMORY/batches/2026-09-21-B35-flat-receive-storage.md`，架构决策为 ADR-009。
 
 ## 最新工作
+
+2026-09-23 B39 Android UI 重设计已实现，代码验证提交 `b045f44`：统一深色 token 和控件，
+首页使用可回收媒体网格，传输摘要打开最多 40 项的底部详情抽屉；相册选择、确认固定汇总、
+设置、预览和底部导航已统一样式。沿用既有 `ThumbnailLoader`、`SyncQueue`、Service、数据库、
+媒体扫描/过滤、地址深链和通知行为，没有重构核心传输/数据管理。`./android/run_tests.sh`、
+`./android/build.sh`、`git diff --check` 均通过；测试增加 `SelectionSummaryTest`。当前
+`adb devices -l` 仅输出 `List of devices attached`，没有连接设备；Task 1–4 的真机交互、
+系统栏/字体、通知返回和 R-001/R-002 压力验收仍待执行。两个风险保持开放。批次记录：
+`batches/2026-09-23-B39-android-ui-refresh.md`。
 
 2026-09-22 B38 Android 相册目录层级与通知点击已实现：相册页根据 MediaStore 目录路径构建树，
 勾选文件夹会级联选择子目录；进入后可单独调整直接相册，父目录展示部分选择状态。无路径记录仍
