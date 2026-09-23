@@ -24,6 +24,7 @@ printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/TransferSheetData.java
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/TransferSheetState.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/TransferSheetLayout.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/LibraryViewportPolicy.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/MediaScanPresentation.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/src/main/java/com/androidsync/app/ui/SelectionSummary.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/AndroidUiFoundationTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/MediaGridDataTest.java" >> "$ROOT/build/test-sources.list"
@@ -31,6 +32,7 @@ printf '%s\n' "$ROOT/tests/TransferSheetDataTest.java" >> "$ROOT/build/test-sour
 printf '%s\n' "$ROOT/tests/TransferSheetStateTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/TransferSheetLayoutTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/LibraryViewportPolicyTest.java" >> "$ROOT/build/test-sources.list"
+printf '%s\n' "$ROOT/tests/MediaScanPresentationTest.java" >> "$ROOT/build/test-sources.list"
 printf '%s\n' "$ROOT/tests/SelectionSummaryTest.java" >> "$ROOT/build/test-sources.list"
 
 javac -d "$BUILD" @"$ROOT/build/test-sources.list"
@@ -48,4 +50,5 @@ java -cp "$BUILD" TransferSheetDataTest
 java -cp "$BUILD" TransferSheetStateTest
 java -cp "$BUILD" TransferSheetLayoutTest
 java -cp "$BUILD" LibraryViewportPolicyTest
+java -cp "$BUILD" MediaScanPresentationTest
 java -cp "$BUILD" SelectionSummaryTest

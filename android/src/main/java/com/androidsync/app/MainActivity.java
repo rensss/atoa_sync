@@ -49,6 +49,7 @@ import com.androidsync.app.core.TaskWindow;
 import com.androidsync.app.ui.AlbumPickerView;
 import com.androidsync.app.ui.ConfirmSelectionView;
 import com.androidsync.app.ui.LibraryPageView;
+import com.androidsync.app.ui.MediaScanPresentation;
 import com.androidsync.app.ui.SettingsPageView;
 import com.androidsync.app.ui.Theme;
 import com.androidsync.app.ui.ThumbnailLoader;
@@ -305,6 +306,15 @@ public final class MainActivity extends Activity {
                 if (destroyed) {
                     return;
                 }
+                final MediaScanPresentation localPresentation = MediaScanPresentation.localReady(media);
+                postTask(new Runnable() {
+                    @Override
+                    public void run() {
+                        scannedMedia = localPresentation.media();
+                        scanMessage = localPresentation.message();
+                        render();
+                    }
+                });
                 SyncRun activeRun = database.findRunningRun();
                 if (activeRun == null) {
                     queue.reconcile(media);
@@ -323,15 +333,16 @@ public final class MainActivity extends Activity {
                 } else {
                     remoteMessage = "，后台同步进行中，保留本次任务范围";
                 }
-                final int scannedCount = media.size();
                 final int matchedCount = remoteMatches;
                 final String suffix = remoteMessage;
+                final MediaScanPresentation completePresentation = MediaScanPresentation.complete(
+                        media, matchedCount, suffix);
                 postTask(new Runnable() {
                     @Override
                     public void run() {
                         scanning = false;
-                        scannedMedia = media;
-                        scanMessage = "已扫描 " + scannedCount + " 个媒体文件，接收端已有 " + matchedCount + " 个记录" + suffix;
+                        scannedMedia = completePresentation.media();
+                        scanMessage = completePresentation.message();
                         Toast.makeText(MainActivity.this, scanMessage, Toast.LENGTH_SHORT).show();
                         render();
                     }
