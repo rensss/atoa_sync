@@ -52,6 +52,7 @@ import com.androidsync.app.ui.SettingsPageView;
 import com.androidsync.app.ui.Theme;
 import com.androidsync.app.ui.ThumbnailLoader;
 import com.androidsync.app.ui.TransferCardView;
+import com.androidsync.app.ui.TransferDetailsSheet;
 import com.androidsync.app.ui.Widgets;
 
 import java.text.DateFormat;
@@ -90,6 +91,7 @@ public final class MainActivity extends Activity {
     private Widgets widgets;
     private ThumbnailLoader thumbnailLoader;
     private TransferCardView transferCard;
+    private TransferDetailsSheet transferSheet;
     private LibraryPageView libraryPageView;
     private int libraryFirstVisiblePosition;
     private int libraryFirstChildTop;
@@ -133,23 +135,21 @@ public final class MainActivity extends Activity {
         scanner = new MediaStoreScanner(getContentResolver());
         widgets = new Widgets(this);
         thumbnailLoader = new ThumbnailLoader(this, getContentResolver());
-        transferCard = new TransferCardView(this, widgets, new TransferCardView.RetryHandler() {
-            @Override
-            public void retry(String taskId) {
-                SyncTask task = queue.findById(taskId);
-                if (task != null && task.status() == SyncStatus.FAILED) {
-                    if (database.findRunningRun() != null) {
-                        Toast.makeText(MainActivity.this, "当前同步完成后再重试", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    queue.retry(taskId);
-                    startSync(Collections.singleton(task.media().stableId()));
-                }
-            }
-        }, new TransferCardView.StopHandler() {
+        transferSheet = new TransferDetailsSheet(this, widgets, new TransferDetailsSheet.Actions() {
             @Override
             public void stop() {
                 stopSync();
+            }
+
+            @Override
+            public void retry(String taskId) {
+                retryTask(taskId);
+            }
+        });
+        transferCard = new TransferCardView(this, widgets, new TransferCardView.DetailsHandler() {
+            @Override
+            public void open() {
+                openTransferDetails();
             }
         });
         targetUrl = prefs().getString(KEY_TARGET_URL, "http://192.168.1.20:8765/uploads/");
@@ -184,6 +184,9 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (transferSheet != null) {
+            transferSheet.dismiss();
+        }
         unregisterSyncReceiver();
         mainHandler.removeCallbacksAndMessages(null);
         thumbnailLoader.shutdown();
@@ -384,13 +387,19 @@ public final class MainActivity extends Activity {
         if (transferCard != null) {
             transferCard.showStopping();
         }
+        if (transferSheet != null) {
+            transferSheet.showStopping();
+        }
         SyncForegroundService.stop(this);
         Toast.makeText(this, "同步已停止", Toast.LENGTH_SHORT).show();
         mainHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (!destroyed && database.findRunningRun() == null && "library".equals(screen)) {
-                    render();
+                    driveTransferProgress();
+                    if (transferSheet == null || !transferSheet.isShowing()) {
+                        render();
+                    }
                 }
             }
         }, 250L);
@@ -595,9 +604,7 @@ public final class MainActivity extends Activity {
         libraryPageView = new LibraryPageView(this, widgets, thumbnailLoader);
         View page = libraryPageView.build(host);
         libraryPageView.restorePosition(libraryFirstVisiblePosition, libraryFirstChildTop);
-        if (database.findRunningRun() != null || queue.summary().failed() > 0) {
-            driveTransferProgress();
-        }
+        driveTransferProgress();
         return page;
     }
 
@@ -609,15 +616,18 @@ public final class MainActivity extends Activity {
             libraryPageView.replaceStatuses(taskStatusByStableId());
         }
         SyncQueue.Summary summary = queue.summary();
-        if (database.findRunningRun() == null && summary.failed() == 0) {
+        TaskWindow active = queue.activeWindow(40);
+        boolean runActive = database.findRunningRun() != null;
+        recordCompletedTasks();
+        if (transferSheet != null && transferSheet.isShowing()) {
+            transferSheet.update(summary, active, runActive);
+        }
+        if (!runActive && summary.failed() == 0) {
             transferCard.hide();
             return;
         }
-        TaskWindow active = queue.activeWindow(40);
         long bytesRemaining = Math.max(0L, summary.totalBytes() - summary.syncedBytes());
-        recordCompletedTasks();
-        transferCard.showProgress(summary.done(), summary.total(), bytesRemaining, null);
-        transferCard.bindTasks(active.visibleTasks(), active.totalCount());
+        transferCard.showProgress(summary.done(), summary.total(), bytesRemaining, null, runActive, summary.failed());
         transferCard.showTodayStats(todayCompleted, todayBytes);
         for (SyncTask task : active.visibleTasks()) {
             if (task.status() == SyncStatus.FAILED) {
@@ -625,6 +635,29 @@ public final class MainActivity extends Activity {
                 break;
             }
         }
+    }
+
+    private void openTransferDetails() {
+        if (transferSheet == null) {
+            return;
+        }
+        SyncQueue.Summary summary = queue.summary();
+        TaskWindow active = queue.activeWindow(40);
+        boolean runActive = database.findRunningRun() != null;
+        transferSheet.show(summary, active, runActive);
+    }
+
+    private void retryTask(String taskId) {
+        SyncTask task = queue.findById(taskId);
+        if (task == null || task.status() != SyncStatus.FAILED) {
+            return;
+        }
+        if (database.findRunningRun() != null) {
+            Toast.makeText(this, "当前同步完成后再重试", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        queue.retry(taskId);
+        startSync(Collections.singleton(task.media().stableId()));
     }
 
     private void recordCompletedTasks() {

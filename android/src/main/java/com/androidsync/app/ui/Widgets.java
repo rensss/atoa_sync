@@ -152,6 +152,10 @@ public final class Widgets {
         return divider;
     }
 
+    public RippleDrawable clickableSurface() {
+        return ripple(Theme.BG_SURFACE, Theme.STROKE, 1, Theme.RADIUS_L, "#33FFFFFF");
+    }
+
     public Button smallButton(String text) {
         Button button = new Button(activity);
         button.setText(text);

@@ -1,4 +1,3 @@
-// android/src/main/java/com/androidsync/app/ui/TransferCardView.java
 package com.androidsync.app.ui;
 
 import android.app.Activity;
@@ -6,54 +5,35 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import com.androidsync.app.core.SyncStatus;
-import com.androidsync.app.core.SyncTask;
+import com.androidsync.app.R;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-/**
- * 传输态卡片行：渐变进度卡 + 今日统计卡 + 失败横幅 + 可展开逐文件列表。
- * 所有 showXxx 只操作已建 View，由调用方保证 UI 线程调用。
- */
+/** Compact, tappable transfer summary on the media library page. */
 public final class TransferCardView {
-    public interface RetryHandler {
-        void retry(String taskId);
-    }
-
-    public interface StopHandler {
-        void stop();
+    public interface DetailsHandler {
+        void open();
     }
 
     private final Activity activity;
     private final Widgets widgets;
-    private final RetryHandler retryHandler;
-    private final StopHandler stopHandler;
+    private final DetailsHandler detailsHandler;
 
     private LinearLayout root;
-    private TextView failureBanner;
     private LinearLayout progressCard;
+    private TextView failureBanner;
     private TextView progressText;
     private ProgressBar progressBar;
     private TextView statsText;
-    private LinearLayout expandList;
-    private Button stopButton;
-    private boolean expanded;
-    private List<SyncTask> boundTasks = Collections.emptyList();
-    private int boundTaskCount;
     private int failureGeneration;
 
-    public TransferCardView(Activity activity, Widgets widgets, RetryHandler retryHandler, StopHandler stopHandler) {
+    public TransferCardView(Activity activity, Widgets widgets, DetailsHandler detailsHandler) {
         this.activity = activity;
         this.widgets = widgets;
-        this.retryHandler = retryHandler;
-        this.stopHandler = stopHandler;
+        this.detailsHandler = detailsHandler;
     }
 
     public View build() {
@@ -65,93 +45,79 @@ public final class TransferCardView {
         root.setLayoutParams(rootParams);
 
         failureBanner = widgets.label("", 13, Theme.STATUS_FAILED);
-        failureBanner.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S), widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S));
-        GradientDrawable failBg = new GradientDrawable();
-        failBg.setColor(widgets.color("#33FF5F57"));
-        failBg.setCornerRadius(widgets.dp(Theme.RADIUS_S));
-        failureBanner.setBackground(failBg);
+        failureBanner.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S),
+                widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S));
+        GradientDrawable failBackground = widgets.rounded("#333B2326", Theme.STATUS_FAILED, 1, Theme.RADIUS_S);
+        failureBanner.setBackground(failBackground);
         failureBanner.setVisibility(View.GONE);
         LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bannerParams.setMargins(0, 0, 0, widgets.dp(Theme.SPACE_S));
+        bannerParams.bottomMargin = widgets.dp(Theme.SPACE_S);
         root.addView(failureBanner, bannerParams);
-
-        LinearLayout row = new LinearLayout(activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
 
         progressCard = new LinearLayout(activity);
         progressCard.setOrientation(LinearLayout.VERTICAL);
-        progressCard.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_M));
-        GradientDrawable gradient = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[] { widgets.color(Theme.GRADIENT_START), widgets.color(Theme.GRADIENT_END) });
-        gradient.setCornerRadius(widgets.dp(Theme.RADIUS_L));
-        progressCard.setBackground(gradient);
-        LinearLayout heading = new LinearLayout(activity);
-        heading.setOrientation(LinearLayout.HORIZONTAL);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
-        progressText = widgets.label("接收中", 14, "#FFFFFF");
-        heading.addView(progressText, widgets.weightParams());
-        stopButton = widgets.smallButton("停止");
-        stopButton.setTextColor(widgets.color("#FFFFFF"));
-        stopButton.setBackground(widgets.rounded("#33404040", "#99FFFFFF", 1, 10));
-        stopButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                stopHandler.stop();
-            }
-        });
-        heading.addView(stopButton);
-        progressCard.addView(heading);
-        progressBar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(6));
-        barParams.setMargins(0, widgets.dp(Theme.SPACE_S), 0, 0);
-        progressCard.addView(progressBar, barParams);
+        progressCard.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_M),
+                widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_M));
+        progressCard.setMinimumHeight(widgets.dp(88));
+        progressCard.setBackground(widgets.clickableSurface());
+        progressCard.setClickable(true);
+        progressCard.setFocusable(true);
+        progressCard.setContentDescription("传输状态，点击查看详细任务");
         progressCard.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                expanded = !expanded;
-                if (expanded) {
-                    renderBoundTasks();
-                } else {
-                    expandList.setVisibility(View.GONE);
+                if (detailsHandler != null) {
+                    detailsHandler.open();
                 }
             }
         });
-        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        progressParams.setMargins(0, 0, widgets.dp(Theme.SPACE_S), 0);
-        row.addView(progressCard, progressParams);
 
-        LinearLayout statsCard = widgets.card();
-        statsCard.setBackground(widgets.rounded(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_L));
+        LinearLayout heading = new LinearLayout(activity);
+        heading.setOrientation(LinearLayout.HORIZONTAL);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon = new ImageView(activity);
+        icon.setImageResource(R.drawable.ic_sync);
+        icon.setImageTintList(android.content.res.ColorStateList.valueOf(widgets.color(Theme.ACCENT)));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(widgets.dp(22), widgets.dp(22));
+        iconParams.rightMargin = widgets.dp(Theme.SPACE_S);
+        heading.addView(icon, iconParams);
+        progressText = widgets.label("传输进行中", 14, Theme.TEXT_PRIMARY);
+        progressText.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        heading.addView(progressText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView actionHint = widgets.label("详情", 12, Theme.TEXT_SECONDARY);
+        heading.addView(actionHint);
+        progressCard.addView(heading);
+
+        progressBar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setProgressTintList(android.content.res.ColorStateList.valueOf(widgets.color(Theme.ACCENT)));
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, widgets.dp(4));
+        barParams.topMargin = widgets.dp(Theme.SPACE_S);
+        progressCard.addView(progressBar, barParams);
+
         statsText = widgets.label("今天已同步 0 项", 12, Theme.TEXT_SECONDARY);
-        statsCard.addView(statsText);
-        row.addView(statsCard, new LinearLayout.LayoutParams(widgets.dp(120), ViewGroup.LayoutParams.MATCH_PARENT));
-        root.addView(row);
-
-        expandList = new LinearLayout(activity);
-        expandList.setOrientation(LinearLayout.VERTICAL);
-        expandList.setVisibility(View.GONE);
-        LinearLayout.LayoutParams expandParams = new LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        expandParams.setMargins(0, widgets.dp(Theme.SPACE_S), 0, 0);
-        root.addView(expandList, expandParams);
+        statsParams.topMargin = widgets.dp(Theme.SPACE_S);
+        progressCard.addView(statsText, statsParams);
+        root.addView(progressCard);
 
         root.setVisibility(View.GONE);
         return root;
     }
 
-    public void showProgress(int done, int total, long bytesRemaining, String speedText) {
+    public void showProgress(int done, int total, long bytesRemaining, String speedText, boolean runActive, int failed) {
         root.setVisibility(View.VISIBLE);
-        stopButton.setEnabled(true);
-        String text = "接收中 " + done + "/" + total + " · 剩 " + Widgets.formatBytes(bytesRemaining);
+        String state = runActive ? "接收中" : (failed > 0 ? "有失败项" : "同步已完成");
+        String text = state + " " + done + "/" + total + " · 剩 " + Widgets.formatBytes(bytesRemaining);
         if (speedText != null) {
-            text = text + " · " + speedText;
+            text += " · " + speedText;
         }
         progressText.setText(text);
         progressBar.setMax(Math.max(1, total));
         progressBar.setProgress(done);
+        progressCard.setContentDescription(state + "，" + done + " 项已完成，共 " + total + " 项，点击查看传输详情");
     }
 
     public void showTodayStats(int count, long bytes) {
@@ -175,91 +141,20 @@ public final class TransferCardView {
 
     public void clearFailure() {
         failureGeneration++;
-        failureBanner.setVisibility(View.GONE);
-    }
-
-    public void bindTasks(List<SyncTask> active, int totalCount) {
-        boundTasks = new ArrayList<>(active);
-        boundTaskCount = totalCount;
-        if (expanded) {
-            renderBoundTasks();
+        if (failureBanner != null) {
+            failureBanner.setVisibility(View.GONE);
         }
     }
 
     public void showStopping() {
-        root.setVisibility(View.VISIBLE);
-        progressText.setText("正在停止…");
-        stopButton.setEnabled(false);
-    }
-
-    private void renderBoundTasks() {
-        expandList.removeAllViews();
-        for (final SyncTask task : boundTasks) {
-            LinearLayout item = new LinearLayout(activity);
-            item.setOrientation(LinearLayout.HORIZONTAL);
-            item.setGravity(Gravity.CENTER_VERTICAL);
-            item.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S), widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S));
-            item.setBackground(widgets.rounded(Theme.BG_RAISED, Theme.STROKE, 1, Theme.RADIUS_S));
-            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            itemParams.setMargins(0, widgets.dp(2), 0, widgets.dp(2));
-            item.setLayoutParams(itemParams);
-
-            TextView name = widgets.label(task.media().displayName(), 13, Theme.TEXT_PRIMARY);
-            item.addView(name, widgets.weightParams());
-
-            boolean failed = task.status() == SyncStatus.FAILED;
-            TextView state = widgets.label(statusText(task.status()), 12,
-                    failed ? Theme.STATUS_FAILED : Theme.TEXT_SECONDARY);
-            item.addView(state);
-
-            if (failed) {
-                Button retry = widgets.smallButton("重试");
-                final String taskId = task.id();
-                retry.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View view) {
-                        retryHandler.retry(taskId);
-                    }
-                });
-                item.addView(retry);
-            }
-            expandList.addView(item);
-        }
-        int hiddenCount = Math.max(0, boundTaskCount - boundTasks.size());
-        if (hiddenCount > 0) {
-            TextView more = widgets.label("另有 " + hiddenCount + " 项未展开", 12, Theme.TEXT_SECONDARY);
-            more.setPadding(widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S),
-                    widgets.dp(Theme.SPACE_M), widgets.dp(Theme.SPACE_S));
-            expandList.addView(more);
-        }
-        if (!expanded || expandList.getChildCount() == 0) {
-            expandList.setVisibility(View.GONE);
-        } else {
-            expandList.setVisibility(View.VISIBLE);
+        if (progressText != null) {
+            progressText.setText("正在停止…");
         }
     }
 
     public void hide() {
-        root.setVisibility(View.GONE);
-        expanded = false;
-        boundTasks = Collections.emptyList();
-        boundTaskCount = 0;
-        expandList.setVisibility(View.GONE);
-    }
-
-    private static String statusText(SyncStatus status) {
-        switch (status) {
-            case WAITING:
-                return "等待";
-            case UPLOADING:
-                return "上传中";
-            case DONE:
-                return "完成";
-            case FAILED:
-                return "失败";
-            default:
-                return "";
+        if (root != null) {
+            root.setVisibility(View.GONE);
         }
     }
 }

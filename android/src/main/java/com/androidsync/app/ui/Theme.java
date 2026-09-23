@@ -24,10 +24,8 @@ public final class Theme {
     public static final int RADIUS_S = 6;
     public static final int RADIUS_L = 10;
 
-    // Compatibility aliases until the existing callers are migrated in this batch.
+    // Compatibility alias for the existing navigation surface.
     public static final String BG_SIDEBAR = BG_SURFACE;
-    public static final String GRADIENT_START = BG_RAISED;
-    public static final String GRADIENT_END = BG_RAISED;
 
     private Theme() {
     }
