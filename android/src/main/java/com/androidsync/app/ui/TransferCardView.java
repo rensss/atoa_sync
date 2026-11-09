@@ -12,7 +12,7 @@ import android.widget.TextView;
 
 import com.androidsync.app.R;
 
-/** Compact, tappable transfer summary on the media library page. */
+/** 媒体库传输摘要；设置页深链可先启动，build 前的刷新忽略，创建后由队列快照刷新。 */
 public final class TransferCardView {
     public interface DetailsHandler {
         void open();
@@ -108,6 +108,9 @@ public final class TransferCardView {
     }
 
     public void showProgress(int done, int total, long bytesRemaining, String speedText, boolean runActive, int failed) {
+        if (root == null) {
+            return;
+        }
         root.setVisibility(View.VISIBLE);
         String state = runActive ? "接收中" : (failed > 0 ? "有失败项" : "同步已完成");
         String text = state + " " + done + "/" + total + " · 剩 " + Widgets.formatBytes(bytesRemaining);
@@ -121,10 +124,16 @@ public final class TransferCardView {
     }
 
     public void showTodayStats(int count, long bytes) {
+        if (root == null) {
+            return;
+        }
         statsText.setText("今天已同步 " + count + " 项 · " + Widgets.formatBytes(bytes));
     }
 
     public void showFailure(String message) {
+        if (root == null) {
+            return;
+        }
         root.setVisibility(View.VISIBLE);
         failureBanner.setText(message);
         failureBanner.setVisibility(View.VISIBLE);

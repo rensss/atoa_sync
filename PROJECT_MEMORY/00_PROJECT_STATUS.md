@@ -1,6 +1,20 @@
 # 项目状态
 
-最后复核：2026-09-23
+最后复核：2026-11-09
+
+## 2026-11-09 B40：二维码调起闪退修复
+
+- 修复工作树为 `feat/android-ui-refresh`，基线 `6cf7b44443135e6b283e08a8dbe53a9bbc82f4a1`；
+  `main` 与 `origin/main` 已同为 `1749eb4`。下方较早分支指针是历史快照。
+- 真机日志确认 `MainActivity.onStart → driveTransferProgress → TransferCardView.showProgress`
+  在设置页深链冷启动时访问尚未 build 的 `root`，引发 NullPointerException。
+- 传输卡的进度、统计和失败展示在 build 前直接忽略；返回媒体库后仍从队列快照刷新。
+  未更改 Service、队列、数据库、HTTP 或地址校验规则。
+- Android 全套 harness、APK 构建通过；设备 `2410DPN6CC`（API 36）已保留数据覆盖安装。
+  新增真机脚本先在原 APK 观察到冷启动崩溃，修复后冷启动、设置页前台重入、媒体库前台调起
+  三条深链路径通过，校验设置地址与进程存活。未执行物理相机扫码或同步压力验收。
+- 本批修复随 `feat/android-ui-refresh` 分支交付；提交与远端状态以 Git 为准，
+  详情见 `batches/2026-11-09-B40-qr-launch-crash.md`。
 
 ## 基线
 
